@@ -3,6 +3,28 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A22 (2026-07-07, W4-agent): echoWindowMs has no field in the web UI Settings page,
+  so TROUBLESHOOTING's echo fix ships a single copy-paste PowerShell line
+  (Invoke-RestMethod PUT to /api/settings) with open-PowerShell hand-holding — the
+  brief assumed a UI field ("raise echoWindowMs in settings") that doesn't exist;
+  adding one to webui is a future nicety, not a doc's job.
+- A21 (2026-07-07, W4-agent): BUILD-GUIDE adds an optional tidy-up — jumper the
+  74AHCT125's unused inputs/enables (pins 4, 5, 9, 10, 12, 13) to GND — floating
+  CMOS inputs are bad practice; purely additive, does not touch the frozen rows.
+- A20 (2026-07-07, W4-agent): USB-driver docs cover a CH340 fallback alongside
+  CP2102 (search "CH341SER driver") — ELEGOO/clone boards vary in USB chip, and a
+  wrong-driver dead end would strand Christian with no AI present.
+- A19 (2026-07-07, W4-agent): BRINGUP runs the strip test pattern AFTER the
+  PSU+strip hookup (brief's step list had it before) — a walking white dot is
+  invisible on an unpowered, unconnected strip; the pre-hookup steps still prove
+  flash/AP/UI on the bare board.
+- A18 (2026-07-07, W4-agent): docs mandate "never USB and PSU connected at the same
+  time" — clone devkits don't reliably have the backfeed diode; costs live serial
+  while PSU-powered, so IP discovery is documented via router device list or a
+  temporary USB-only session (strip unpowered, WiFi still boots).
+- A17 (2026-07-07, W4-agent): the ~0.77m of spare strip beyond C8 stays DARK, never
+  cut — BOM allows "trim or leave dark"; leaving it dark is decision-free,
+  reversible, and needs no tools on assembly day.
 - A16 (2026-07-07, 8): esp32dev uses huge_app.csv partitions (3MB app + ~0.9MB LittleFS,
   no OTA — flashing is over USB anyway): BLE+WiFi+web server = 1.44MB, over the default
   1.3MB slot. Filesystem = littlefs. Libraries: lathoub BLE-MIDI client over NimBLE 1.x

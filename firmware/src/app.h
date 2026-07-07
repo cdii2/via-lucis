@@ -82,6 +82,7 @@ private:
     uint64_t lastTickUs_ = 0;
     uint64_t lastFrameUs_ = 0;
     uint64_t prevPosUs_ = 0;
+    volatile bool frameDirty_ = false;  // set from the BLE task on key verdicts
 
     struct WrongFlash {
         uint8_t note;

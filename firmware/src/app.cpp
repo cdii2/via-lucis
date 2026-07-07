@@ -198,8 +198,10 @@ void App::onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs) {
     KeyFeedback fb = wait_->onKeyDown(note, nowUs);
     if (fb.verdict == KeyVerdict::Wrong)
         wrongFlashes_.push_back({note, nowUs + kWrongFlashUs});
-    // Cleared/complete: tick() renders the new state on the next frame —
-    // frames run at ~60fps so the light answers within ~17ms of the match.
+    // Latency path (iron rule): don't wait for the next 60fps frame slot —
+    // flag the frame dirty so the very next tick() renders the verdict.
+    if (fb.verdict == KeyVerdict::Wrong || fb.verdict == KeyVerdict::Cleared)
+        frameDirty_ = true;
 }
 
 void App::tick(uint64_t nowUs) {
@@ -254,7 +256,8 @@ void App::tick(uint64_t nowUs) {
         }
     }
 
-    if (nowUs - lastFrameUs_ >= kFramePeriodUs) {
+    if (frameDirty_ || nowUs - lastFrameUs_ >= kFramePeriodUs) {
+        frameDirty_ = false;
         lastFrameUs_ = nowUs;
         renderFrame(nowUs);
     }

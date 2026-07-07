@@ -52,15 +52,19 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
       (colors, ramp cap/lead, calibration), gzip-embedded in firmware
 
 ### W4 — docs for a human alone (no AI on assembly day)
-- [ ] BUILD-GUIDE.md — wiring diagram (PSU→both strip ends + ESP32 VIN, shifter hookup,
+- [x] BUILD-GUIDE.md — wiring diagram (PSU→both strip ends + ESP32 VIN, shifter hookup,
       common ground), channel mounting on FP-30X, PlatformIO install + flash steps,
       every command copy-pasteable
-- [ ] BRINGUP.md — ordered checklist with expected output at each step (strip test
+- [x] BRINGUP.md — ordered checklist with expected output at each step (strip test
       pattern → WiFi → web UI → BLE pairing → key test → first song)
-- [ ] TROUBLESHOOTING.md — brownouts/dim-red LEDs, flicker (shifter/ground), BLE
+- [x] TROUBLESHOOTING.md — brownouts/dim-red LEDs, flicker (shifter/ground), BLE
       pairing failures (FP-30X Bluetooth MIDI on/off), echo symptoms, wrong key
       alignment (calibration), CP2102 driver on Windows
-- [ ] SIMULATOR.md — how to run/extend native tests
+- [x] SIMULATOR.md — how to run/extend native tests
+
+**Pins/wiring now FROZEN** (BUILD-GUIDE.md exists): GPIO16 → 74AHCT125 1A(2),
+1Y(3) → DIN, 1OE(1) → GND, VCC(14)=5V, all grounds common, PSU at both strip ends
++ ESP32 VIN.
 
 ### W5 — songs
 - [ ] `songs/pd/` starter pack arranged + committed (Ode to Joy, Amazing Grace, Minuet
@@ -70,8 +74,15 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 - [ ] MuseScore-only items → listed for Christian with exact URLs
 
 ### W6 — polish (only after W1–W5)
-- [ ] Wait-mode latency audit (BLE in → match → LED out)
-- [ ] Web-UI niceties; strip test/rainbow easter egg; settings export
+- [x] Wait-mode latency audit (BLE in → match → LED out)
+- [x] Web-UI niceties; strip test/rainbow easter egg; settings export
+
+Latency audit result: BLE-MIDI in (~15–30ms, piano's connection interval, not ours)
+→ NimBLE callback → WaitMode::onKeyDown (vector ops, no allocation, <0.1ms) → dirty
+flag → next loop() tick renders immediately (frame limiter bypassed on key verdicts)
+→ FastLED.show() 360 LEDs ≈ 11ms wire time on the RMT peripheral. Firmware-side
+budget ≈ 12ms worst case; BLE dominates and is fixed by the piano. ⚠ measure feel
+on hardware (PROGRESS §Needs Hardware).
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)

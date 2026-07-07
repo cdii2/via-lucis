@@ -99,7 +99,8 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 - `POST /api/reboot` → `200` then restarts.
 - `POST /api/test` body `{"pattern": "strip"}` — patterns `strip` (walk a
   white dot end to end), `rainbow` (the easter egg), `off`. For BRINGUP.md.
-- `GET /api/ble` → `{"connected": true, "device": "FP-30X"}`.
+- `GET /api/ble` → `{"connected": true, "device": "BLE-MIDI"}` (`device` is
+  `""` while disconnected).
 
 ## Design rules
 

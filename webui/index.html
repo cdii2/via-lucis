@@ -384,6 +384,8 @@ input[type=color] {
     <h2>Strip calibration</h2>
     <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5"></div>
     <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="1"></div>
+    <div class="row"><label for="s_echoWindowMs">Echo window (ms)</label><input type="number" id="s_echoWindowMs" data-key="echoWindowMs" step="50" min="0" max="5000"></div>
+    <div class="note-txt">Raise the echo window if notes clear themselves in wait mode while demo or accompaniment is sounding.</div>
     <div class="row"><label for="s_brightness">Brightness</label><span class="valout" id="v_brightness">160</span></div>
     <input type="range" id="s_brightness" min="1" max="255" step="1">
     <div class="btnrow" style="margin-top:12px">
@@ -400,6 +402,14 @@ input[type=color] {
     <div class="note-txt">WiFi changes apply after reboot.</div>
     <div class="btnrow" style="margin-top:12px">
       <button class="btn danger" id="btnReboot">Reboot device</button>
+    </div>
+  </div>
+
+  <div class="card set-grid">
+    <h2>Backup</h2>
+    <div class="note-txt">Save a copy of all settings (colors, ramp, calibration, WiFi) as a file you can re-import later by pasting into a settings PUT, or just keep as a record of your calibration numbers.</div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn" id="btnExportSettings">Export settings</button>
     </div>
   </div>
 
@@ -916,6 +926,7 @@ function applySettings(s, quiet) {
   }
   setIf("s_offsetMm", s.offsetMm);
   setIf("s_ledsPerMeter", s.ledsPerMeter);
+  setIf("s_echoWindowMs", s.echoWindowMs);
   if (!quiet || ae !== $("s_brightness")) {
     $("s_brightness").value = s.brightness;
     $("v_brightness").textContent = s.brightness;
@@ -961,6 +972,23 @@ document.querySelectorAll("[data-pattern]").forEach(function (b) {
       .then(function () { toast("Pattern: " + b.dataset.pattern); })
       .catch(function (e) { toast(e.message, true); });
   });
+});
+
+// settings export (W6): download the live settings JSON as a file
+$("btnExportSettings").addEventListener("click", function () {
+  api("GET", "/api/settings")
+    .then(function (s) {
+      var blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "vialucis-settings.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      toast("Settings exported");
+    })
+    .catch(function () { toast("Export failed"); });
 });
 
 // reboot
