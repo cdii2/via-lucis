@@ -1,0 +1,8 @@
+{
+  "name": "core",
+  "version": "0.1.0",
+  "description": "Via Lucis core logic - pure C++, no Arduino headers, native-testable",
+  "build": {
+    "srcDir": "src"
+  }
+}

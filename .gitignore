@@ -15,3 +15,6 @@ Thumbs.db
 
 # Local scratch
 *.local.*
+
+# Downloaded MIDIs (copyright-unclear) — NEVER commit; see PROGRESS.md
+songs/local/
