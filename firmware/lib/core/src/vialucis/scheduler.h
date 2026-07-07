@@ -65,6 +65,9 @@ public:
     // First note onset at or after `us` on a masked-in track (kNoOnset if none).
     uint64_t nextOnsetAfter(uint64_t us, uint32_t trackMask) const;
 
+    // All note-ons at exactly `us` on masked-in tracks (a chord, for wait mode).
+    std::vector<SchedEvent> notesOnAt(uint64_t us, uint32_t trackMask) const;
+
 private:
     uint64_t posUs() const { return static_cast<uint64_t>(pos_); }
     size_t indexForTime(uint64_t us) const;

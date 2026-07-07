@@ -3,6 +3,13 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A9 (2026-07-07, 5): wait-mode key verdicts — presses between chords and re-strikes of
+  already-cleared chord members are Ignored (no red flash; noodling isn't an error);
+  only a non-member press while a chord is due is Wrong. Duplicate notes across tracks
+  in one chord dedupe to a single pending key.
+- A8 (2026-07-07, 5): echo guard = one ignore credit per transmitted note-on, 250ms
+  default window (BLE round trip is tens of ms), per-note counters; window is a
+  variable to re-tune against the real FP-30X at bring-up.
 - A7 (2026-07-07, 4): scheduler emits ALL events tagged with their track; hand filtering
   happens in each consumer via TrackMask — lights and accompaniment need *different*
   filters (muted hand: no lights but piano plays it), so filtering inside the scheduler
