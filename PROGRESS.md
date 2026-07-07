@@ -32,7 +32,7 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 ### W1 — core engine (native-tested, zero hardware)
 - [x] PlatformIO scaffold (`esp32dev` + `native` envs, lib/core layout, unity tests)
 - [x] Standard MIDI File parser → internal note-event list (tempo map, tracks, CC64)
-- [ ] Key→LED mapping with calibration offsets
+- [x] Key→LED mapping with calibration offsets
 - [ ] Scheduler (tempo 1–500%, time-range loop, per-track/hand filter)
 - [ ] Wait-mode matcher (per-key chord clearing, wrong-note events, echo guard hook)
 - [ ] Lookahead ramp renderer (0→cap over lead-time, jump to 100%; ONE cap var, ONE

@@ -3,6 +3,10 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A6 (2026-07-07, 3): key geometry = rear-of-keyboard cluster model (octave 164.5mm;
+  C-E group = 5×14.1mm slots, F-B group = 7×13.43mm slots) — matches where the strip
+  physically sits better than front white-key widths; 1mm edge margin guarantees
+  adjacent keys never share an LED at 180/m.
 - A5 (2026-07-07, 2): MIDI parser scope — SMPTE division files rejected (rare for piano
   sheet MIDIs); format 2 parsed same as 0/1; overlapping same-note retrigger closes the
   prior note; spurious note-offs ignored; notes still open at End-of-Track get closed
