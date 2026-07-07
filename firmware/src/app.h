@@ -35,7 +35,9 @@ public:
     bool setTrack(size_t index, const std::string& hand, bool lights);
     bool setTestPattern(const std::string& pattern);
 
-    std::string statusJson() const { return engine_.statusJson(); }
+    std::string statusJson(const WifiStatus* wifi = nullptr) const {
+        return engine_.statusJson(wifi);
+    }
     Settings& settings() { return settings_; }
     void applySettings();  // after PUT /api/settings: re-derive configs + save
 

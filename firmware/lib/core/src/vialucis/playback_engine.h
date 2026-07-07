@@ -32,6 +32,14 @@ namespace vialucis {
 enum class Mode : uint8_t { Wait, Follow, Demo, Accompaniment };
 enum class PlayState : uint8_t { Idle, Playing, Finished };
 
+// The two wifi facts /api/status reports (docs/API.md). The device layer
+// fills this in; the engine authors the status document once — no
+// serialize→parse→graft→reserialize splice (R4).
+struct WifiStatus {
+    std::string mode;  // "sta" | "ap"
+    std::string ip;
+};
+
 class PlaybackEngine {
 public:
     PlaybackEngine();
@@ -71,7 +79,10 @@ public:
     bool frameDue(uint64_t nowUs);
     const std::vector<Rgb>& renderFrame(uint64_t nowUs);
 
-    std::string statusJson() const;
+    // Status per docs/API.md. With `wifi`, the wifi object is appended as
+    // the final key (GET /api/status); without it, the object is omitted
+    // (every other route's status reply).
+    std::string statusJson(const WifiStatus* wifi = nullptr) const;
 
     PlayState state() const { return state_; }
     uint64_t positionUs() const { return sched_ ? sched_->positionUs() : 0; }

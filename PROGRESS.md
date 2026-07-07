@@ -104,8 +104,9 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
       (A27: allOff → dirty-flag render; 17 characterization tests; 104 native)
 - [x] R3 — one "sounding notes" concept instead of 3 find+erase loops (decided inside
       R2's shape) (A28: SoundingSet<Entry>, per-consumer identity predicates; 108 native)
-- [ ] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
-      contract test vs docs/API.md shape
+- [x] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
+      contract test vs docs/API.md shape (wifi = last key on the wire, byte-compatible;
+      other routes still omit wifi; 111 native)
 - [ ] R5 — out-param variants for Scheduler advance/seek/notesOnAt/onsetsBetween +
       NoteEmitter consume/allOff; reserved buffers → zero steady-state alloc
 - [ ] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);

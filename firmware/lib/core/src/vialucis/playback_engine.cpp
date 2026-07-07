@@ -281,7 +281,7 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
     return renderer_.frame();
 }
 
-std::string PlaybackEngine::statusJson() const {
+std::string PlaybackEngine::statusJson(const WifiStatus* wifi) const {
     JsonDocument doc;
     doc["version"] = kVersion;
     doc["song"] = songName_;
@@ -323,6 +323,12 @@ std::string PlaybackEngine::statusJson() const {
     JsonArray pending = doc["pendingNotes"].to<JsonArray>();
     if (wait_ && (mode_ == Mode::Wait || mode_ == Mode::Accompaniment))
         for (uint8_t n : wait_->pendingNotes()) pending.add(n);
+
+    if (wifi) {
+        JsonObject w = doc["wifi"].to<JsonObject>();
+        w["mode"] = wifi->mode;
+        w["ip"] = wifi->ip;
+    }
 
     std::string out;
     serializeJson(doc, out);

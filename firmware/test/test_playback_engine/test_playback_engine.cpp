@@ -5,6 +5,8 @@
 
 #include <unity.h>
 
+#include <ArduinoJson.h>
+
 #include <string>
 #include <vector>
 
@@ -371,6 +373,65 @@ void test_loop_wrap_clears_sounding_lights_and_resyncs() {
     assertRgb(kRight, ledAt(frame, 60));
 }
 
+// --- R4: /api/status contract vs docs/API.md ---------------------------
+
+void test_status_json_matches_api_contract_shape() {
+    PlaybackEngine e;
+    setupEngine(e, twoTrackSong(), "wait");
+    WifiStatus wifi{"sta", "192.168.1.50"};
+    std::string body = e.statusJson(&wifi);
+
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, body) == DeserializationError::Ok);
+    // Every key documented in docs/API.md GET /api/status, correct types:
+    TEST_ASSERT_TRUE(doc["version"].is<const char*>());
+    TEST_ASSERT_TRUE(doc["song"].is<const char*>());
+    TEST_ASSERT_TRUE(doc["state"].is<const char*>());
+    TEST_ASSERT_TRUE(doc["mode"].is<const char*>());
+    TEST_ASSERT_TRUE(doc["positionMs"].is<uint32_t>());
+    TEST_ASSERT_TRUE(doc["durationMs"].is<uint32_t>());
+    TEST_ASSERT_TRUE(doc["tempoPercent"].is<float>());
+    TEST_ASSERT_TRUE(doc["loop"]["enabled"].is<bool>());
+    TEST_ASSERT_TRUE(doc["loop"]["startMs"].is<uint32_t>());
+    TEST_ASSERT_TRUE(doc["loop"]["endMs"].is<uint32_t>());
+    TEST_ASSERT_TRUE(doc["tracks"].is<JsonArrayConst>());
+    JsonObjectConst t0 = doc["tracks"][0];
+    TEST_ASSERT_TRUE(t0["index"].is<uint32_t>());
+    TEST_ASSERT_TRUE(t0["name"].is<const char*>());
+    TEST_ASSERT_TRUE(t0["hand"].is<const char*>());
+    TEST_ASSERT_TRUE(t0["lights"].is<bool>());
+    TEST_ASSERT_TRUE(doc["pendingNotes"].is<JsonArrayConst>());
+    TEST_ASSERT_EQUAL_STRING("sta", doc["wifi"]["mode"]);
+    TEST_ASSERT_EQUAL_STRING("192.168.1.50", doc["wifi"]["ip"]);
+    TEST_ASSERT_EQUAL_STRING("test.mid", doc["song"]);
+    TEST_ASSERT_EQUAL_STRING("wait", doc["mode"]);
+    TEST_ASSERT_EQUAL_STRING("idle", doc["state"]);
+}
+
+void test_status_json_without_wifi_omits_the_wifi_object() {
+    // Non-status routes return statusJson with NO wifi object — exactly the
+    // pre-R4 behavior (only GET /api/status ever grafted wifi on).
+    PlaybackEngine e;
+    setupEngine(e, twoTrackSong());
+    std::string body = e.statusJson();
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, body) == DeserializationError::Ok);
+    TEST_ASSERT_FALSE(doc["wifi"].is<JsonObjectConst>());
+}
+
+void test_status_json_wifi_object_is_the_last_key() {
+    // The old splice parsed the full doc and appended wifi — so wifi came
+    // last on the wire. Byte-compatibility keeps it there.
+    PlaybackEngine e;
+    setupEngine(e, twoTrackSong());
+    WifiStatus wifi{"ap", "192.168.4.1"};
+    std::string body = e.statusJson(&wifi);
+    std::string tail = "\"wifi\":{\"mode\":\"ap\",\"ip\":\"192.168.4.1\"}}";
+    TEST_ASSERT_TRUE(body.size() > tail.size());
+    TEST_ASSERT_EQUAL_STRING(tail.c_str(),
+                             body.c_str() + (body.size() - tail.size()));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -390,5 +451,8 @@ int main(int, char**) {
     RUN_TEST(test_finished_state_after_song_end);
     RUN_TEST(test_rest_calls_without_song_return_false);
     RUN_TEST(test_loop_wrap_clears_sounding_lights_and_resyncs);
+    RUN_TEST(test_status_json_matches_api_contract_shape);
+    RUN_TEST(test_status_json_without_wifi_omits_the_wifi_object);
+    RUN_TEST(test_status_json_wifi_object_is_the_last_key);
     return UNITY_END();
 }

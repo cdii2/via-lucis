@@ -84,16 +84,8 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     // --- status ----------------------------------------------------------
     gServer.on("/api/status", HTTP_GET,
                [&app, &wifi](AsyncWebServerRequest* req) {
-                   std::string body = app.statusJson();
-                   // splice wifi info into the app's JSON
-                   JsonDocument doc;
-                   deserializeJson(doc, body);
-                   JsonObject w = doc["wifi"].to<JsonObject>();
-                   w["mode"] = wifi.isAp() ? "ap" : "sta";
-                   w["ip"] = wifi.ip();
-                   std::string out;
-                   serializeJson(doc, out);
-                   sendJson(req, 200, out);
+                   WifiStatus ws{wifi.isAp() ? "ap" : "sta", wifi.ip()};
+                   sendJson(req, 200, app.statusJson(&ws));
                });
 
     gServer.on("/api/ble", HTTP_GET, [&app](AsyncWebServerRequest* req) {
