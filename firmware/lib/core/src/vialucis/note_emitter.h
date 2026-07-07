@@ -10,6 +10,7 @@
 #include "vialucis/echo_guard.h"
 #include "vialucis/midi_io.h"  // MidiOutMsg — the transport seam's message type
 #include "vialucis/scheduler.h"
+#include "vialucis/sounding_set.h"
 
 namespace vialucis {
 
@@ -34,7 +35,7 @@ private:
 
     uint32_t mask_;
     EchoGuard* guard_ = nullptr;
-    std::vector<Sounding> sounding_;
+    SoundingSet<Sounding> sounding_;
 };
 
 }  // namespace vialucis

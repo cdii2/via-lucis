@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "vialucis/midi_parser.h"
+#include "vialucis/sounding_set.h"
 
 namespace vialucis {
 
@@ -79,7 +80,7 @@ private:
     void flushSounding(uint64_t atUs, std::vector<SchedEvent>& out);
 
     std::vector<SchedEvent> events_;  // time-sorted; offs before ons at a tie
-    std::vector<SchedEvent> sounding_;
+    SoundingSet<SchedEvent> sounding_;
     size_t idx_ = 0;
     double pos_ = 0.0;
     float tempo_ = 100.0f;

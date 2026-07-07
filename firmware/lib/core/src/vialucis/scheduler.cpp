@@ -61,26 +61,22 @@ void Scheduler::emitUpTo(uint64_t stopUs, bool includeStop,
             (includeStop && events_[idx_].timeUs == stopUs))) {
         const SchedEvent& e = events_[idx_++];
         if (e.type == SchedEventType::NoteOn) {
-            sounding_.push_back(e);
+            sounding_.add(e);
         } else if (e.type == SchedEventType::NoteOff) {
-            for (size_t i = 0; i < sounding_.size(); ++i) {
-                if (sounding_[i].note == e.note &&
-                    sounding_[i].channel == e.channel &&
-                    sounding_[i].track == e.track) {
-                    sounding_.erase(sounding_.begin() + i);
-                    break;
-                }
-            }
+            sounding_.eraseFirst([&e](const SchedEvent& s) {
+                return s.note == e.note && s.channel == e.channel &&
+                       s.track == e.track;
+            });
         }
         out.push_back(e);
     }
 }
 
 void Scheduler::flushSounding(uint64_t atUs, std::vector<SchedEvent>& out) {
-    for (const SchedEvent& s : sounding_)
+    sounding_.drain([&](const SchedEvent& s) {
         out.push_back({SchedEventType::NoteOff, atUs, s.note, 0, s.channel,
                        s.track});
-    sounding_.clear();
+    });
 }
 
 std::vector<SchedEvent> Scheduler::seek(uint64_t us) {

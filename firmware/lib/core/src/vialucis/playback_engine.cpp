@@ -212,15 +212,11 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     for (const SchedEvent& e : events) {
         if (!trackInMask(lightsMask, e.track)) continue;
         if (e.type == SchedEventType::NoteOn) {
-            soundingLights_.push_back({e.note, e.track});
+            soundingLights_.add({e.note, e.track});
         } else if (e.type == SchedEventType::NoteOff) {
-            for (size_t i = 0; i < soundingLights_.size(); ++i) {
-                if (soundingLights_[i].note == e.note &&
-                    soundingLights_[i].track == e.track) {
-                    soundingLights_.erase(soundingLights_.begin() + i);
-                    break;
-                }
-            }
+            soundingLights_.eraseFirst([&e](const SoundingLight& s) {
+                return s.note == e.note && s.track == e.track;
+            });
         }
     }
 
@@ -253,7 +249,7 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
                                   pos);
 
         // Sounding notes (follow/demo, and the un-practiced hand elsewhere).
-        for (const SoundingLight& s : soundingLights_)
+        for (const SoundingLight& s : soundingLights_.items())
             renderer_.addDue(s.note, colorForTrack(s.track));
 
         // Wait mode: the due chord at 100%.

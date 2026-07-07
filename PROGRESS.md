@@ -102,8 +102,8 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
       wrongFlashes_ bookkeeping, applyMasks routing; characterization tests first;
       App::tick calls it concrete; frameDirty_ semantics survive exactly
       (A27: allOff → dirty-flag render; 17 characterization tests; 104 native)
-- [ ] R3 — one "sounding notes" concept instead of 3 find+erase loops (decided inside
-      R2's shape)
+- [x] R3 — one "sounding notes" concept instead of 3 find+erase loops (decided inside
+      R2's shape) (A28: SoundingSet<Entry>, per-consumer identity predicates; 108 native)
 - [ ] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
       contract test vs docs/API.md shape
 - [ ] R5 — out-param variants for Scheduler advance/seek/notesOnAt/onsetsBetween +

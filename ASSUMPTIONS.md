@@ -3,6 +3,14 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A28 (2026-07-07, R3): dedupe shape = shared core SoundingSet<Entry> (add /
+  eraseFirst-by-predicate / drain / clear) used by engine lights, scheduler timeline
+  and note emitter — NOT the review's alternative of the engine reading the
+  scheduler's own sounding list. Live-reading changes observable behavior: paused-
+  then-resumed notes would resurrect their lights (engine clears its list on pause,
+  scheduler doesn't), and mid-note lights-toggles would apply retroactively. Zero-
+  behavior-change mandate wins; identities stay per-consumer (note+track vs
+  note+channel vs note+channel+track) via predicates.
 - A27 (2026-07-07, R2): PlaybackEngine's sound-stopping paths (pause/stop/seek/
   setMode/loadSong/finish) set the frame-dirty flag instead of App calling
   leds_.allOff() synchronously from the HTTP task. The strip now clears on the very

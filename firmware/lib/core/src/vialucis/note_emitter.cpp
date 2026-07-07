@@ -11,20 +11,15 @@ std::vector<MidiOutMsg> NoteEmitter::consume(
             case SchedEventType::NoteOn:
                 out.push_back({MidiOutType::NoteOn, e.channel, e.note,
                                e.velocity});
-                sounding_.push_back({e.note, e.channel});
+                sounding_.add({e.note, e.channel});
                 if (guard_) guard_->noteSent(e.note, nowUs);
                 break;
-            case SchedEventType::NoteOff: {
+            case SchedEventType::NoteOff:
                 out.push_back({MidiOutType::NoteOff, e.channel, e.note, 0});
-                for (size_t i = 0; i < sounding_.size(); ++i) {
-                    if (sounding_[i].note == e.note &&
-                        sounding_[i].channel == e.channel) {
-                        sounding_.erase(sounding_.begin() + i);
-                        break;
-                    }
-                }
+                sounding_.eraseFirst([&e](const Sounding& s) {
+                    return s.note == e.note && s.channel == e.channel;
+                });
                 break;
-            }
             case SchedEventType::Pedal:
                 out.push_back({MidiOutType::Cc, e.channel, e.note, e.velocity});
                 break;
@@ -35,9 +30,9 @@ std::vector<MidiOutMsg> NoteEmitter::consume(
 
 std::vector<MidiOutMsg> NoteEmitter::allOff() {
     std::vector<MidiOutMsg> out;
-    for (const Sounding& s : sounding_)
+    sounding_.drain([&](const Sounding& s) {
         out.push_back({MidiOutType::NoteOff, s.channel, s.note, 0});
-    sounding_.clear();
+    });
     return out;
 }
 

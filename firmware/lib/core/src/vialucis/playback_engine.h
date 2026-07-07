@@ -23,6 +23,7 @@
 #include "vialucis/note_emitter.h"
 #include "vialucis/scheduler.h"
 #include "vialucis/settings.h"
+#include "vialucis/sounding_set.h"
 #include "vialucis/track_config.h"
 #include "vialucis/wait_mode.h"
 
@@ -112,7 +113,7 @@ private:
         uint8_t note;
         uint8_t track;
     };
-    std::vector<SoundingLight> soundingLights_;
+    SoundingSet<SoundingLight> soundingLights_;
 };
 
 }  // namespace vialucis
