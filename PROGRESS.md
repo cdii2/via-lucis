@@ -30,8 +30,8 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 ## Work plan
 
 ### W1 — core engine (native-tested, zero hardware)
-- [ ] PlatformIO scaffold (`esp32dev` + `native` envs, lib/core layout, unity tests)
-- [ ] Standard MIDI File parser → internal note-event list (tempo map, tracks, CC64)
+- [x] PlatformIO scaffold (`esp32dev` + `native` envs, lib/core layout, unity tests)
+- [x] Standard MIDI File parser → internal note-event list (tempo map, tracks, CC64)
 - [ ] Key→LED mapping with calibration offsets
 - [ ] Scheduler (tempo 1–500%, time-range loop, per-track/hand filter)
 - [ ] Wait-mode matcher (per-key chord clearing, wrong-note events, echo guard hook)
@@ -87,3 +87,9 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 
 - 2026-07-06 iter 0: repo scaffolded, spec + BOM locked, committed (30136e3).
 - 2026-07-07 iter 1: songbook + this work plan written; loop prompt handed to Christian.
+- 2026-07-07 iter 2: W1 scaffold + SMF parser DONE. Toolchain installed on this PC:
+  PlatformIO via `uv tool install platformio` (pip bootstrapped into its venv via
+  ensurepip — esptool needs it), GCC via winget WinLibs (on user PATH; fresh shells may
+  need `$env:Path` refresh). Tests: one dir per module under `firmware/test/test_*`,
+  shared helpers in `firmware/test/helpers/` (non-test dir). Parser: header-only reader,
+  15 native tests green, compiles for esp32.

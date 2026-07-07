@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A5 (2026-07-07, 2): MIDI parser scope — SMPTE division files rejected (rare for piano
+  sheet MIDIs); format 2 parsed same as 0/1; overlapping same-note retrigger closes the
+  prior note; spurious note-offs ignored; notes still open at End-of-Track get closed
+  there. Keeps the trainer deterministic on imperfect files.
+- A4 (2026-07-07, 2): CC64 captured into a separate `pedal` list (not the note list) —
+  demo/accompaniment passes it through, wait-mode matching never sees it (SPEC v1).
+- A3 (2026-07-07, 2): dev toolchain = PlatformIO CLI via uv tool + WinLibs MinGW-w64 GCC
+  via winget for the native env (PlatformIO's `platform_packages` toolchain is ignored
+  by the native platform). BUILD-GUIDE will document VSCode+PlatformIO for strangers.
 - A2 (2026-07-07, 1): WiFi = stored creds with AP-mode fallback (`ViaLucis` hotspot +
   config page) — arrival-day simplicity for Christian, replicability for strangers.
 - A1 (2026-07-07, 1): LED data = GPIO16, PlatformIO esp32dev+native, core logic pure
