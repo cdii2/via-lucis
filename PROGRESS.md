@@ -120,17 +120,51 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
 - [x] /code-review over the full wave diff vs ec0293b — 8 finder angles; 9
       zero-behavior-change fixes applied (A32), gates re-run green
 
-**Post-R-wave follow-ups (Christian's call — each changes behavior or architecture):**
+**Post-R-wave follow-ups — sanctioned 2026-07-07, executed as the F-wave below:**
 - Cross-task fence: HTTP-task REST calls mutate engine state the loop task reads
   (song load rebuild = use-after-free window; settings apply vs in-flight frame;
   status vs tick). Pre-existing since v1; a small command-queue or mutex around
-  engine entry points is the fix. (A32)
+  engine entry points is the fix. (A32) → F1
 - /api/status loop honesty: loop fields aren't reset on song load, so status can
   claim an enabled loop that no longer exists (pre-existing v1 bug; fix changes
-  status output). (A32)
+  status output). (A32) → F2
 - Test-pattern pause semantics: an active pattern freezes playback without pausing
   the scheduler clock — pattern-off fast-forwards the gap in one burst
-  (pre-existing v1 behavior). (A32)
+  (pre-existing v1 behavior). (A32) → F3
+
+### F-wave — cross-task safety + status honesty (sanctioned behavior deltas)
+
+Executes the three post-R-wave follow-ups. Baseline: main @ 8cfb622, 121 native
+tests. Minimal, documented behavior deltas only; REST routes and field names stay
+byte-identical (F2's loop-value change is the ONLY sanctioned status delta). Gates
+per item: `pio test -e native` ALL PASS (grep output for FAIL/ERROR) + `pio run -e
+esp32dev` clean + native test count STRICTLY grows + no new alloc/blocking/
+indirection on BLE-in→match→LED-out + frameDirty_ semantics survive. One F-item
+per commit.
+
+Design facts established up front (verified in lib source, not assumed): BLE-MIDI
+note callbacks fire on the LOOP task — NimBLE's notify callback only does
+`xQueueSend` into the transport's RX queue; `MIDI.read()` inside `ble_.poll()`
+(App::tick) drains it and dispatches. So the engine has exactly one cross-task
+axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
+
+- [ ] F1 — cross-task fence (A33): one FreeRTOS mutex in App serializing every
+      HTTP-task entry point (loadSong/transport/setMode/setTempo/setLoop/setTrack/
+      setTestPattern/applySettings/statusJson) against the whole of App::tick.
+      Lock taken once per tick — zero new work per key event; key verdicts render
+      inside the already-held lock. Native characterization FIRST: engine coherence
+      at call boundaries (loadSong between ticks while playing; configure between
+      ticks → next frame uses new config; statusJson between ticks). Device wiring
+      compile-gated.
+- [ ] F2 — status loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/
+      loopStartMs_/loopEndMs_; native test pins loop:{enabled:false,0,0} after a
+      load that follows an enabled loop. The wave's only status VALUE change.
+- [ ] F3 — test-pattern clock (A35): activating strip/rainbow while Playing
+      auto-pauses (transport("pause") + note-offs sent); "off" does NOT auto-resume
+      — the existing play path re-baselines the clock, so the pattern-off
+      fast-forward burst becomes impossible. Native test pins pause→gap→play
+      continuity (no burst).
+- [ ] /code-review over the full wave diff vs 8cfb622 before the wave lands on main.
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
