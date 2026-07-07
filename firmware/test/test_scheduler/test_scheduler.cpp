@@ -186,6 +186,21 @@ static void test_next_onset_query() {
     TEST_ASSERT_EQUAL_UINT64(kNoOnset, s.nextOnsetAfter(1000001, kTrackMaskAll));
 }
 
+static void test_onsets_between_window() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    // Window covering E4 (500000) and the G4+B4 chord (1000000).
+    auto evs = s.onsetsBetween(400000, 1000000, kTrackMaskAll);
+    TEST_ASSERT_EQUAL_size_t(3, evs.size());
+    // Window ends just before the chord.
+    evs = s.onsetsBetween(400000, 999999, kTrackMaskAll);
+    TEST_ASSERT_EQUAL_size_t(1, evs.size());
+    TEST_ASSERT_EQUAL_UINT8(64, evs[0].note);
+    // Empty window.
+    evs = s.onsetsBetween(1000001, 2000000, kTrackMaskAll);
+    TEST_ASSERT_EQUAL_size_t(0, evs.size());
+}
+
 static void test_next_onset_respects_track_mask() {
     MidiSong song = twoTrackSong();
     Scheduler s(song);
@@ -205,6 +220,7 @@ int main(int, char**) {
     RUN_TEST(test_finished_after_last_event);
     RUN_TEST(test_events_carry_track_and_mask_filters);
     RUN_TEST(test_next_onset_query);
+    RUN_TEST(test_onsets_between_window);
     RUN_TEST(test_next_onset_respects_track_mask);
     return UNITY_END();
 }

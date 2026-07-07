@@ -68,6 +68,10 @@ public:
     // All note-ons at exactly `us` on masked-in tracks (a chord, for wait mode).
     std::vector<SchedEvent> notesOnAt(uint64_t us, uint32_t trackMask) const;
 
+    // Note-ons with fromUs <= onset <= toUs on masked-in tracks (ramp preview).
+    std::vector<SchedEvent> onsetsBetween(uint64_t fromUs, uint64_t toUs,
+                                          uint32_t trackMask) const;
+
 private:
     uint64_t posUs() const { return static_cast<uint64_t>(pos_); }
     size_t indexForTime(uint64_t us) const;

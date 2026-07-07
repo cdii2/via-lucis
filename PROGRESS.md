@@ -35,7 +35,7 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 - [x] Key→LED mapping with calibration offsets
 - [x] Scheduler (tempo 1–500%, time-range loop, per-track/hand filter)
 - [x] Wait-mode matcher (per-key chord clearing, wrong-note events, echo guard hook)
-- [ ] Lookahead ramp renderer (0→cap over lead-time, jump to 100%; ONE cap var, ONE
+- [x] Lookahead ramp renderer (0→cap over lead-time, jump to 100%; ONE cap var, ONE
       lead var) → LED frame buffer
 - [ ] Demo/accompaniment note emitter (same schedule → MIDI-out queue)
 
