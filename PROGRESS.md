@@ -156,7 +156,7 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
       at call boundaries (loadSong between ticks while playing; configure between
       ticks → next frame uses new config; statusJson between ticks). Device wiring
       compile-gated.
-- [ ] F2 — status loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/
+- [x] F2 — status loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/
       loopStartMs_/loopEndMs_; native test pins loop:{enabled:false,0,0} after a
       load that follows an enabled loop. The wave's only status VALUE change.
 - [ ] F3 — test-pattern clock (A35): activating strip/rainbow while Playing

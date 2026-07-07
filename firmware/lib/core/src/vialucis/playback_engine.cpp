@@ -45,6 +45,11 @@ void PlaybackEngine::rebuildAfterLoad() {
     wrongFlashes_.clear();
     state_ = PlayState::Idle;
     prevPosUs_ = 0;
+    // The fresh Scheduler has no loop; reset the status mirror fields so
+    // /api/status stops reporting the previous song's loop (F2, A34).
+    loopEnabled_ = false;
+    loopStartMs_ = 0;
+    loopEndMs_ = 0;
     applyMasks();
 }
 

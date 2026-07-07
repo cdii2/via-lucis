@@ -3,6 +3,17 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A34 (2026-07-07, F2): status loop honesty — rebuildAfterLoad() now also
+  clears loopEnabled_/loopStartMs_/loopEndMs_. Chosen over deriving the status
+  loop fields from Scheduler getters: the fresh Scheduler genuinely has no loop
+  (the mirror fields simply weren't reset on load), so adding Scheduler surface
+  for this would be new API for a one-line truth fix. This changes status
+  VALUES, not shape — after a load that follows an enabled loop, /api/status now
+  reports loop {enabled:false,startMs:0,endMs:0} instead of the previous song's
+  range. This is the F-wave's ONLY sanctioned status delta (all REST routes and
+  reply field names stay byte-identical). Native test written red-first (loaded
+  loop 1000–5000 → load new song → asserts the reset), fails on current code,
+  green with the fix. 124 → 125 native tests.
 - A33 (2026-07-07, F1): cross-task fence = ONE plain (non-recursive) FreeRTOS
   mutex owned by App (`xSemaphoreCreateMutex` in begin()), chosen over a command
   queue — HTTP handlers need synchronous results (bool + statusJson reply), so a

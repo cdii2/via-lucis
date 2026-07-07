@@ -472,6 +472,28 @@ void test_statusjson_between_ticks_is_internally_consistent() {
     TEST_ASSERT_TRUE(status.find("\"pendingNotes\":[60]") != std::string::npos);
 }
 
+// --- F2: status loop honesty --------------------------------------------
+// A loaded song's loop range belongs to that song. Loading a new song must
+// clear the status mirror fields — otherwise /api/status claims an enabled
+// loop that no longer exists (the fresh Scheduler has none). (A34)
+
+void test_load_song_clears_reported_loop() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    TEST_ASSERT_TRUE(e.setLoop(true, 1000, 5000));
+    TEST_ASSERT_TRUE(
+        e.statusJson().find(
+            "\"loop\":{\"enabled\":true,\"startMs\":1000,\"endMs\":5000}") !=
+        std::string::npos);
+    // Load a different song: the old loop is gone, status must say so.
+    gOut.clear();
+    e.loadSong(twoTrackSong(), "b.mid", gOut);
+    TEST_ASSERT_TRUE(
+        e.statusJson().find(
+            "\"loop\":{\"enabled\":false,\"startMs\":0,\"endMs\":0}") !=
+        std::string::npos);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -497,5 +519,6 @@ int main(int, char**) {
     RUN_TEST(test_loadsong_between_ticks_while_playing_is_coherent);
     RUN_TEST(test_configure_between_tick_and_frame_uses_new_config);
     RUN_TEST(test_statusjson_between_ticks_is_internally_consistent);
+    RUN_TEST(test_load_song_clears_reported_loop);
     return UNITY_END();
 }
