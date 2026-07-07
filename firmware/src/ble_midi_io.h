@@ -1,28 +1,29 @@
 #pragma once
-// BLE-MIDI client wrapper. The FP-30X is a BLE peripheral; we connect as a
-// client (lathoub Arduino-BLE-MIDI over NimBLE). All piano-specific behavior
-// stays behind this one interface (iron rule: no FP-30X hacks in the core).
+// BLE-MIDI client wrapper — the device adapter of the MidiIo seam. The
+// FP-30X is a BLE peripheral; we connect as a client (lathoub
+// Arduino-BLE-MIDI over NimBLE). All piano-specific behavior stays behind
+// this one interface (iron rule: no FP-30X hacks in the core).
+//
+// `final` so App's concrete by-value member devirtualizes every call —
+// the seam costs nothing on the latency path.
 
 #include <cstdint>
-#include <functional>
 
-#include "vialucis/note_emitter.h"
+#include "vialucis/midi_io.h"
 
 namespace vialucis {
 
-class BleMidiIo {
+class BleMidiIo final : public MidiIo {
 public:
-    using NoteHandler = std::function<void(uint8_t note, uint8_t velocity)>;
-
     // Scans for the first BLE-MIDI peripheral and keeps reconnecting.
-    void begin();
-    void poll();  // call every loop() iteration — pumps the MIDI parser
+    void begin() override;
+    void poll() override;  // call every loop() iteration — pumps the MIDI parser
 
-    void onNoteOn(NoteHandler h);   // user pressed a key (velocity > 0)
-    void onNoteOff(NoteHandler h);  // key released
+    void onNoteOn(NoteHandler h) override;   // user pressed a key (velocity > 0)
+    void onNoteOff(NoteHandler h) override;  // key released
 
-    void send(const MidiOutMsg& msg);
-    bool connected() const;
+    void send(const MidiOutMsg& msg) override;
+    bool connected() const override;
 };
 
 }  // namespace vialucis

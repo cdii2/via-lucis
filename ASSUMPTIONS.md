@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A26 (2026-07-07, R1): MidiIo seam = abstract interface + `final` concrete adapters,
+  NOT a templated App. App keeps its by-value `BleMidiIo` member; because the adapter
+  class is `final`, every call through the concrete member devirtualizes — zero new
+  indirection on the BLE-in→match→LED-out path — while the named interface + FakeMidiIo
+  (queue-then-poll, mirroring MIDI.read()) make the seam real with two adapters.
+  Templating App was rejected: App stays device-bound after R2 (the engine owns the
+  pure logic), so a compile-time seam there buys nothing and costs a header-ized App.
+  MidiOutMsg/MidiOutType moved from note_emitter.h to midi_io.h — the message type
+  belongs to the transport seam; note_emitter.h re-exports via include.
 - A25 (2026-07-07, W5-agent): ninsheetmusic.org Cloudflare-blocks automation (Turnstile
   loop → ERR_BLOCKED_BY_RESPONSE even in the headed stealth browser), so Tier 0–1
   downloads came from vgmusic.com only; NSM items are queued for Christian with direct

@@ -87,6 +87,31 @@ flag → next loop() tick renders immediately (frame limiter bypassed on key ver
 budget ≈ 12ms worst case; BLE dominates and is fixed by the piano. ⚠ measure feel
 on hardware (PROGRESS §Needs Hardware).
 
+### R-wave — refactor (post-v1, zero behavior change)
+
+Executes `architecture review 2026-07-07` (scratchpad artifact): deepen modules, move
+App's pure logic behind the tested seam. SPEC-visible behavior, Settings JSON field
+names, and API routes come out IDENTICAL. Gates per item: `pio test -e native` ALL
+PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compatible
++ no new allocs/indirection on the BLE-in→match→LED-out path. One R-item per commit.
+
+- [x] R1 — MidiIo seam: named 5-method interface (begin/poll/onNoteOn+Off/send/
+      connected, MidiOutMsg terms); NimBLE facade = adapter 1, scripted fake = adapter 2
+      (A26: interface + final adapters, zero devirtualized cost; 87 native tests)
+- [ ] R2 — PlaybackEngine (core): frame composition (wrong>due>ramp), soundingLights_/
+      wrongFlashes_ bookkeeping, applyMasks routing; characterization tests first;
+      App::tick calls it concrete; frameDirty_ semantics survive exactly
+- [ ] R3 — one "sounding notes" concept instead of 3 find+erase loops (decided inside
+      R2's shape)
+- [ ] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
+      contract test vs docs/API.md shape
+- [ ] R5 — out-param variants for Scheduler advance/seek/notesOnAt/onsetsBetween +
+      NoteEmitter consume/allOff; reserved buffers → zero steady-state alloc
+- [ ] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);
+      (void*)1 sentinel + double-free trap die; boundary math → core + tests
+- [ ] R7 (optional) — Settings field table, names byte-identical — or rejected with
+      logged reason
+
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
 - GitHub publish decision (repo has NO remote yet; never publish without him —

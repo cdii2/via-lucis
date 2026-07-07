@@ -8,18 +8,10 @@
 #include <vector>
 
 #include "vialucis/echo_guard.h"
+#include "vialucis/midi_io.h"  // MidiOutMsg — the transport seam's message type
 #include "vialucis/scheduler.h"
 
 namespace vialucis {
-
-enum class MidiOutType : uint8_t { NoteOn, NoteOff, Cc };
-
-struct MidiOutMsg {
-    MidiOutType type;
-    uint8_t channel;
-    uint8_t data1;  // note number / controller number
-    uint8_t data2;  // velocity / controller value
-};
 
 class NoteEmitter {
 public:
