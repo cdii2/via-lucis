@@ -3,6 +3,26 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A25 (2026-07-07, W5-agent): ninsheetmusic.org Cloudflare-blocks automation (Turnstile
+  loop → ERR_BLOCKED_BY_RESPONSE even in the headed stealth browser), so Tier 0–1
+  downloads came from vgmusic.com only; NSM items are queued for Christian with direct
+  /download/mid/<id> links (IDs found via web search, no downloads attempted elsewhere).
+  vgmusic ensemble files (multi-track, unnamed hands) were kept anyway — the trainer's
+  per-track hand UI makes them usable, and SONGBOOK marks them "multi" for later
+  MuseScore splitting.
+- A24 (2026-07-07, W5-agent): PD melody provenance — Vivaldi Largo and Clair de Lune
+  transcribed note-for-note from Mutopia Project LilyPond urtexts (CC/PD typesets of PD
+  works), Amazing Grace from the hymnal ABC (colinhume.com), Minuet in G from a public
+  ABC transcription incl. its bass line; generate.py writes raw SMF bytes (no Python
+  deps) so the pack is reproducible from the repo alone.
+- A23 (2026-07-07, W5-agent): PD starter-pack keys/scope — Ode to Joy in C (16 bars);
+  Amazing Grace in G 3/4 (full hymn, ties realized as long notes); Minuet in G complete
+  32 bars, no repeats (trainer's A-B loop covers repetition), bass simplified to
+  quarters+; Vivaldi Winter Largo transposed Eb→C (only accidental left is F#, bass
+  stays authentic incl. low C2/D2 — they're just keys and the strip covers them); Clair
+  de Lune = famous opening only, urtext bars 1–9 transposed Db→C for beginner ergonomics
+  (5 flats + 9/8 was the hard part; bar 9's theme-return lands on the tonic so it closes
+  cleanly), inner voices thinned to melody+LH dyads; full Db piece stays Tier 3.
 - A22 (2026-07-07, W4-agent): echoWindowMs has no field in the web UI Settings page,
   so TROUBLESHOOTING's echo fix ships a single copy-paste PowerShell line
   (Invoke-RestMethod PUT to /api/settings) with open-PowerShell hand-holding — the

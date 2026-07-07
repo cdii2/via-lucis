@@ -67,5 +67,57 @@ we know where his heart is).
 
 ## Status
 
-No files downloaded yet. Download authorization granted 2026-07-07 for
-ninsheetmusic.org + vgmusic.com → `songs/local/`. MuseScore items queue for Christian.
+Updated 2026-07-07 (W5 agent). All files validated against firmware limits
+(SMF 0/1, ticks-per-quarter division, has notes, <256KB). "Hands" legend:
+**OK** = named Left/Right tracks (auto hand assignment) · **auto-2** = two
+unnamed note tracks (firmware assigns first=Right, second=Left) · **multi** =
+ensemble file; pick the melody/bass tracks in the web UI, or MuseScore-split
+for a proper two-hand version.
+
+### songs/pd/ (committed, CC0 arrangements — built by songs/pd/generate.py)
+
+| File | Work | Tier | Hands | Valid |
+|---|---|---|---|---|
+| ode-to-joy.mid | Beethoven, Hymn to Joy (C major, 16 bars) | 0 | OK | PASS |
+| amazing-grace.mid | New Britain hymn tune (G major, 3/4) | 0 | OK | PASS |
+| minuet-in-g.mid | Petzold BWV Anh. 114 (full 32 bars) | 0 | OK | PASS |
+| vivaldi-largo.mid | Winter RV 297 mvt 2, Eb→C (18 bars, Mutopia urtext) | 0 | OK | PASS |
+| clair-de-lune.mid | Debussy, opening bars 1–9, Db→C (Mutopia urtext) | 3→starter | OK | PASS |
+
+### songs/local/ (gitignored, personal use — vgmusic.com, downloaded 2026-07-07)
+
+| File | Source (vgmusic.com) | Tier | Hands | Valid |
+|---|---|---|---|---|
+| song-of-storms.mid | …/nintendo/n64/windmill_hut2.mid | 0 | multi (6 trk) | PASS |
+| ballad-of-the-wind-fish.mid | …/nintendo/gameboy/Zgbreve.mid | 0 | auto-2 | PASS |
+| midnas-lament.mid | …/nintendo/wii/tppiano.mid | 0 | multi (5 trk, piano seq) | PASS |
+| title-theme-oot.mid | …/nintendo/n64/Ocarina_of_Time_-_Title_Theme.mid | 1 | multi (6 trk) | PASS |
+| lake-hylia.mid | …/nintendo/wii/TP_LakeHylia.mid | 1 | multi (6 trk) | PASS |
+| all-star-rest-area.mid | …/nintendo/gamecube/SSBMASIN.mid | 1 | multi (6 trk, harp+piano) | PASS |
+| ballad-of-the-goddess.mid | …/nintendo/wii/Ballad_Of_The_Goddess.mid | 1 | multi (9 trk) | PASS |
+
+Full vgmusic path prefix: `https://www.vgmusic.com/music/console/`.
+
+### Needs Christian — NinSheetMusic (site Cloudflare-blocks automation)
+
+ninsheetmusic.org hard-blocked the agent's browser (Turnstile loop, then
+ERR_BLOCKED_BY_RESPONSE), so its clean two-hand piano MIDIs need a human
+click. Direct MIDI links (one click each, save into `songs/local/`):
+
+- Midna's Lament — https://www.ninsheetmusic.org/download/mid/206
+  (replaces the vgmusic sequencer version above)
+- Mipha's Theme — https://www.ninsheetmusic.org/download/mid/3551 (Tier 0, not on vgmusic)
+- Hateno Village (Day) — https://www.ninsheetmusic.org/download/mid/3831 (Tier 1, not on vgmusic)
+- Field (Day) BotW, Selection Menu (TP) + nicer piano arrangements of Song of
+  Storms / Wind Fish / OoT Title / Lake Hylia / Ballad of the Goddess — browse
+  https://www.ninsheetmusic.org/browse/series/TheLegendofZelda (MID button per sheet)
+
+### Needs Christian — MuseScore (account downloads)
+
+- Grandma (FF Crystal Chronicles, Tier 0) — https://musescore.com/sheetmusic?text=grandma%20crystal%20chronicles
+- Sadness and Sorrow (Naruto, Tier 1) — https://musescore.com/sheetmusic?text=sadness%20and%20sorrow%20naruto
+- The First Town (SAO, Tier 1) — https://musescore.com/sheetmusic?text=the%20first%20town%20sword%20art%20online
+- Friendly Feelings (SAO, Tier 1) — https://musescore.com/sheetmusic?text=friendly%20feelings%20sword%20art%20online
+- Yui (SAO, Tier 1) — https://musescore.com/sheetmusic?text=yui%20sword%20art%20online
+
+(Anime OSTs are not on either authorized site — game-music archives only.)
