@@ -1,29 +1,21 @@
 #pragma once
-// Device-side orchestration: owns the core engine objects and the current
-// playback state; the REST layer and BLE callbacks talk only to this class.
-// Wait-mode latency path (BLE in → match → LED out) stays inside tick() and
-// onPianoNoteOn() — keep both lean (iron rule).
+// Device shim: timers, BLE bytes, LEDs and flash on one side; the natively
+// tested PlaybackEngine (lib/core) on the other. The REST layer and BLE
+// callbacks talk only to this class. Wait-mode latency path (BLE in → match
+// → LED out) stays inside tick() and onPianoNoteOn() — keep both lean (iron
+// rule); the engine is a concrete member, so nothing here adds indirection.
 
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "ble_midi_io.h"
 #include "led_output.h"
 #include "song_store.h"
-#include "vialucis/echo_guard.h"
-#include "vialucis/frame_renderer.h"
-#include "vialucis/midi_parser.h"
-#include "vialucis/note_emitter.h"
-#include "vialucis/scheduler.h"
+#include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
-#include "vialucis/track_config.h"
-#include "vialucis/wait_mode.h"
 
 namespace vialucis {
 
-enum class Mode : uint8_t { Wait, Follow, Demo, Accompaniment };
-enum class PlayState : uint8_t { Idle, Playing, Finished };
 enum class TestPattern : uint8_t { None, Strip, Rainbow };
 
 class App {
@@ -43,7 +35,7 @@ public:
     bool setTrack(size_t index, const std::string& hand, bool lights);
     bool setTestPattern(const std::string& pattern);
 
-    std::string statusJson() const;
+    std::string statusJson() const { return engine_.statusJson(); }
     Settings& settings() { return settings_; }
     void applySettings();  // after PUT /api/settings: re-derive configs + save
 
@@ -51,49 +43,18 @@ public:
     BleMidiIo& ble() { return ble_; }
 
 private:
-    void rebuildEngine();      // after song load
-    void applyMasks();         // after mode/practice/track changes
-    void stopAllSound();
-    void renderFrame(uint64_t nowUs);
-    Rgb colorForTrack(uint8_t track) const;
+    void sendAll(const std::vector<MidiOutMsg>& msgs);
 
     Settings settings_;
     SongStore store_;
     LedOutput leds_;
     BleMidiIo ble_;
-    EchoGuard guard_;
+    PlaybackEngine engine_;
 
-    MidiSong song_;
-    std::string songName_;
-    std::unique_ptr<Scheduler> sched_;
-    std::unique_ptr<WaitMode> wait_;
-    NoteEmitter emitter_{0};
-    FrameRenderer renderer_{LedMapConfig{}, RampConfig{}};
-    TrackConfig trackCfg_;
-
-    Mode mode_ = Mode::Wait;
-    Hand practice_ = Hand::Both;
-    PlayState state_ = PlayState::Idle;
     TestPattern test_ = TestPattern::None;
-
-    bool loopEnabled_ = false;
-    uint32_t loopStartMs_ = 0, loopEndMs_ = 0;
-
-    uint64_t lastTickUs_ = 0;
-    uint64_t lastFrameUs_ = 0;
-    uint64_t prevPosUs_ = 0;
-    volatile bool frameDirty_ = false;  // set from the BLE task on key verdicts
-
-    struct WrongFlash {
-        uint8_t note;
-        uint64_t untilUs;
-    };
-    std::vector<WrongFlash> wrongFlashes_;
-    struct SoundingLight {
-        uint8_t note;
-        uint8_t track;
-    };
-    std::vector<SoundingLight> soundingLights_;
+    // Loop-task tick buffer, reused every iteration (REST calls use locals —
+    // they run on the HTTP task).
+    std::vector<MidiOutMsg> tickOut_;
 };
 
 }  // namespace vialucis

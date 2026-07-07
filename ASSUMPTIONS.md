@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A27 (2026-07-07, R2): PlaybackEngine's sound-stopping paths (pause/stop/seek/
+  setMode/loadSong/finish) set the frame-dirty flag instead of App calling
+  leds_.allOff() synchronously from the HTTP task. The strip now clears on the very
+  next loop tick (sub-ms; a dirty frame bypasses the 60fps limiter and renders dark)
+  — visually identical, and it removes a pre-existing cross-task FastLED call (HTTP
+  task writing LEDs while the loop task may be mid-show). Engine REST methods take a
+  `std::vector<MidiOutMsg>& out` so note-offs are still sent synchronously on the
+  caller's task, exactly as before. Engine is non-copyable (emitter_ points at its
+  own guard_).
 - A26 (2026-07-07, R1): MidiIo seam = abstract interface + `final` concrete adapters,
   NOT a templated App. App keeps its by-value `BleMidiIo` member; because the adapter
   class is `final`, every call through the concrete member devirtualizes — zero new

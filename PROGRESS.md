@@ -98,9 +98,10 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
 - [x] R1 — MidiIo seam: named 5-method interface (begin/poll/onNoteOn+Off/send/
       connected, MidiOutMsg terms); NimBLE facade = adapter 1, scripted fake = adapter 2
       (A26: interface + final adapters, zero devirtualized cost; 87 native tests)
-- [ ] R2 — PlaybackEngine (core): frame composition (wrong>due>ramp), soundingLights_/
+- [x] R2 — PlaybackEngine (core): frame composition (wrong>due>ramp), soundingLights_/
       wrongFlashes_ bookkeeping, applyMasks routing; characterization tests first;
       App::tick calls it concrete; frameDirty_ semantics survive exactly
+      (A27: allOff → dirty-flag render; 17 characterization tests; 104 native)
 - [ ] R3 — one "sounding notes" concept instead of 3 find+erase loops (decided inside
       R2's shape)
 - [ ] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
