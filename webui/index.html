@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d0e11">
+<title>Via Lucis</title>
+<style>
+/* ============ base ============
+   Palette: piano-lacquer black, key-ivory text, candle-gold "lux" accent.
+   Blue and green are reserved for their product meaning: left hand / right hand. */
+:root {
+  --bg: #0d0e11;
+  --panel: #15171c;
+  --panel2: #1d2026;
+  --line: #2a2d35;
+  --text: #ece9e2;
+  --dim: #8f8d86;
+  --lux: #f0b44c;
+  --lux-ink: #1c1305;
+  --left: #4f8ef7;
+  --right: #37c871;
+  --red: #e5484d;
+  --radius: 14px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  min-height: 100vh;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  user-select: none;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: none; background: none; }
+:focus-visible { outline: 2px solid var(--lux); outline-offset: 2px; }
+h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; color: var(--dim); margin-bottom: 10px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation-duration: 2s !important; }
+}
+
+/* ============ header ============ */
+header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px 10px;
+  padding-top: calc(14px + env(safe-area-inset-top));
+  position: relative;
+}
+/* the strip: a thin run of light under the header, left-hand blue to right-hand green through lux */
+header::after {
+  content: ""; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px;
+  border-radius: 1px; opacity: 0.55;
+  background: linear-gradient(90deg, var(--left), var(--lux), var(--right));
+}
+header .logo {
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-style: italic; font-weight: 600; font-size: 1.25rem;
+  letter-spacing: 0.01em; margin-right: auto;
+}
+header .logo span { color: var(--lux); }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 10px;
+  font-size: 0.72rem; color: var(--dim); white-space: nowrap;
+}
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+.chip.on .dot { background: var(--right); box-shadow: 0 0 6px var(--right); }
+.chip.off .dot { background: var(--red); }
+
+/* ============ layout / cards ============ */
+main { padding: 12px 12px 0; max-width: 640px; margin: 0 auto; }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 14px; margin-bottom: 12px;
+}
+.page { display: none; }
+.page.active { display: block; }
+
+/* ============ tab bar ============ */
+nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; justify-content: space-around;
+  background: rgba(13,14,17,0.92); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+nav button {
+  flex: 1; padding: 12px 0 10px; color: var(--dim);
+  font-size: 0.72rem; display: flex; flex-direction: column; align-items: center; gap: 3px;
+}
+nav button svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+nav button.active { color: var(--lux); }
+
+/* ============ transport ============ */
+.songline { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+#songName { font-weight: 600; font-size: 1.05rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge {
+  font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 8px; border-radius: 999px; background: var(--panel2); color: var(--dim); flex: none;
+}
+.badge.playing { color: var(--right); background: rgba(55,200,113,0.12); }
+.badge.waiting { color: var(--lux); background: rgba(240,180,76,0.12); }
+.badge.finished { color: var(--left); background: rgba(79,142,247,0.12); }
+.timerow { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tbtns { display: flex; gap: 12px; justify-content: center; align-items: center; margin: 14px 0 4px; }
+.tbtn {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: var(--panel2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.08s;
+}
+.tbtn:active { transform: scale(0.92); }
+.tbtn svg { width: 26px; height: 26px; fill: var(--text); }
+.tbtn.primary {
+  background: var(--lux); border-color: var(--lux); width: 72px; height: 72px;
+  box-shadow: 0 0 24px rgba(240,180,76,0.25);
+}
+.tbtn.primary svg { width: 32px; height: 32px; fill: var(--lux-ink); }
+.tbtn:disabled { opacity: 0.35; box-shadow: none; }
+
+/* pending notes: the keys the piano is waiting for, drawn as glowing key chips */
+#pendingWrap { display: none; margin-top: 14px; text-align: center; }
+#pendingWrap.show { display: block; }
+#pendingWrap .label { font-size: 0.7rem; color: var(--lux); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 8px; }
+.note {
+  display: inline-block; margin: 3px 4px; padding: 14px 10px 8px; min-width: 46px;
+  background: #f3efe4; color: #16130c;
+  border-radius: 3px 3px 8px 8px;
+  font-weight: 700; font-size: 1.02rem; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 16px rgba(240,180,76,0.45), 0 2px 0 #c9c4b6;
+}
+
+/* ============ sliders ============ */
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 34px; background: transparent; }
+input[type=range]::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--panel2); border: 1px solid var(--line); }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 26px; height: 26px; border-radius: 50%; background: var(--text);
+  margin-top: -11px; border: none; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+input[type=range]::-moz-range-track { height: 6px; border-radius: 3px; background: var(--panel2); border: 1px solid var(--line); }
+input[type=range]::-moz-range-thumb { width: 26px; height: 26px; border-radius: 50%; background: var(--text); border: none; }
+input[type=range]:disabled { opacity: 0.35; }
+/* the seek bar IS the strip: left-hand blue to right-hand green, a dot of light for the thumb */
+input[type=range].strip::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, rgba(79,142,247,0.30), rgba(240,180,76,0.30), rgba(55,200,113,0.30));
+}
+input[type=range].strip::-webkit-slider-thumb {
+  background: var(--lux); box-shadow: 0 0 12px rgba(240,180,76,0.7);
+}
+input[type=range].strip::-moz-range-track {
+  background: linear-gradient(90deg, rgba(79,142,247,0.30), rgba(240,180,76,0.30), rgba(55,200,113,0.30));
+}
+input[type=range].strip::-moz-range-thumb { background: var(--lux); box-shadow: 0 0 12px rgba(240,180,76,0.7); }
+
+/* ============ segmented controls ============ */
+.seg { display: flex; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg button {
+  flex: 1; padding: 10px 4px; border-radius: 8px; color: var(--dim);
+  font-size: 0.82rem; font-weight: 600; text-align: center;
+}
+.seg button.active { background: var(--lux); color: var(--lux-ink); }
+.seg.small button { padding: 8px 4px; font-size: 0.78rem; }
+/* hand buttons wear their hand's color when active — same code as the lights */
+#practiceSeg button[data-hand=left].active { background: var(--left); color: #fff; }
+#practiceSeg button[data-hand=right].active { background: var(--right); color: #06230f; }
+.subrow { margin-top: 10px; }
+.subrow .lbl { font-size: 0.72rem; color: var(--dim); margin-bottom: 6px; }
+
+/* ============ rows / inputs ============ */
+.row { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.row + .row { border-top: 1px solid var(--line); }
+.row .grow { flex: 1; min-width: 0; }
+.row label.name { flex: 1; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+select, input[type=text], input[type=password], input[type=number] {
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 9px 10px; color: var(--text); font-size: 0.9rem; min-height: 40px;
+}
+input[type=number] { width: 90px; text-align: right; }
+input[type=text], input[type=password] { width: 100%; user-select: text; }
+input[type=color] {
+  width: 46px; height: 40px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--panel2); padding: 3px; cursor: pointer;
+}
+
+/* toggle switch */
+.tog { position: relative; width: 50px; height: 30px; flex: none; }
+.tog input { opacity: 0; width: 100%; height: 100%; position: absolute; margin: 0; cursor: pointer; }
+.tog .tr { position: absolute; inset: 0; background: var(--panel2); border: 1px solid var(--line); border-radius: 999px; transition: background 0.15s; pointer-events: none; }
+.tog .tr::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px;
+  border-radius: 50%; background: var(--dim); transition: transform 0.15s, background 0.15s;
+}
+.tog input:checked + .tr { background: rgba(240,180,76,0.30); border-color: var(--lux); }
+.tog input:checked + .tr::after { transform: translateX(20px); background: var(--lux); }
+
+/* buttons */
+.btn {
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 14px; font-size: 0.85rem; font-weight: 600; min-height: 44px;
+}
+.btn:active { transform: scale(0.97); }
+.btn.accent { background: var(--lux); border-color: var(--lux); color: var(--lux-ink); }
+.btn.danger { color: var(--red); border-color: rgba(229,72,77,0.4); }
+.btn.small { min-height: 36px; padding: 6px 10px; font-size: 0.75rem; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+.btnrow .btn { flex: 1; }
+
+/* ============ tempo ============ */
+.tempohead { display: flex; align-items: baseline; justify-content: space-between; }
+#tempoVal { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ============ loop ============ */
+.loopgrid { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 10px; align-items: center; margin-top: 10px; }
+.loopgrid .lbl { font-size: 0.78rem; color: var(--dim); }
+.loopgrid input[type=text] { width: 100%; text-align: center; font-variant-numeric: tabular-nums; }
+
+/* ============ songs ============ */
+.songitem { display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.songitem + .songitem { border-top: 1px solid var(--line); }
+.songitem .meta { flex: 1; min-width: 0; }
+.songitem .nm { font-size: 0.92rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.songitem .sz { font-size: 0.7rem; color: var(--dim); }
+.songitem.current .nm { color: var(--lux); }
+.empty { color: var(--dim); font-size: 0.85rem; text-align: center; padding: 18px 0; }
+
+/* ============ settings ============ */
+.set-grid label { flex: 1; font-size: 0.88rem; }
+.set-grid .row { padding: 4px 0; }
+.valout { font-size: 0.82rem; color: var(--dim); min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; flex: none; }
+.note-txt { font-size: 0.72rem; color: var(--dim); margin-top: 8px; line-height: 1.4; }
+
+/* ============ overlay / toast ============ */
+#overlay {
+  position: fixed; inset: 0; z-index: 50; display: none;
+  align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+  background: rgba(10,11,14,0.78); backdrop-filter: blur(4px);
+  color: var(--dim); font-size: 0.95rem;
+}
+#overlay.show { display: flex; }
+.spinner {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 3px solid var(--line); border-top-color: var(--lux);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#toast {
+  position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(20px); z-index: 60;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 16px; font-size: 0.85rem; max-width: 90vw;
+  opacity: 0; pointer-events: none; transition: opacity 0.2s, transform 0.2s;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#toast.err { border-color: rgba(229,72,77,0.5); color: #ff8b8e; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Via <span>Lucis</span></div>
+  <div class="chip off" id="bleChip"><span class="dot"></span><span id="bleTxt">BLE</span></div>
+  <div class="chip" id="wifiChip"><span class="dot"></span><span id="wifiTxt">WiFi</span></div>
+</header>
+
+<main>
+<!-- ================= PLAY PAGE ================= -->
+<section class="page active" id="page-play">
+
+  <div class="card">
+    <div class="songline">
+      <div id="songName" class="grow">No song loaded</div>
+      <span class="badge" id="stateBadge">idle</span>
+    </div>
+    <input type="range" id="seek" class="strip" min="0" max="1000" value="0" step="1" disabled>
+    <div class="timerow"><span id="posTxt">0:00</span><span id="durTxt">0:00</span></div>
+    <div class="tbtns">
+      <button class="tbtn" id="btnStop" title="Stop" disabled>
+        <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+      </button>
+      <button class="tbtn primary" id="btnPlay" title="Play or pause" disabled>
+        <svg id="icoPlay" viewBox="0 0 24 24"><path d="M8 5v14l12-7z"/></svg>
+        <svg id="icoPause" viewBox="0 0 24 24" style="display:none"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+      <button class="tbtn" id="btnPause" title="Pause" disabled>
+        <svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+      </button>
+    </div>
+    <div id="pendingWrap">
+      <div class="label">Play these keys</div>
+      <div id="pendingNotes"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Mode</h2>
+    <div class="seg" id="modeSeg">
+      <button data-mode="wait">Wait</button>
+      <button data-mode="follow">Follow</button>
+      <button data-mode="demo">Demo</button>
+      <button data-mode="accompaniment">Accomp</button>
+    </div>
+    <div class="subrow" id="practiceWrap">
+      <div class="lbl">Hand you play</div>
+      <div class="seg small" id="practiceSeg">
+        <button data-hand="left">Left</button>
+        <button data-hand="both">Both</button>
+        <button data-hand="right">Right</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tempohead">
+      <h2>Tempo</h2>
+      <span id="tempoVal">100%</span>
+    </div>
+    <input type="range" id="tempo" min="0" max="1000" value="741" step="1">
+    <div class="btnrow" style="margin-top:6px">
+      <button class="btn small" id="tempoReset">Reset to 100%</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="min-height:auto">
+      <h2 style="margin-bottom:0" class="grow">Loop</h2>
+      <span class="tog"><input type="checkbox" id="loopEnabled" aria-label="Loop enabled"><span class="tr"></span></span>
+    </div>
+    <div class="loopgrid">
+      <span class="lbl">Start</span>
+      <input type="text" id="loopStart" inputmode="numeric" placeholder="0:45" value="0:00">
+      <button class="btn small" id="loopSetStart">Set from here</button>
+      <span class="lbl">End</span>
+      <input type="text" id="loopEnd" inputmode="numeric" placeholder="0:50" value="0:00">
+      <button class="btn small" id="loopSetEnd">Set from here</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Tracks</h2>
+    <div id="trackList"><div class="empty">No song loaded</div></div>
+  </div>
+
+</section>
+
+<!-- ================= SONGS PAGE ================= -->
+<section class="page" id="page-songs">
+  <div class="card">
+    <h2>Upload</h2>
+    <div class="btnrow">
+      <button class="btn accent" id="btnUpload">Upload MIDI file…</button>
+    </div>
+    <input type="file" id="fileInput" accept=".mid,.midi" style="display:none">
+    <div class="note-txt">MIDI (.mid) files up to 256 KB. Split hands into separate tracks in MuseScore first if needed.</div>
+  </div>
+  <div class="card">
+    <h2>Song library</h2>
+    <div id="songList"><div class="empty">Loading…</div></div>
+  </div>
+</section>
+
+<!-- ================= SETTINGS PAGE ================= -->
+<section class="page" id="page-settings">
+
+  <div class="card set-grid">
+    <h2>Colors</h2>
+    <div class="row"><label for="s_leftColor">Left hand</label><input type="color" id="s_leftColor" data-key="leftColor"></div>
+    <div class="row"><label for="s_rightColor">Right hand</label><input type="color" id="s_rightColor" data-key="rightColor"></div>
+    <div class="row"><label for="s_wrongColor">Wrong note</label><input type="color" id="s_wrongColor" data-key="wrongColor"></div>
+  </div>
+
+  <div class="card set-grid">
+    <h2>Guidance</h2>
+    <div class="row"><label for="s_previewCap">Preview brightness cap</label><span class="valout" id="v_previewCap">45%</span></div>
+    <input type="range" id="s_previewCap" min="0" max="100" step="1">
+    <div class="row"><label for="s_leadMs">Lookahead lead time</label><span class="valout" id="v_leadMs">1000 ms</span></div>
+    <input type="range" id="s_leadMs" min="0" max="3000" step="50">
+  </div>
+
+  <div class="card set-grid">
+    <h2>Strip calibration</h2>
+    <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5"></div>
+    <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="1"></div>
+    <div class="row"><label for="s_brightness">Brightness</label><span class="valout" id="v_brightness">160</span></div>
+    <input type="range" id="s_brightness" min="1" max="255" step="1">
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn" data-pattern="strip">Strip test</button>
+      <button class="btn" data-pattern="rainbow">Rainbow</button>
+      <button class="btn" data-pattern="off">Lights off</button>
+    </div>
+  </div>
+
+  <div class="card set-grid">
+    <h2>WiFi</h2>
+    <div class="row"><label for="s_wifiSsid" style="flex:none;width:80px">SSID</label><input type="text" id="s_wifiSsid" data-key="wifiSsid" autocomplete="off"></div>
+    <div class="row"><label for="s_wifiPass" style="flex:none;width:80px">Password</label><input type="password" id="s_wifiPass" data-key="wifiPass" autocomplete="off"></div>
+    <div class="note-txt">WiFi changes apply after reboot.</div>
+    <div class="btnrow" style="margin-top:12px">
+      <button class="btn danger" id="btnReboot">Reboot device</button>
+    </div>
+  </div>
+
+  <div class="note-txt" style="text-align:center;padding-bottom:8px">
+    Via Lucis <span id="fwVersion">–</span>
+  </div>
+</section>
+</main>
+
+<nav>
+  <button data-page="play" class="active">
+    <svg viewBox="0 0 24 24"><path d="M8 5v14l12-7z"/></svg>Play
+  </button>
+  <button data-page="songs">
+    <svg viewBox="0 0 24 24"><path d="M9 18V6l10-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="16.5" cy="16" r="2.5"/></svg>Songs
+  </button>
+  <button data-page="settings">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h.09a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>Settings
+  </button>
+</nav>
+
+<div id="overlay"><div class="spinner"></div><div>Connecting…</div></div>
+<div id="toast" role="status"></div>
+
+<script>
+"use strict";
+/* Via Lucis web remote. All state lives on the ESP32 (docs/API.md);
+   this page renders /api/status and sends commands. */
+
+var $ = function (id) { return document.getElementById(id); };
+
+/* ---------- toast ---------- */
+var toastTimer = null;
+function toast(msg, isErr) {
+  var t = $("toast");
+  t.textContent = msg;
+  t.className = "show" + (isErr ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { t.className = ""; }, 2600);
+}
+
+/* ---------- fetch helpers ---------- */
+function api(method, url, body, raw) {
+  var opts = { method: method };
+  if (body !== undefined && body !== null) {
+    if (raw) { opts.body = body; }
+    else {
+      opts.headers = { "Content-Type": "application/json" };
+      opts.body = JSON.stringify(body);
+    }
+  }
+  return fetch(url, opts).then(function (r) {
+    if (r.status === 204) return null;
+    return r.text().then(function (txt) {
+      var data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* non-JSON ok */ }
+      if (!r.ok) {
+        var msg = (data && data.error) ? data.error : (method + " " + url + " failed (" + r.status + ")");
+        throw new Error(msg);
+      }
+      return data;
+    });
+  });
+}
+function send(method, url, body) {
+  return api(method, url, body).then(function (d) {
+    pollNow();
+    return d;
+  }).catch(function (e) { toast(e.message, true); throw e; });
+}
+
+/* ---------- time / note formatting ---------- */
+function fmtTime(ms) {
+  var s = Math.max(0, Math.round(ms / 1000));
+  return Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+}
+function parseTime(str) { // "m:ss" | "mm:ss" | plain seconds -> ms, or null
+  str = String(str || "").trim();
+  if (!str) return null;
+  var m = str.match(/^(\d+):([0-5]?\d)$/);
+  if (m) return (parseInt(m[1], 10) * 60 + parseInt(m[2], 10)) * 1000;
+  if (/^\d+$/.test(str)) return parseInt(str, 10) * 1000;
+  return null;
+}
+var NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+function noteName(midi) { // MIDI 60 = C4
+  return NOTE_NAMES[midi % 12] + (Math.floor(midi / 12) - 1);
+}
+
+/* ---------- tempo slider: log mapping 1..500% ---------- */
+var TEMPO_MAX_T = 1000, TEMPO_LN500 = Math.log(500);
+function tempoFromSlider(t) {
+  return Math.max(1, Math.min(500, Math.round(Math.exp((t / TEMPO_MAX_T) * TEMPO_LN500))));
+}
+function sliderFromTempo(p) {
+  return Math.round(Math.log(Math.max(1, Math.min(500, p))) / TEMPO_LN500 * TEMPO_MAX_T);
+}
+
+/* ---------- tab navigation ---------- */
+var navBtns = document.querySelectorAll("nav button");
+navBtns.forEach(function (b) {
+  b.addEventListener("click", function () {
+    navBtns.forEach(function (x) { x.classList.toggle("active", x === b); });
+    document.querySelectorAll(".page").forEach(function (p) {
+      p.classList.toggle("active", p.id === "page-" + b.dataset.page);
+    });
+    if (b.dataset.page === "songs") refreshSongs();
+    if (b.dataset.page === "settings") loadSettings();
+    window.scrollTo(0, 0);
+  });
+});
+
+/* =========================================================
+   STATUS POLLING
+   ========================================================= */
+var st = null;               // last status
+var seekDragging = false;
+var tempoDragging = false;
+var offline = true;
+var pollTimer = null;
+var blePollCounter = 0;
+var lastTracksSig = "";
+
+function setOffline(off) {
+  if (off === offline) return;
+  offline = off;
+  $("overlay").className = off ? "show" : "";
+  if (!off) { refreshSongs(); pollBle(); }
+}
+
+function poll() {
+  if (document.hidden) return;
+  api("GET", "/api/status").then(function (s) {
+    st = s;
+    setOffline(false);
+    renderStatus(s);
+    if (++blePollCounter >= 5) { blePollCounter = 0; pollBle(); }
+  }).catch(function () { offline = false; setOffline(true); });
+}
+function pollNow() { poll(); }
+document.addEventListener("visibilitychange", function () {
+  if (!document.hidden) poll();
+});
+$("overlay").className = "show";
+pollTimer = setInterval(poll, 500);
+poll();
+
+function pollBle() {
+  api("GET", "/api/ble").then(function (b) {
+    var chip = $("bleChip");
+    chip.className = "chip " + (b.connected ? "on" : "off");
+    $("bleTxt").textContent = b.connected ? (b.device || "BLE") : "No piano";
+  }).catch(function () {});
+}
+
+/* =========================================================
+   RENDER STATUS
+   ========================================================= */
+function renderStatus(s) {
+  var hasSong = !!s.song;
+
+  // song + state
+  $("songName").textContent = hasSong ? s.song : "No song loaded";
+  var badge = $("stateBadge");
+  badge.textContent = s.state;
+  badge.className = "badge " + s.state;
+  $("fwVersion").textContent = "v" + s.version;
+
+  // wifi chip
+  var wifi = s.wifi || {};
+  $("wifiChip").className = "chip on";
+  $("wifiTxt").textContent = (wifi.mode === "ap" ? "AP " : "") + (wifi.ip || "");
+
+  // transport
+  var dur = s.durationMs || 0;
+  if (!seekDragging) {
+    var sk = $("seek");
+    sk.max = Math.max(dur, 1);
+    sk.value = Math.min(s.positionMs, dur);
+    $("posTxt").textContent = fmtTime(s.positionMs);
+    $("durTxt").textContent = fmtTime(dur);
+  }
+  ["btnPlay", "btnPause", "btnStop"].forEach(function (id) { $(id).disabled = !hasSong; });
+  $("seek").disabled = !hasSong;
+  var running = (s.state === "playing" || s.state === "waiting");
+  $("icoPlay").style.display = running ? "none" : "";
+  $("icoPause").style.display = running ? "" : "none";
+
+  // pending notes (wait mode)
+  var pw = $("pendingWrap");
+  if (s.state === "waiting" && s.pendingNotes && s.pendingNotes.length) {
+    var html = "";
+    s.pendingNotes.forEach(function (n) { html += '<span class="note">' + noteName(n) + "</span>"; });
+    $("pendingNotes").innerHTML = html;
+    pw.className = "show";
+  } else {
+    pw.className = "";
+  }
+
+  // mode + practice
+  document.querySelectorAll("#modeSeg button").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.mode === s.mode);
+  });
+  var practiceRelevant = (s.mode === "wait" || s.mode === "accompaniment");
+  $("practiceWrap").style.display = practiceRelevant ? "" : "none";
+
+  // tempo
+  if (!tempoDragging) {
+    $("tempo").value = sliderFromTempo(s.tempoPercent);
+    $("tempoVal").textContent = s.tempoPercent + "%";
+  }
+
+  // loop (don't stomp fields while user edits them)
+  var lp = s.loop || {};
+  $("loopEnabled").checked = !!lp.enabled;
+  var ae = document.activeElement;
+  if (ae !== $("loopStart") && lp.startMs !== undefined) $("loopStart").value = fmtTime(lp.startMs);
+  if (ae !== $("loopEnd") && lp.endMs !== undefined) $("loopEnd").value = fmtTime(lp.endMs);
+
+  // tracks
+  renderTracks(s.tracks || []);
+}
+
+/* =========================================================
+   TRANSPORT
+   ========================================================= */
+$("btnPlay").addEventListener("click", function () {
+  var running = st && (st.state === "playing" || st.state === "waiting");
+  send("POST", "/api/transport", { action: running ? "pause" : "play" });
+});
+$("btnPause").addEventListener("click", function () {
+  send("POST", "/api/transport", { action: "pause" });
+});
+$("btnStop").addEventListener("click", function () {
+  send("POST", "/api/transport", { action: "stop" });
+});
+var seek = $("seek");
+["pointerdown", "touchstart", "mousedown"].forEach(function (ev) {
+  seek.addEventListener(ev, function () { seekDragging = true; });
+});
+seek.addEventListener("input", function () {
+  seekDragging = true;
+  $("posTxt").textContent = fmtTime(+seek.value);
+});
+seek.addEventListener("change", function () {
+  seekDragging = false;
+  send("POST", "/api/transport", { action: "seek", positionMs: Math.round(+seek.value) });
+});
+["pointerup", "touchend", "mouseup", "pointercancel"].forEach(function (ev) {
+  seek.addEventListener(ev, function () { seekDragging = false; });
+});
+
+/* =========================================================
+   MODE / PRACTICE HAND
+   ========================================================= */
+var practiceHand = "both";
+document.querySelectorAll("#practiceSeg button").forEach(function (b) {
+  b.classList.toggle("active", b.dataset.hand === practiceHand);
+});
+document.querySelectorAll("#modeSeg button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    send("POST", "/api/mode", { mode: b.dataset.mode, practice: practiceHand });
+  });
+});
+document.querySelectorAll("#practiceSeg button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    practiceHand = b.dataset.hand;
+    document.querySelectorAll("#practiceSeg button").forEach(function (x) {
+      x.classList.toggle("active", x === b);
+    });
+    var mode = st ? st.mode : "wait";
+    send("POST", "/api/mode", { mode: mode, practice: practiceHand });
+  });
+});
+
+/* =========================================================
+   TEMPO
+   ========================================================= */
+var tempo = $("tempo");
+var tempoSendTimer = null;
+["pointerdown", "touchstart", "mousedown"].forEach(function (ev) {
+  tempo.addEventListener(ev, function () { tempoDragging = true; });
+});
+tempo.addEventListener("input", function () {
+  tempoDragging = true;
+  var p = tempoFromSlider(+tempo.value);
+  $("tempoVal").textContent = p + "%";
+  clearTimeout(tempoSendTimer); // throttle while sliding
+  tempoSendTimer = setTimeout(function () {
+    api("POST", "/api/tempo", { percent: p }).catch(function () {});
+  }, 150);
+});
+tempo.addEventListener("change", function () {
+  tempoDragging = false;
+  clearTimeout(tempoSendTimer);
+  send("POST", "/api/tempo", { percent: tempoFromSlider(+tempo.value) });
+});
+["pointerup", "touchend", "mouseup", "pointercancel"].forEach(function (ev) {
+  tempo.addEventListener(ev, function () { tempoDragging = false; });
+});
+$("tempoReset").addEventListener("click", function () {
+  tempo.value = sliderFromTempo(100);
+  $("tempoVal").textContent = "100%";
+  send("POST", "/api/tempo", { percent: 100 });
+});
+
+/* =========================================================
+   LOOP
+   ========================================================= */
+function sendLoop(enabled) {
+  var startMs = parseTime($("loopStart").value);
+  var endMs = parseTime($("loopEnd").value);
+  if (startMs === null || endMs === null) {
+    toast("Loop times must be mm:ss", true);
+    return;
+  }
+  if (enabled && endMs <= startMs) {
+    toast("Loop end must be after start", true);
+    return;
+  }
+  send("POST", "/api/loop", { enabled: enabled, startMs: startMs, endMs: endMs });
+}
+$("loopEnabled").addEventListener("change", function () {
+  sendLoop($("loopEnabled").checked);
+});
+$("loopSetStart").addEventListener("click", function () {
+  if (!st) return;
+  $("loopStart").value = fmtTime(st.positionMs);
+  if ($("loopEnabled").checked) sendLoop(true);
+});
+$("loopSetEnd").addEventListener("click", function () {
+  if (!st) return;
+  $("loopEnd").value = fmtTime(st.positionMs);
+  if ($("loopEnabled").checked) sendLoop(true);
+});
+["loopStart", "loopEnd"].forEach(function (id) {
+  $(id).addEventListener("change", function () {
+    if ($("loopEnabled").checked) sendLoop(true);
+  });
+});
+
+/* =========================================================
+   TRACKS
+   ========================================================= */
+function renderTracks(tracks) {
+  var sig = JSON.stringify(tracks);
+  if (sig === lastTracksSig) return;
+  // don't rebuild while a track control is in use
+  var ae = document.activeElement;
+  if (ae && ae.closest && ae.closest("#trackList")) return;
+  lastTracksSig = sig;
+
+  var box = $("trackList");
+  box.innerHTML = "";
+  if (!tracks.length) {
+    box.innerHTML = '<div class="empty">No song loaded</div>';
+    return;
+  }
+  tracks.forEach(function (t) {
+    var row = document.createElement("div");
+    row.className = "row";
+
+    var name = document.createElement("label");
+    name.className = "name";
+    name.textContent = t.name || ("Track " + t.index);
+    row.appendChild(name);
+
+    var sel = document.createElement("select");
+    sel.title = "Hand";
+    ["left", "right", "both", "off"].forEach(function (h) {
+      var o = document.createElement("option");
+      o.value = h;
+      o.textContent = h.charAt(0).toUpperCase() + h.slice(1);
+      if (t.hand === h) o.selected = true;
+      sel.appendChild(o);
+    });
+    var tog = document.createElement("span");
+    tog.className = "tog";
+    tog.title = "Lights";
+    var chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.checked = !!t.lights;
+    chk.setAttribute("aria-label", "Lights for " + (t.name || "track " + t.index));
+    var tr = document.createElement("span");
+    tr.className = "tr";
+    function putTrack() {
+      send("PUT", "/api/tracks/" + t.index, { hand: sel.value, lights: chk.checked });
+    }
+    sel.addEventListener("change", putTrack);
+    chk.addEventListener("change", putTrack);
+    tog.appendChild(chk);
+    tog.appendChild(tr);
+    row.appendChild(sel);
+    row.appendChild(tog);
+
+    box.appendChild(row);
+  });
+}
+
+/* =========================================================
+   SONGS
+   ========================================================= */
+function refreshSongs() {
+  api("GET", "/api/songs").then(function (songs) {
+    var box = $("songList");
+    box.innerHTML = "";
+    if (!songs || !songs.length) {
+      box.innerHTML = '<div class="empty">No songs yet — upload a MIDI file above.</div>';
+      return;
+    }
+    songs.forEach(function (s) {
+      var item = document.createElement("div");
+      item.className = "songitem" + (st && st.song === s.name ? " current" : "");
+
+      var meta = document.createElement("div");
+      meta.className = "meta";
+      var nm = document.createElement("div");
+      nm.className = "nm";
+      nm.textContent = s.name;
+      var sz = document.createElement("div");
+      sz.className = "sz";
+      sz.textContent = (s.size / 1024).toFixed(1) + " KB";
+      meta.appendChild(nm);
+      meta.appendChild(sz);
+      item.appendChild(meta);
+
+      var loadBtn = document.createElement("button");
+      loadBtn.className = "btn small accent";
+      loadBtn.textContent = "Load";
+      loadBtn.addEventListener("click", function () {
+        send("POST", "/api/songs/" + encodeURIComponent(s.name) + "/load")
+          .then(function () { toast("Loaded " + s.name); refreshSongs(); });
+      });
+      item.appendChild(loadBtn);
+
+      var delBtn = document.createElement("button");
+      delBtn.className = "btn small danger";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", function () {
+        if (!confirm("Delete " + s.name + "?")) return;
+        api("DELETE", "/api/songs/" + encodeURIComponent(s.name))
+          .then(function () { toast("Deleted " + s.name); refreshSongs(); })
+          .catch(function (e) { toast(e.message, true); });
+      });
+      item.appendChild(delBtn);
+
+      box.appendChild(item);
+    });
+  }).catch(function () {});
+}
+
+$("btnUpload").addEventListener("click", function () { $("fileInput").click(); });
+$("fileInput").addEventListener("change", function () {
+  var f = $("fileInput").files[0];
+  if (!f) return;
+  var name = f.name.replace(/\.midi$/i, ".mid");
+  if (!/\.mid$/i.test(name)) { toast("Only .mid files can be uploaded", true); return; }
+  if (f.size > 256 * 1024) { toast("File too big (max 256 KB)", true); return; }
+  var btn = $("btnUpload");
+  btn.disabled = true;
+  btn.textContent = "Uploading…";
+  f.arrayBuffer().then(function (buf) {
+    return api("POST", "/api/songs?name=" + encodeURIComponent(name), buf, true);
+  }).then(function () {
+    toast("Uploaded " + name);
+    refreshSongs();
+  }).catch(function (e) {
+    toast(e.message, true);
+  }).finally(function () {
+    btn.disabled = false;
+    btn.textContent = "Upload MIDI file…";
+    $("fileInput").value = "";
+  });
+});
+
+/* =========================================================
+   SETTINGS
+   ========================================================= */
+var settingsLoaded = false;
+var pendingSettings = {};
+var settingsTimer = null;
+
+function queueSetting(key, value) {
+  if (!settingsLoaded) return;
+  pendingSettings[key] = value;
+  clearTimeout(settingsTimer);
+  settingsTimer = setTimeout(flushSettings, 400);
+}
+function flushSettings() {
+  var body = pendingSettings;
+  pendingSettings = {};
+  if (!Object.keys(body).length) return;
+  api("PUT", "/api/settings", body)
+    .then(function (s) { if (s) applySettings(s, true); })
+    .catch(function (e) { toast(e.message, true); });
+}
+
+function applySettings(s, quiet) {
+  var ae = document.activeElement;
+  function setIf(id, val) {
+    var el = $(id);
+    if (el !== ae) el.value = val;
+  }
+  setIf("s_leftColor", s.leftColor);
+  setIf("s_rightColor", s.rightColor);
+  setIf("s_wrongColor", s.wrongColor);
+  if (!quiet || ae !== $("s_previewCap")) {
+    $("s_previewCap").value = Math.round(s.previewCap * 100);
+    $("v_previewCap").textContent = Math.round(s.previewCap * 100) + "%";
+  }
+  if (!quiet || ae !== $("s_leadMs")) {
+    $("s_leadMs").value = s.leadMs;
+    $("v_leadMs").textContent = s.leadMs + " ms";
+  }
+  setIf("s_offsetMm", s.offsetMm);
+  setIf("s_ledsPerMeter", s.ledsPerMeter);
+  if (!quiet || ae !== $("s_brightness")) {
+    $("s_brightness").value = s.brightness;
+    $("v_brightness").textContent = s.brightness;
+  }
+  setIf("s_wifiSsid", s.wifiSsid);
+  setIf("s_wifiPass", s.wifiPass);
+  settingsLoaded = true;
+}
+
+function loadSettings() {
+  api("GET", "/api/settings")
+    .then(function (s) { applySettings(s, false); })
+    .catch(function (e) { toast(e.message, true); });
+}
+
+// color pickers + plain inputs (data-key)
+document.querySelectorAll("[data-key]").forEach(function (el) {
+  el.addEventListener("change", function () {
+    var v = el.value;
+    if (el.type === "color") v = v.toUpperCase();
+    else if (el.type === "number") v = parseFloat(v);
+    queueSetting(el.dataset.key, v);
+  });
+});
+// sliders with readouts
+$("s_previewCap").addEventListener("input", function () {
+  $("v_previewCap").textContent = $("s_previewCap").value + "%";
+  queueSetting("previewCap", (+$("s_previewCap").value) / 100);
+});
+$("s_leadMs").addEventListener("input", function () {
+  $("v_leadMs").textContent = $("s_leadMs").value + " ms";
+  queueSetting("leadMs", +$("s_leadMs").value);
+});
+$("s_brightness").addEventListener("input", function () {
+  $("v_brightness").textContent = $("s_brightness").value;
+  queueSetting("brightness", +$("s_brightness").value);
+});
+
+// strip test buttons
+document.querySelectorAll("[data-pattern]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    api("POST", "/api/test", { pattern: b.dataset.pattern })
+      .then(function () { toast("Pattern: " + b.dataset.pattern); })
+      .catch(function (e) { toast(e.message, true); });
+  });
+});
+
+// reboot
+$("btnReboot").addEventListener("click", function () {
+  if (!confirm("Reboot the device? WiFi changes apply on boot.")) return;
+  api("POST", "/api/reboot").catch(function () {});
+  toast("Rebooting…");
+  offline = false;
+  setOffline(true);
+});
+</script>
+</body>
+</html>

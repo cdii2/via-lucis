@@ -40,14 +40,14 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 - [x] Demo/accompaniment note emitter (same schedule → MIDI-out queue)
 
 ### W2 — device layer (compiles, hardware-verification deferred)
-- [ ] FastLED output (GPIO16, power cap, brightness setting)
-- [ ] BLE-MIDI in/out wrapper + echo guard wiring
-- [ ] LittleFS song storage + settings persistence (JSON)
-- [ ] WiFi manager (creds → AP fallback) + web server + REST API (songs, transport,
+- [x] FastLED output (GPIO16, power cap, brightness setting)
+- [x] BLE-MIDI in/out wrapper + echo guard wiring
+- [x] LittleFS song storage + settings persistence (JSON)
+- [x] WiFi manager (creds → AP fallback) + web server + REST API (songs, transport,
       modes, tempo, loop, colors, ramp, calibration)
 
 ### W3 — web UI (phone remote)
-- [ ] Single-page app: song list/upload, play/pause, mode toggles (wait/follow/demo/
+- [x] Single-page app: song list/upload, play/pause, mode toggles (wait/follow/demo/
       accompaniment), hand toggles, tempo slider 1–500%, loop range, settings page
       (colors, ramp cap/lead, calibration), gzip-embedded in firmware
 
@@ -98,3 +98,12 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
   (layered frame buffer), note emitter (mask + echo registration). 69 native tests, all
   green; esp32dev compiles at every step. Core classes: MidiSong/parseMidi, Scheduler,
   WaitMode, EchoGuard, FrameRenderer, NoteEmitter — all pure C++ in lib/core.
+- 2026-07-07 iters 7–8: **W2 + W3 COMPLETE.** Core additions: Settings (ArduinoJson,
+  native-tested), TrackConfig hand heuristics + masks; docs/API.md = REST contract.
+  Device layer (compile-gated): LedOutput (GPIO16, 8A power cap), BleMidiIo (lathoub
+  client over NimBLE, connects to first BLE-MIDI peripheral), SongStore (LittleFS),
+  App orchestrator (modes/transport/render loop, 300ms wrong-flash, ~60fps frames),
+  WebServerLayer (full API.md), WifiManager (STA→AP fallback). Web UI by subagent:
+  webui/index.html (one file, vanilla JS, 10.6KB gz) + build.py → firmware/src/
+  webui_gz.h (generated, committed). Flash 45.7% of huge_app 3MB slot; RAM 19.6%
+  static. 81 native tests. Rebuild UI: `python webui/build.py` then pio run.

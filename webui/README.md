@@ -1,8 +1,5 @@
 # webui
 
-The browser remote control the ESP32 serves over WiFi: song library + upload, transport
-(play/pause/loop range), mode toggles (wait / follow-along / demo / accompaniment,
-hands), tempo 1–500%, and settings (colors, lookahead ramp, calibration).
-
-Ships embedded in firmware flash. Future flagship feature: falling-notes view synced to
-the lights (v1.1 — see `../docs/SPEC.md`).
+The phone remote the ESP32 serves: one file, `index.html` (inline CSS + vanilla JS, no external assets).
+Rebuild the embedded firmware copy after any edit: `python webui/build.py` (regenerates `firmware/src/webui_gz.h`).
+`index.html` and `docs/API.md` must stay in sync — the API contract changes there first or not at all.
