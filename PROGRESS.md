@@ -173,8 +173,10 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
-- GitHub publish decision (repo has NO remote yet; never publish without him —
-  `songs/local/` must stay untracked)
+- ~~GitHub publish decision~~ **PUBLISHED 2026-07-07** (his call, in-session):
+  public repo `github.com/cdii2/via-lucis`, main @ b6d69d7, MIT. Pre-flight
+  verified: only CC0 `songs/pd/` tracked, `songs/local/` untracked forever, no
+  credentials in tree (WiFi creds live only on-device in LittleFS).
 - Physical assembly + all "verify on hardware" items in BRINGUP.md
 
 ## Needs Hardware (code-complete + documented only)
