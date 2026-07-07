@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A31 (2026-07-07, R7): X-macro Settings field table REJECTED — the 11 fields carry
+  heterogeneous policies (hex-color conversion, conditional/min-only clamps,
+  tolerant type-guarded reads), so the table needs ~6 policy columns and reads
+  worse than the plain code it would replace; the names are LOCKED (never renamed),
+  so rename-hazard protection has near-zero expected value; and teaching
+  webui/build.py to parse a C++ header adds a brittle cross-language step to the
+  webui_gz.h pipeline. Adopted the protective 20% instead: a native contract test
+  locks toJson()'s key set byte-exactly against docs/API.md (no strays, none
+  missing), so drift now fails a test instead of silently breaking the web UI.
 - A30 (2026-07-07, R6): the intake rewrite quietly fixes three latent REST bugs the
   old duplicated chunk handling had — (1) the upload path parked (void*)1 in
   _tempObject, which ESPAsyncWebServer's request destructor blanket-free()s →

@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <ArduinoJson.h>
+
 #include "vialucis/settings.h"
 
 using namespace vialucis;
@@ -81,6 +83,35 @@ static void test_color_hex_strings() {
     TEST_ASSERT_TRUE(s.toJson().find("#FF8000") != std::string::npos);
 }
 
+// R7 (in lieu of a field table — see ASSUMPTIONS A31): the field names ARE
+// the REST contract (docs/API.md, webui data-key attrs). This locks the key
+// set byte-exactly, so a rename breaks a native test instead of silently
+// breaking the web UI.
+static void test_to_json_emits_exactly_the_contract_field_names() {
+    const char* kContract[] = {
+        "leftColor", "rightColor", "wrongColor",  "previewCap",
+        "leadMs",    "offsetMm",   "ledsPerMeter", "brightness",
+        "echoWindowMs", "wifiSsid", "wifiPass",
+    };
+    constexpr size_t kCount = sizeof(kContract) / sizeof(kContract[0]);
+
+    Settings s;
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, s.toJson()) ==
+                     DeserializationError::Ok);
+    JsonObjectConst o = doc.as<JsonObjectConst>();
+
+    size_t emitted = 0;
+    for (JsonPairConst kv : o) {
+        bool known = false;
+        for (const char* name : kContract)
+            if (std::string(kv.key().c_str()) == name) known = true;
+        TEST_ASSERT_TRUE_MESSAGE(known, kv.key().c_str());  // no strays
+        ++emitted;
+    }
+    TEST_ASSERT_EQUAL_size_t(kCount, emitted);  // none missing either
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_defaults_match_spec);
@@ -89,5 +120,6 @@ int main(int, char**) {
     RUN_TEST(test_garbage_json_rejected);
     RUN_TEST(test_values_clamped_to_sane_ranges);
     RUN_TEST(test_color_hex_strings);
+    RUN_TEST(test_to_json_emits_exactly_the_contract_field_names);
     return UNITY_END();
 }

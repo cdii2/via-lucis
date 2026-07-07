@@ -114,8 +114,9 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
 - [x] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);
       (void*)1 sentinel + double-free trap die; boundary math → core + tests
       (A30: also fixes free((void*)1) on upload + double-reply bugs; 120 native)
-- [ ] R7 (optional) — Settings field table, names byte-identical — or rejected with
-      logged reason
+- [x] R7 (optional) — REJECTED per A31 (table less readable than the code it
+      replaces; names LOCKED anyway); adopted the guard instead: native contract
+      test locks the Settings key set byte-exactly vs API.md (121 native)
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
