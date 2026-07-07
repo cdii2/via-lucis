@@ -156,15 +156,20 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
       at call boundaries (loadSong between ticks while playing; configure between
       ticks → next frame uses new config; statusJson between ticks). Device wiring
       compile-gated.
-- [x] F2 — status loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/
-      loopStartMs_/loopEndMs_; native test pins loop:{enabled:false,0,0} after a
-      load that follows an enabled loop. The wave's only status VALUE change.
+- [x] F2 — status loop honesty (A34): final shape (post-review) = statusJson
+      derives loop fields from Scheduler getters, mirror members deleted;
+      native test pins loop:{enabled:false,0,0} after a load that follows an
+      enabled loop. The wave's only status VALUE change.
 - [x] F3 — test-pattern clock (A35): activating strip/rainbow while Playing
       auto-pauses (transport("pause") + note-offs sent); "off" does NOT auto-resume
       — the existing play path re-baselines the clock, so the pattern-off
       fast-forward burst becomes impossible. Native test pins pause→gap→play
       continuity (no burst).
-- [ ] /code-review over the full wave diff vs 8cfb622 before the wave lands on main.
+- [x] /code-review over the full wave diff vs 8cfb622 before the wave lands on
+      main — lead's 8-angle review done; fence topology verdict correct; five
+      convergent findings applied as one closing commit (narrowed critical
+      sections, derived loop status, transportLocked dedupe, configASSERT,
+      honesty edits in A33/A34/A35 + accessor boundary comments).
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
@@ -248,6 +253,21 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
   mutex, not a queue, since HTTP handlers need synchronous bool+status replies;
   onKeyDown must NOT re-lock (non-recursive mutex + it's already inside the tick
   lock). Closing /code-review over the wave diff still owed before it lands on main.
+- 2026-07-07 F-wave review: lead's 8-angle review of the wave diff CLOSED — fence
+  topology correct; five convergent findings applied as one commit: R1 narrowed
+  the two long critical sections (loadSong's flash read+parse and applySettings'
+  saveSettings now run unfenced — a tick waits on engine mutations only, never
+  flash IO, making A33's ms-scale claim actually true); R2 killed the F2
+  mirror-state bug class at the root (statusJson derives loop from three new
+  const Scheduler getters, engine mirror members deleted; clearLoop keeps the
+  last range so status stays byte-identical outside the sanctioned post-load
+  delta; F2 test unchanged, now pins the derived truth); R3 deduped the
+  transport pairing into a private lock-free transportLocked() and gave
+  setTestPattern's "off" branch an early return; R4 configASSERT on mutex
+  creation; R5 honesty edits (A33 send-path scope, accessor boundary-invariant
+  comments, A35 status-visibility note). Gates re-run green: 126 native, esp32dev
+  SUCCESS. Rejected by the lead (not done): core predicate for F3's guard,
+  fencing /api/ble or store()/settings() call sites.
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

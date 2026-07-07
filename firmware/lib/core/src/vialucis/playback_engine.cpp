@@ -45,11 +45,8 @@ void PlaybackEngine::rebuildAfterLoad() {
     wrongFlashes_.clear();
     state_ = PlayState::Idle;
     prevPosUs_ = 0;
-    // The fresh Scheduler has no loop; reset the status mirror fields so
-    // /api/status stops reporting the previous song's loop (F2, A34).
-    loopEnabled_ = false;
-    loopStartMs_ = 0;
-    loopEndMs_ = 0;
+    // Loop honesty (F2, A34) falls out by construction: statusJson derives
+    // the loop from the Scheduler, and a fresh Scheduler has no loop.
     applyMasks();
 }
 
@@ -151,15 +148,11 @@ bool PlaybackEngine::setLoop(bool enabled, uint32_t startMs, uint32_t endMs) {
     if (!sched_) return false;
     if (!enabled) {
         sched_->clearLoop();
-        loopEnabled_ = false;
         return true;
     }
     if (endMs <= startMs) return false;
     sched_->setLoop(static_cast<uint64_t>(startMs) * 1000,
                     static_cast<uint64_t>(endMs) * 1000);
-    loopEnabled_ = true;
-    loopStartMs_ = startMs;
-    loopEndMs_ = endMs;
     return true;
 }
 
@@ -297,10 +290,15 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi) const {
     doc["positionMs"] = sched_ ? sched_->positionUs() / 1000 : 0;
     doc["durationMs"] = sched_ ? sched_->durationUs() / 1000 : 0;
     doc["tempoPercent"] = sched_ ? sched_->tempoPercent() : 100.0f;
+    // Derived from the Scheduler — the one source of loop truth (A34).
+    // clearLoop keeps the last range, so setLoop(false) reports the old
+    // startMs/endMs with enabled:false, exactly like the former mirrors.
     JsonObject loop = doc["loop"].to<JsonObject>();
-    loop["enabled"] = loopEnabled_;
-    loop["startMs"] = loopStartMs_;
-    loop["endMs"] = loopEndMs_;
+    loop["enabled"] = sched_ ? sched_->loopEnabled() : false;
+    loop["startMs"] =
+        sched_ ? static_cast<uint32_t>(sched_->loopStartUs() / 1000) : 0;
+    loop["endMs"] =
+        sched_ ? static_cast<uint32_t>(sched_->loopEndUs() / 1000) : 0;
 
     JsonArray tracks = doc["tracks"].to<JsonArray>();
     for (size_t i = 0; i < trackCfg_.tracks.size(); ++i) {

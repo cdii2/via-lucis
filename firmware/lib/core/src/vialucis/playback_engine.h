@@ -112,8 +112,9 @@ private:
     Hand practice_ = Hand::Both;
     PlayState state_ = PlayState::Idle;
 
-    bool loopEnabled_ = false;
-    uint32_t loopStartMs_ = 0, loopEndMs_ = 0;
+    // Loop status is derived from the Scheduler in statusJson (F-wave
+    // review, A34): one source of truth, no mirror fields to forget to
+    // reset — a fresh Scheduler has no loop by construction.
 
     // Reused every tick/frame (R5): reserved once, steady-state zero alloc
     // on the latency path.

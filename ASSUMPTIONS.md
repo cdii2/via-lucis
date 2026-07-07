@@ -15,7 +15,10 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   the whole skipped span in one advance() on pattern-off. Bonus: pause sends
   note-offs, so demo/accompaniment notes no longer ring unstopped through a
   pattern. setTestPattern already holds the F1 fence, so the pattern activation
-  and the pause it triggers are ONE atomic unit. Native engine test (red not
+  and the pause it triggers are ONE atomic unit. Status visibility (amended,
+  F-wave review): the auto-pause manifests in /api/status as state
+  playing|waiting→idle at a frozen position — that is PART of the sanctioned F3
+  behavior delta, not passive-reporting drift. Native engine test (red not
   applicable — the engine already re-baselines; the fix is device wiring gated
   by the esp32dev build) pins the continuity contract the fix relies on:
   Playing at P → pause → 60s wall-clock gap with no ticks → play → tick re-
@@ -24,17 +27,24 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   the strip-test step is a bare-board pre-song bring-up step with no simultaneous
   playback described, so no sentence contradicts "activating a pattern pauses
   playback" — no doc edit needed. 125 → 126 native tests.
-- A34 (2026-07-07, F2): status loop honesty — rebuildAfterLoad() now also
-  clears loopEnabled_/loopStartMs_/loopEndMs_. Chosen over deriving the status
-  loop fields from Scheduler getters: the fresh Scheduler genuinely has no loop
-  (the mirror fields simply weren't reset on load), so adding Scheduler surface
-  for this would be new API for a one-line truth fix. This changes status
-  VALUES, not shape — after a load that follows an enabled loop, /api/status now
-  reports loop {enabled:false,startMs:0,endMs:0} instead of the previous song's
-  range. This is the F-wave's ONLY sanctioned status delta (all REST routes and
-  reply field names stay byte-identical). Native test written red-first (loaded
-  loop 1000–5000 → load new song → asserts the reset), fails on current code,
-  green with the fix. 124 → 125 native tests.
+- A34 (2026-07-07, F2; SUPERSEDED SHAPE, F-wave review): status loop honesty —
+  final shape = statusJson DERIVES the loop fields from three tiny const
+  Scheduler getters (loopEnabled/loopStartUs/loopEndUs); the engine's
+  loopEnabled_/loopStartMs_/loopEndMs_ mirror members are DELETED. One source
+  of truth: the mirror WAS the bug class (fields someone must remember to
+  reset), so honesty after a load now falls out by construction — a fresh
+  Scheduler has no loop. This supersedes F2's first cut (rebuildAfterLoad
+  clearing the mirrors), which fixed the instance but kept the class.
+  Byte-compat: clearLoop() only flips loopOn_ and keeps the last
+  loopStart_/loopEnd_, exactly like the old mirrors kept their last values on
+  setLoop(false) — so status values are identical in every case except the
+  already-sanctioned post-load one. This changes status VALUES, not shape —
+  after a load that follows an enabled loop, /api/status now reports loop
+  {enabled:false,startMs:0,endMs:0} instead of the previous song's range: the
+  F-wave's ONLY sanctioned status delta (all REST routes and reply field names
+  stay byte-identical). Native test written red-first (loaded loop 1000–5000 →
+  load new song → asserts the reset) and kept UNCHANGED across the supersede —
+  it now pins the derived truth. 124 → 125 native tests.
 - A33 (2026-07-07, F1): cross-task fence = ONE plain (non-recursive) FreeRTOS
   mutex owned by App (`xSemaphoreCreateMutex` in begin()), chosen over a command
   queue — HTTP handlers need synchronous results (bool + statusJson reply), so a
@@ -48,13 +58,23 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   applySettings/statusJson); statusJson dropped `const` (web_server holds App&
   non-const — cleaner than a mutable handle). Non-recursive is correct: no locked
   method calls another (onPianoNoteOn deliberately does NOT lock — it runs on the
-  loop task inside ble_.poll(), already under tick's lock). ZERO new work on the
-  latency path: the lock is taken once per tick, not per key event; key verdicts
-  and their frame render happen inside the already-held lock. DOCUMENTED delta: a
-  tick can wait behind at most one in-flight HTTP engine command (ms-scale, only
-  when the web remote is used) — that IS the mandated serialization. Bonus: all
-  ble_.send paths (loop-task tick sends + HTTP-task sendAll) now serialize through
-  the same lock — previously they hit the MIDI lib concurrently. RAII FenceGuard
+  loop task inside ble_.poll(), already under tick's lock; transportLocked is
+  lock-free by contract, called only under a caller's guard). ZERO new work on
+  the latency path: the lock is taken once per tick, not per key event; key
+  verdicts and their frame render happen inside the already-held lock. NARROWED
+  (F-wave review R1): critical sections hold ONLY engine mutations + MIDI sends —
+  loadSong's flash read + parseMidi run UNFENCED before the lock (locals only;
+  store_ is HTTP-task-only), and applySettings releases the fence before
+  store_.saveSettings (settings_ is HTTP-task-owned; the loop task never reads
+  it — the engine holds copies from configure). DOCUMENTED delta, now actually
+  true: a tick can wait behind at most one in-flight engine command (ms-scale,
+  never flash IO, only when the web remote is used) — that IS the mandated
+  serialization. Send-path scope (amended, review R5): loop-task tick sends and
+  REST-path engine sends serialize through the lock — previously they hit the
+  MIDI lib concurrently; GET /api/ble's connected() READ stays outside the fence
+  (a lone volatile bool, benign — fencing it buys nothing). begin() asserts the
+  mutex was created (configASSERT — heap exhaustion fails loud at boot, not as a
+  mystery xSemaphoreTake(NULL) later). RAII FenceGuard
   struct in app.cpp — no naked take/give. FreeRTOS headers live in firmware/src
   only (app.h/app.cpp); core stays Arduino-free. Native characterization (3 tests)
   pins PlaybackEngine coherence at the exact sequential interleavings the fence

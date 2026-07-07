@@ -20,6 +20,9 @@ struct FenceGuard {
 
 void App::begin() {
     lock_ = xSemaphoreCreateMutex();  // the cross-task fence (F1, A33)
+    // Heap exhaustion at boot must fail loud here, not as a mystery
+    // xSemaphoreTake(NULL) abort later.
+    configASSERT(lock_ != nullptr);
     tickOut_.reserve(64);  // reused every tick — steady-state zero alloc
     store_.begin();
     store_.loadSettings(settings_);  // keeps defaults if absent
@@ -36,23 +39,31 @@ void App::sendAll(const std::vector<MidiOutMsg>& msgs) {
 }
 
 bool App::loadSong(const std::string& name) {
-    FenceGuard g(lock_);
+    // Flash read + parse stay UNFENCED: they produce only locals, and store_
+    // is HTTP-task-only. The fence covers just the engine mutation + sends,
+    // so a concurrent tick never stalls behind file IO (F-wave review R1).
     std::vector<uint8_t> data;
     if (!store_.read(name, data)) return false;
     MidiParseResult r = parseMidi(data.data(), data.size());
     if (r.error != MidiParseError::Ok) return false;
     std::vector<MidiOutMsg> out;
+    FenceGuard g(lock_);
     engine_.loadSong(std::move(r.song), name, out);
     sendAll(out);
     return true;
 }
 
-bool App::transport(const std::string& action, uint32_t positionMs) {
-    FenceGuard g(lock_);
+// Shared engine-pause/transport body; caller must hold the fence.
+bool App::transportLocked(const std::string& action, uint32_t positionMs) {
     std::vector<MidiOutMsg> out;
     bool ok = engine_.transport(action, positionMs, out);
     sendAll(out);
     return ok;
+}
+
+bool App::transport(const std::string& action, uint32_t positionMs) {
+    FenceGuard g(lock_);
+    return transportLocked(action, positionMs);
 }
 
 bool App::setMode(const std::string& mode, const std::string& practice) {
@@ -85,6 +96,8 @@ bool App::setTestPattern(const std::string& pattern) {
     else if (pattern == "off") {
         test_ = TestPattern::None;
         leds_.allOff();
+        return true;  // "off" never auto-resumes — the user presses play,
+                      // and that path re-baselines the clock (A35).
     } else {
         return false;
     }
@@ -93,15 +106,9 @@ bool App::setTestPattern(const std::string& pattern) {
     // scheduler clock would otherwise fast-forward the skipped time in one
     // burst on pattern-off. Guarding on Playing avoids flipping Finished->Idle
     // via transport("pause"). Pause also sends note-offs for any demo/
-    // accompaniment notes left ringing. "off" does NOT auto-resume — the user
-    // presses play, and that path re-baselines the clock (A35). This pause is
-    // one atomic unit with the pattern activation (same held fence).
-    if (test_ != TestPattern::None &&
-        engine_.state() == PlayState::Playing) {
-        std::vector<MidiOutMsg> out;
-        engine_.transport("pause", 0, out);
-        sendAll(out);
-    }
+    // accompaniment notes left ringing. This pause is one atomic unit with
+    // the pattern activation (same held fence).
+    if (engine_.state() == PlayState::Playing) transportLocked("pause", 0);
     return true;
 }
 
@@ -111,9 +118,14 @@ std::string App::statusJson(const WifiStatus* wifi) {
 }
 
 void App::applySettings() {
-    FenceGuard g(lock_);
-    engine_.configure(settings_, LedOutput::kLedCount);
-    leds_.setBrightness(settings_.brightness);
+    {
+        FenceGuard g(lock_);
+        engine_.configure(settings_, LedOutput::kLedCount);
+        leds_.setBrightness(settings_.brightness);
+    }
+    // Flash write UNFENCED (F-wave review R1): settings_ is HTTP-task-owned —
+    // the loop task never reads it (the engine holds copies from configure) —
+    // so a concurrent tick never stalls behind LittleFS IO.
     store_.saveSettings(settings_);
 }
 

@@ -42,14 +42,22 @@ public:
     // the loop task mutates. web_server holds App& non-const, so dropping
     // const is the clean option (vs a mutable handle).
     std::string statusJson(const WifiStatus* wifi = nullptr);
-    Settings& settings() { return settings_; }
     void applySettings();  // after PUT /api/settings: re-derive configs + save
 
+    // Raw accessors — boundary invariant (F-wave review R5): these hand out
+    // state that is safe UNFENCED only because the loop task never touches
+    // store_/settings_ (the engine holds copies from configure) and
+    // BleMidiIo::connected() is a single volatile bool. Any future change
+    // breaking that must route through the fence instead.
+    Settings& settings() { return settings_; }
     SongStore& store() { return store_; }
     BleMidiIo& ble() { return ble_; }
 
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
+    // transport() body without the fence; caller must already hold lock_
+    // (used by setTestPattern's auto-pause under its own guard).
+    bool transportLocked(const std::string& action, uint32_t positionMs);
 
     Settings settings_;
     SongStore store_;
@@ -59,11 +67,15 @@ private:
 
     // Cross-task fence (F1, A33). One plain (non-recursive) FreeRTOS mutex
     // serializes every HTTP-task entry point against the whole of tick().
-    // Non-recursive is correct: no locked method calls another. It is taken
-    // ONCE per tick — never per key event — so the latency path gains zero
-    // work; the documented delta is that a tick can wait behind at most one
-    // in-flight HTTP engine command (ms-scale, only when the web remote is
-    // used). All ble_.send paths now serialize through it too.
+    // Non-recursive is correct: no locked method calls another (the one
+    // locked→locked call, setTestPattern→transportLocked, is lock-free by
+    // contract). It is taken ONCE per tick — never per key event — so the
+    // latency path gains zero work. Critical sections hold ONLY engine
+    // mutations + MIDI sends — flash IO (song read/parse, settings save)
+    // happens outside the fence — so a tick waits behind at most one
+    // in-flight engine command (ms-scale, only when the web remote is
+    // used). Loop-task and REST-path engine SENDS serialize through it too;
+    // GET /api/ble's connected() read stays outside (lone volatile bool).
     SemaphoreHandle_t lock_ = nullptr;
 
     TestPattern test_ = TestPattern::None;

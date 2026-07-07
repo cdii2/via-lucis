@@ -47,6 +47,12 @@ public:
 
     void setLoop(uint64_t startUs, uint64_t endUs);  // ignored if end <= start
     void clearLoop() { loopOn_ = false; }
+    // Loop truth for status reporting (F-wave review): the scheduler is the
+    // ONE source — no mirror fields anywhere else. clearLoop keeps the last
+    // range (only loopOn_ flips), matching the old mirror behavior exactly.
+    bool loopEnabled() const { return loopOn_; }
+    uint64_t loopStartUs() const { return loopStart_; }
+    uint64_t loopEndUs() const { return loopEnd_; }
 
     void setBarrier(uint64_t us);
     void clearBarrier() { barrierOn_ = false; }
