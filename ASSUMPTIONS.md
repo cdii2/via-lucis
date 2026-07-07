@@ -3,6 +3,33 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A33 (2026-07-07, F1): cross-task fence = ONE plain (non-recursive) FreeRTOS
+  mutex owned by App (`xSemaphoreCreateMutex` in begin()), chosen over a command
+  queue — HTTP handlers need synchronous results (bool + statusJson reply), so a
+  queue would still block the HTTP task on a semaphore (same blocking, more
+  machinery, plus std::function allocation). App::tick takes the lock ONCE around
+  its entire body (ble_.poll()→leds_.show()): poll dispatches onKeyDown → engine
+  mutations, and renderFrame()'s returned reference is consumed by leds_.show
+  inside the same critical section — closing A32 race 2 (renderer_ swap vs an
+  in-flight frame reference) properly. Every HTTP-task entry point locks too
+  (loadSong/transport/setMode/setTempo/setLoop/setTrack/setTestPattern/
+  applySettings/statusJson); statusJson dropped `const` (web_server holds App&
+  non-const — cleaner than a mutable handle). Non-recursive is correct: no locked
+  method calls another (onPianoNoteOn deliberately does NOT lock — it runs on the
+  loop task inside ble_.poll(), already under tick's lock). ZERO new work on the
+  latency path: the lock is taken once per tick, not per key event; key verdicts
+  and their frame render happen inside the already-held lock. DOCUMENTED delta: a
+  tick can wait behind at most one in-flight HTTP engine command (ms-scale, only
+  when the web remote is used) — that IS the mandated serialization. Bonus: all
+  ble_.send paths (loop-task tick sends + HTTP-task sendAll) now serialize through
+  the same lock — previously they hit the MIDI lib concurrently. RAII FenceGuard
+  struct in app.cpp — no naked take/give. FreeRTOS headers live in firmware/src
+  only (app.h/app.cpp); core stays Arduino-free. Native characterization (3 tests)
+  pins PlaybackEngine coherence at the exact sequential interleavings the fence
+  guarantees: loadSong between ticks while Playing (old sound off, new song Idle@0
+  and named, next tick a clean no-op), configure between tick and frame (next
+  frame uses new color, no stale state), statusJson between ticks (state/position/
+  pending agree). 121 → 124 native tests.
 - A32 (2026-07-07, R-wave review): 8-angle code review of the full wave diff vs
   ec0293b. APPLIED (all zero-behavior-change, gates re-run green): velocity-0
   note-off rule now owned once by dispatchNote() in the MidiIo seam (both adapters

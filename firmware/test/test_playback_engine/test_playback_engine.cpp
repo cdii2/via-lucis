@@ -406,6 +406,72 @@ void test_status_json_wifi_object_is_the_last_key() {
                              body.c_str() + (body.size() - tail.size()));
 }
 
+// --- F1: cross-task fence — engine coherence at call boundaries ---------
+// The device fence (one FreeRTOS mutex in App) makes every HTTP-task entry
+// point an atomic unit that interleaves with the loop task only at call
+// boundaries. The mutex is device code (compile-gated); these pins prove the
+// engine is coherent under exactly those sequential interleavings, so the
+// guarantee is meaningful and stays true if someone later touches an entry
+// point. (A33)
+
+void test_loadsong_between_ticks_while_playing_is_coherent() {
+    PlaybackEngine e;
+    setupEngine(e, twoTrackSong(), "demo");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // both notes sounding on the piano
+    // A load lands between two ticks while Playing: the old song's sounding
+    // notes get note-offs appended, the new song is Idle at 0 and named.
+    gOut.clear();
+    e.loadSong(chordSong(), "next.mid", gOut);
+    int offs = 0;
+    for (const MidiOutMsg& m : gOut)
+        if (m.type == MidiOutType::NoteOff) ++offs;
+    TEST_ASSERT_EQUAL_INT(2, offs);
+    TEST_ASSERT_TRUE(e.state() == PlayState::Idle);
+    TEST_ASSERT_EQUAL_UINT64(0, e.positionUs());
+    std::string status = e.statusJson();
+    TEST_ASSERT_TRUE(status.find("\"song\":\"next.mid\"") != std::string::npos);
+    TEST_ASSERT_TRUE(status.find("\"state\":\"idle\"") != std::string::npos);
+    // The next tick sees an Idle engine: a clean no-op, nothing crashes.
+    gOut.clear();
+    e.tick(300000, gOut);
+    TEST_ASSERT_EQUAL_UINT64(0, e.positionUs());
+    TEST_ASSERT_TRUE(e.state() == PlayState::Idle);
+}
+
+void test_configure_between_tick_and_frame_uses_new_config() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(100000, gOut);  // C4 sounding
+    // New settings arrive between the tick and the frame it renders: swap the
+    // right-hand color. The very next frame must reflect it — no stale state.
+    Settings s;
+    s.rightColor = Rgb{123, 45, 67};
+    e.configure(s, 360);
+    const std::vector<Rgb>& frame = e.renderFrame(100000);
+    assertRgb(Rgb{123, 45, 67}, ledAt(frame, 60));
+}
+
+void test_statusjson_between_ticks_is_internally_consistent() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // barrier at 0 holds playback
+    // Read status between ticks mid-song: state/positionMs/pendingNotes must
+    // agree — waiting at the barrier ⇒ position pinned at 0, chord pending.
+    std::string status = e.statusJson();
+    TEST_ASSERT_TRUE(status.find("\"state\":\"waiting\"") != std::string::npos);
+    TEST_ASSERT_TRUE(status.find("\"positionMs\":0") != std::string::npos);
+    TEST_ASSERT_TRUE(status.find("\"pendingNotes\":[60]") != std::string::npos);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -428,5 +494,8 @@ int main(int, char**) {
     RUN_TEST(test_status_json_matches_api_contract_shape);
     RUN_TEST(test_status_json_without_wifi_omits_the_wifi_object);
     RUN_TEST(test_status_json_wifi_object_is_the_last_key);
+    RUN_TEST(test_loadsong_between_ticks_while_playing_is_coherent);
+    RUN_TEST(test_configure_between_tick_and_frame_uses_new_config);
+    RUN_TEST(test_statusjson_between_ticks_is_internally_consistent);
     return UNITY_END();
 }

@@ -5,6 +5,9 @@
 // → LED out) stays inside tick() and onPianoNoteOn() — keep both lean (iron
 // rule); the engine is a concrete member, so nothing here adds indirection.
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+
 #include <string>
 #include <vector>
 
@@ -35,9 +38,10 @@ public:
     bool setTrack(size_t index, const std::string& hand, bool lights);
     bool setTestPattern(const std::string& pattern);
 
-    std::string statusJson(const WifiStatus* wifi = nullptr) const {
-        return engine_.statusJson(wifi);
-    }
+    // Non-const: takes the cross-task fence (F1) before reading engine state
+    // the loop task mutates. web_server holds App& non-const, so dropping
+    // const is the clean option (vs a mutable handle).
+    std::string statusJson(const WifiStatus* wifi = nullptr);
     Settings& settings() { return settings_; }
     void applySettings();  // after PUT /api/settings: re-derive configs + save
 
@@ -52,6 +56,15 @@ private:
     LedOutput leds_;
     BleMidiIo ble_;
     PlaybackEngine engine_;
+
+    // Cross-task fence (F1, A33). One plain (non-recursive) FreeRTOS mutex
+    // serializes every HTTP-task entry point against the whole of tick().
+    // Non-recursive is correct: no locked method calls another. It is taken
+    // ONCE per tick — never per key event — so the latency path gains zero
+    // work; the documented delta is that a tick can wait behind at most one
+    // in-flight HTTP engine command (ms-scale, only when the web remote is
+    // used). All ble_.send paths now serialize through it too.
+    SemaphoreHandle_t lock_ = nullptr;
 
     TestPattern test_ = TestPattern::None;
     // Loop-task tick buffer, reused every iteration (REST calls use locals —

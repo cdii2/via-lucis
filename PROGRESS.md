@@ -148,7 +148,7 @@ note callbacks fire on the LOOP task — NimBLE's notify callback only does
 (App::tick) drains it and dispatches. So the engine has exactly one cross-task
 axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
 
-- [ ] F1 — cross-task fence (A33): one FreeRTOS mutex in App serializing every
+- [x] F1 — cross-task fence (A33): one FreeRTOS mutex in App serializing every
       HTTP-task entry point (loadSong/transport/setMode/setTempo/setLoop/setTrack/
       setTestPattern/applySettings/statusJson) against the whole of App::tick.
       Lock taken once per tick — zero new work per key event; key verdicts render
