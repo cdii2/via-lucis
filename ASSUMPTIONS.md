@@ -3,6 +3,31 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A32 (2026-07-07, R-wave review): 8-angle code review of the full wave diff vs
+  ec0293b. APPLIED (all zero-behavior-change, gates re-run green): velocity-0
+  note-off rule now owned once by dispatchNote() in the MidiIo seam (both adapters
+  call it — it's generic MIDI running-status, not a piano hack; the old duplication
+  meant a future adapter could silently feed key releases to wait mode as
+  presses); barrierMode() replaces 9 copies of the wait/accompaniment predicate;
+  WaitMode::isPending() replaces renderFrame's re-derived membership scan; dead
+  discard-loop around seek(0) removed; JSON routes now 400 on bodyless requests
+  instead of hanging the connection (upload route already had the guard); upload
+  ?name= validated once on the first chunk and stashed in BodyIntake; test song
+  fixtures deduped into test/helpers/test_songs.h (were triplicated byte-identical)
+  and test colors derive from Settings{} defaults; FakeMidiIo dead surface dropped.
+  ACCEPTED timing deltas (logged, not fixed): loadSong sends silencing note-offs
+  after the Scheduler rebuild (ms-scale, HTTP path); frameDirty_ gained REST-path
+  writers (A27) — a racing write can lose to frameDue's clear, costing ≤1 frame
+  period (16.7ms). DOCUMENTED pre-existing device races carried over UNCHANGED
+  from ec0293b (fixing = architecture change, out of refactor-only scope):
+  loadSong's Scheduler rebuild vs a concurrent tick (use-after-free window),
+  applySettings' renderer_ replacement vs an in-flight renderFrame reference, and
+  statusJson iterating wait/track state the loop task mutates — all HTTP-task vs
+  loop-task; a serialization fence is the post-wave fix. Also pre-existing (kept):
+  loop fields not reset on song load, so /api/status can report the previous
+  song's loop as enabled (was true at ec0293b too — fixing changes output);
+  test-pattern early-return freezes playback without pausing it (skipped-time
+  burst on pattern off, also ec0293b behavior).
 - A31 (2026-07-07, R7): X-macro Settings field table REJECTED — the 11 fields carry
   heterogeneous policies (hex-color conversion, conditional/min-only clamps,
   tolerant type-guarded reads), so the table needs ~6 policy columns and reads

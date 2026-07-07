@@ -2,8 +2,8 @@
 // Scripted MidiIo adapter (R1, adapter 2): native tests queue key presses
 // with script*() and pump them with poll(), mirroring how the real adapter
 // only dispatches during MIDI.read(). Outgoing messages are recorded in
-// sent() for assertions. Mirrors the BLE adapter's running-status contract:
-// a scripted note-on with velocity 0 dispatches as a note-off.
+// sent() for assertions. Incoming events route through dispatchNote() —
+// the same seam contract the BLE adapter uses.
 
 #include <cstdint>
 #include <vector>
@@ -14,20 +14,15 @@ namespace vialucis {
 
 class FakeMidiIo final : public MidiIo {
 public:
-    void begin() override { began_ = true; }
+    void begin() override {}
 
     void poll() override {
         // Swap-drain so handlers that script more events don't invalidate
         // the iteration.
         std::vector<Scripted> due;
         due.swap(script_);
-        for (const Scripted& s : due) {
-            if (s.off || s.velocity == 0) {  // running-status note-off
-                if (offHandler_) offHandler_(s.note, s.off ? s.velocity : 0);
-            } else {
-                if (onHandler_) onHandler_(s.note, s.velocity);
-            }
-        }
+        for (const Scripted& s : due)
+            dispatchNote(onHandler_, offHandler_, s.off, s.note, s.velocity);
     }
 
     void onNoteOn(NoteHandler h) override { onHandler_ = std::move(h); }
@@ -49,8 +44,6 @@ public:
     void setConnected(bool c) { connected_ = c; }
 
     const std::vector<MidiOutMsg>& sent() const { return sent_; }
-    void clearSent() { sent_.clear(); }
-    bool began() const { return began_; }
 
 private:
     struct Scripted {
@@ -64,7 +57,6 @@ private:
     std::vector<Scripted> script_;
     std::vector<MidiOutMsg> sent_;
     bool connected_ = true;
-    bool began_ = false;
 };
 
 }  // namespace vialucis

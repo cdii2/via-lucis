@@ -48,6 +48,13 @@ public:
     KeyFeedback onKeyDown(uint8_t note, uint64_t nowUs);
 
     bool chordPending() const { return !pending_.empty(); }
+    // Membership in the due chord — the one definition of "still owed"
+    // (renderers must not re-derive this from the raw vector).
+    bool isPending(uint8_t note) const {
+        for (uint8_t p : pending_)
+            if (p == note) return true;
+        return false;
+    }
     const std::vector<uint8_t>& pendingNotes() const { return pending_; }
     uint64_t barrierTimeUs() const { return barrierTime_; }
 

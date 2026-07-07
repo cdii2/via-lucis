@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "../helpers/smf_builder.h"
+#include "../helpers/test_songs.h"
 #include "vialucis/key_led_map.h"
 #include "vialucis/midi_parser.h"
 #include "vialucis/playback_engine.h"
@@ -18,40 +19,11 @@
 
 using namespace vialucis;
 using smf::Bytes;
+using testsongs::chordSong;
+using testsongs::twoTrackSong;
 
 void setUp() {}
 void tearDown() {}
-
-// 480 tpq @ default 120bpm ⇒ quarter = 500000us.
-// C4 on@0 off@480t, E4 on@480t off@960t, G4+B4 chord on@960t off@1440t.
-static MidiSong chordSong() {
-    Bytes ev;
-    smf::noteOn(ev, 0, 0, 60, 100);
-    smf::noteOff(ev, 480, 0, 60);
-    smf::noteOn(ev, 0, 0, 64, 100);
-    smf::noteOff(ev, 480, 0, 64);
-    smf::noteOn(ev, 0, 0, 67, 100);
-    smf::noteOn(ev, 0, 0, 71, 100);
-    smf::noteOff(ev, 480, 0, 67);
-    smf::noteOff(ev, 0, 0, 71);
-    Bytes file = smf::header(0, 1, 480);
-    smf::append(file, smf::track(ev));
-    return parseMidi(file.data(), file.size()).song;
-}
-
-// Two anonymous note tracks (piano convention: t0=Right, t1=Left):
-// track 0 note 60, track 1 note 40, both on@0 off@480t.
-static MidiSong twoTrackSong() {
-    Bytes t0, t1;
-    smf::noteOn(t0, 0, 0, 60, 100);
-    smf::noteOff(t0, 480, 0, 60);
-    smf::noteOn(t1, 0, 0, 40, 100);
-    smf::noteOff(t1, 480, 0, 40);
-    Bytes file = smf::header(1, 2, 480);
-    smf::append(file, smf::track(t0));
-    smf::append(file, smf::track(t1));
-    return parseMidi(file.data(), file.size()).song;
-}
 
 namespace {
 
@@ -79,9 +51,11 @@ void assertRgb(Rgb expect, Rgb got) {
     TEST_ASSERT_EQUAL_UINT8(expect.b, got.b);
 }
 
-constexpr Rgb kRight{0, 255, 0};  // default right/Both color
-constexpr Rgb kLeft{0, 0, 255};
-constexpr Rgb kWrong{255, 0, 0};
+// Derived from the Settings defaults so these tests keep verifying the
+// engine actually tracks Settings — not a private copy of the palette.
+const Rgb kRight = Settings{}.rightColor;  // Right and Both use this
+const Rgb kLeft = Settings{}.leftColor;
+const Rgb kWrong = Settings{}.wrongColor;
 constexpr Rgb kBlack{0, 0, 0};
 
 }  // namespace

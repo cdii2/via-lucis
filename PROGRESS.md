@@ -117,6 +117,20 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
 - [x] R7 (optional) — REJECTED per A31 (table less readable than the code it
       replaces; names LOCKED anyway); adopted the guard instead: native contract
       test locks the Settings key set byte-exactly vs API.md (121 native)
+- [x] /code-review over the full wave diff vs ec0293b — 8 finder angles; 9
+      zero-behavior-change fixes applied (A32), gates re-run green
+
+**Post-R-wave follow-ups (Christian's call — each changes behavior or architecture):**
+- Cross-task fence: HTTP-task REST calls mutate engine state the loop task reads
+  (song load rebuild = use-after-free window; settings apply vs in-flight frame;
+  status vs tick). Pre-existing since v1; a small command-queue or mutex around
+  engine entry points is the fix. (A32)
+- /api/status loop honesty: loop fields aren't reset on song load, so status can
+  claim an enabled loop that no longer exists (pre-existing v1 bug; fix changes
+  status output). (A32)
+- Test-pattern pause semantics: an active pattern freezes playback without pausing
+  the scheduler clock — pattern-off fast-forwards the gap in one burst
+  (pre-existing v1 behavior). (A32)
 
 ## Needs Christian (never blocks the loop)
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
@@ -161,6 +175,22 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
   "Needs Christian" with exact URLs. songs/local/ confirmed untracked (gitignore).
   (Agent left the tree uncommitted; loop committed songs/pd/ + docs as 3a21e5f —
   local commits are in-scope, only publishing is Christian's.)
+- 2026-07-07 R-wave iters 10–16: **R1–R7 ALL CLOSED** (R7 = reasoned rejection,
+  A31). Executed the 2026-07-07 architecture review: MidiIo seam (A26, interface +
+  final adapters, zero devirtualized cost), PlaybackEngine extraction (A27, 17
+  characterization tests, App = device shim), SoundingSet dedupe (A28),
+  statusJson(WifiStatus*) + API contract tests, out-param buffer variants (A29,
+  zero steady-state alloc on the frame path), body-intake module (A30 — also
+  killed a real free((void*)1) heap-corruption bug on song upload + two
+  double-reply paths), Settings key-set contract test. Native tests 81 → 121,
+  esp32dev green after every item, one commit per R-item on local main
+  (a840ed9 → 67e91f9, NOT pushed — pushes are Christian's). REST shapes, Settings
+  field names, frameDirty_ semantics, GPIO16/ramp/calibration/colors: unchanged.
+  Closing 8-angle /code-review over the wave diff → 9 more zero-behavior-change
+  fixes (A32: dispatchNote seam contract, barrierMode(), isPending(), bodyless-
+  request 400, fixture dedupe, +more) + 3 pre-existing v1 issues documented as
+  follow-ups (cross-task fence, status loop honesty, test-pattern clock). Final
+  tree: 121 native tests, esp32dev green.
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

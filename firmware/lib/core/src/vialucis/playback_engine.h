@@ -88,6 +88,11 @@ public:
     uint64_t positionUs() const { return sched_ ? sched_->positionUs() : 0; }
 
 private:
+    // Modes where the wait-mode barrier arms (the player is being watched).
+    bool barrierMode() const {
+        return mode_ == Mode::Wait || mode_ == Mode::Accompaniment;
+    }
+
     void rebuildAfterLoad();   // after song load
     void applyMasks();         // after mode/practice/track changes
     void stopAllSound(std::vector<MidiOutMsg>& out);
@@ -118,7 +123,11 @@ private:
     uint64_t lastTickUs_ = 0;
     uint64_t lastFrameUs_ = 0;
     uint64_t prevPosUs_ = 0;
-    volatile bool frameDirty_ = false;  // set from the BLE task on key verdicts
+    // Set by the BLE task on key verdicts AND by REST sound-stop paths
+    // (A27); consumed by the loop task in frameDue(). Plain volatile: a
+    // racing writer can lose its mark to frameDue's clear, costing at most
+    // one 16.7ms frame period of delay — acceptable, documented.
+    volatile bool frameDirty_ = false;
 
     struct WrongFlash {
         uint8_t note;

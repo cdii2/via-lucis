@@ -39,6 +39,7 @@ constexpr size_t kJsonBodyCap = 4096;
 
 struct BodyIntake {
     String buf;            // buffer sink accumulates here
+    std::string name;      // stream sink: validated once on the first chunk
     bool sawBody = false;  // stream sink: at least one chunk accepted
     bool failed = false;   // reply already sent — swallow remaining chunks
 };
@@ -68,7 +69,13 @@ using JsonHandler =
 
 void onJsonBody(const char* path, JsonHandler handle) {
     gServer.on(
-        path, HTTP_POST | HTTP_PUT, [](AsyncWebServerRequest*) {},
+        path, HTTP_POST | HTTP_PUT,
+        [](AsyncWebServerRequest* req) {
+            // All replies come from the body handler — which a bodyless
+            // request never invokes. Answer instead of hanging the
+            // connection (A30/A32 protocol hygiene).
+            if (!req->_tempObject) sendError(req, 400, "empty body");
+        },
         nullptr,
         [handle](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                  size_t index, size_t total) {
@@ -156,29 +163,31 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                size_t index, size_t total) {
             BodyIntake& in = intakeFor(req);
             if (in.failed) return;  // rejected earlier; drain silently
-            if (!req->hasParam("name")) {
-                intakeFail(req, 400, "missing ?name=");
-                return;
-            }
-            std::string name = req->getParam("name")->value().c_str();
-            if (!SongStore::validName(name)) {
-                intakeFail(req, 400, "bad name (want *.mid)");
-                return;
-            }
             ChunkPlan plan =
                 planChunk(index, len, total, SongStore::kMaxSongBytes);
-            if (plan.tooLarge) {
-                intakeFail(req, 413, "file too large (256KB max)");
-                return;
+            if (plan.first) {  // name/size can't change mid-request
+                if (!req->hasParam("name")) {
+                    intakeFail(req, 400, "missing ?name=");
+                    return;
+                }
+                in.name = req->getParam("name")->value().c_str();
+                if (!SongStore::validName(in.name)) {
+                    intakeFail(req, 400, "bad name (want *.mid)");
+                    return;
+                }
+                if (plan.tooLarge) {
+                    intakeFail(req, 413, "file too large (256KB max)");
+                    return;
+                }
             }
             in.sawBody = true;
-            if (!app.store().appendChunk(name, data, len, plan.first)) {
+            if (!app.store().appendChunk(in.name, data, len, plan.first)) {
                 intakeFail(req, 500, "write failed");
                 return;
             }
             if (plan.last) {
                 JsonDocument doc;
-                doc["name"] = name;
+                doc["name"] = in.name;
                 std::string out;
                 serializeJson(doc, out);
                 sendJson(req, 201, out);

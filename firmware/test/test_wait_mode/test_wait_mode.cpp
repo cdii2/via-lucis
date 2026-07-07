@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "../helpers/smf_builder.h"
+#include "../helpers/test_songs.h"
 #include "vialucis/echo_guard.h"
 #include "vialucis/midi_parser.h"
 #include "vialucis/scheduler.h"
@@ -8,38 +9,11 @@
 
 using namespace vialucis;
 using smf::Bytes;
+using testsongs::chordSong;
+using testsongs::twoTrackSong;
 
 void setUp() {}
 void tearDown() {}
-
-// C4@0, E4@500ms, then G4+B4 chord@1000ms (480tpq, default tempo).
-static MidiSong chordSong() {
-    Bytes ev;
-    smf::noteOn(ev, 0, 0, 60, 100);
-    smf::noteOff(ev, 480, 0, 60);
-    smf::noteOn(ev, 0, 0, 64, 100);
-    smf::noteOff(ev, 480, 0, 64);
-    smf::noteOn(ev, 0, 0, 67, 100);
-    smf::noteOn(ev, 0, 0, 71, 100);
-    smf::noteOff(ev, 480, 0, 67);
-    smf::noteOff(ev, 0, 0, 71);
-    Bytes file = smf::header(0, 1, 480);
-    smf::append(file, smf::track(ev));
-    return parseMidi(file.data(), file.size()).song;
-}
-
-// track 0: note 60@0; track 1: note 40@0 — hands on separate tracks.
-static MidiSong twoTrackSong() {
-    Bytes t0, t1;
-    smf::noteOn(t0, 0, 0, 60, 100);
-    smf::noteOff(t0, 480, 0, 60);
-    smf::noteOn(t1, 0, 0, 40, 100);
-    smf::noteOff(t1, 480, 0, 40);
-    Bytes file = smf::header(1, 2, 480);
-    smf::append(file, smf::track(t0));
-    smf::append(file, smf::track(t1));
-    return parseMidi(file.data(), file.size()).song;
-}
 
 static void test_first_chord_loads_at_start() {
     MidiSong song = chordSong();

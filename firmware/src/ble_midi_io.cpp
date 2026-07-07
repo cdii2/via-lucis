@@ -15,15 +15,11 @@ BleMidiIo::NoteHandler gOnNoteOff;
 volatile bool gConnected = false;
 
 void handleNoteOn(byte /*channel*/, byte note, byte velocity) {
-    if (velocity == 0) {  // running-status note-off
-        if (gOnNoteOff) gOnNoteOff(note, 0);
-        return;
-    }
-    if (gOnNoteOn) gOnNoteOn(note, velocity);
+    dispatchNote(gOnNoteOn, gOnNoteOff, /*isOff=*/false, note, velocity);
 }
 
 void handleNoteOff(byte /*channel*/, byte note, byte velocity) {
-    if (gOnNoteOff) gOnNoteOff(note, velocity);
+    dispatchNote(gOnNoteOn, gOnNoteOff, /*isOff=*/true, note, velocity);
 }
 
 }  // namespace

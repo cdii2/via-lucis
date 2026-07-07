@@ -1,45 +1,17 @@
 #include <unity.h>
 
 #include "../helpers/smf_builder.h"
+#include "../helpers/test_songs.h"
 #include "vialucis/midi_parser.h"
 #include "vialucis/scheduler.h"
 
 using namespace vialucis;
 using smf::Bytes;
+using testsongs::chordSong;
+using testsongs::twoTrackSong;
 
 void setUp() {}
 void tearDown() {}
-
-// 480 tpq @ default 120bpm ⇒ 1 tick ≈ 1041.6us, quarter = 500000us.
-// Song: C4 on@0 off@480, E4 on@480 off@960, G4+B4 chord on@960 off@1440 (ticks).
-static MidiSong chordSong() {
-    Bytes ev;
-    smf::noteOn(ev, 0, 0, 60, 100);
-    smf::noteOff(ev, 480, 0, 60);
-    smf::noteOn(ev, 0, 0, 64, 100);
-    smf::noteOff(ev, 480, 0, 64);
-    smf::noteOn(ev, 0, 0, 67, 100);
-    smf::noteOn(ev, 0, 0, 71, 100);
-    smf::noteOff(ev, 480, 0, 67);
-    smf::noteOff(ev, 0, 0, 71);
-    Bytes file = smf::header(0, 1, 480);
-    smf::append(file, smf::track(ev));
-    auto r = parseMidi(file.data(), file.size());
-    return r.song;
-}
-
-// Two tracks: track 0 note 60, track 1 note 40, both on@0 off@480.
-static MidiSong twoTrackSong() {
-    Bytes t0, t1;
-    smf::noteOn(t0, 0, 0, 60, 100);
-    smf::noteOff(t0, 480, 0, 60);
-    smf::noteOn(t1, 0, 0, 40, 100);
-    smf::noteOff(t1, 480, 0, 40);
-    Bytes file = smf::header(1, 2, 480);
-    smf::append(file, smf::track(t0));
-    smf::append(file, smf::track(t1));
-    return parseMidi(file.data(), file.size()).song;
-}
 
 static int countType(const std::vector<SchedEvent>& evs, SchedEventType t) {
     int n = 0;

@@ -59,7 +59,7 @@ void PlaybackEngine::applyMasks() {
 
     if (wait_) {
         wait_->setPracticedMask(trackCfg_.practicedMask(practice_));
-        if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
+        if (barrierMode())
             wait_->resync();
         else
             sched_->clearBarrier();
@@ -87,11 +87,10 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
     if (!sched_) return false;
     if (action == "play") {
         if (state_ == PlayState::Finished) {
-            for (const SchedEvent& e : sched_->seek(0)) (void)e;
+            sched_->seek(0);  // flushed note-offs are moot: nothing sounding
             prevPosUs_ = 0;
         }
-        if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
-            wait_->resync();
+        if (barrierMode()) wait_->resync();
         state_ = PlayState::Playing;
         lastTickUs_ = 0;  // next tick re-baselines the clock
         return true;
@@ -106,16 +105,14 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         stopAllSound(out);
         sched_->seek(0);
         prevPosUs_ = 0;
-        if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
-            wait_->resync();
+        if (barrierMode()) wait_->resync();
         return true;
     }
     if (action == "seek") {
         stopAllSound(out);
         sched_->seek(static_cast<uint64_t>(positionMs) * 1000);
         prevPosUs_ = sched_->positionUs();
-        if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
-            wait_->resync();
+        if (barrierMode()) wait_->resync();
         if (state_ == PlayState::Finished) state_ = PlayState::Idle;
         return true;
     }
@@ -178,7 +175,7 @@ bool PlaybackEngine::setTrack(size_t index, const std::string& hand,
 
 void PlaybackEngine::onKeyDown(uint8_t note, uint64_t nowUs) {
     if (!wait_ || state_ != PlayState::Playing) return;
-    if (mode_ != Mode::Wait && mode_ != Mode::Accompaniment) return;
+    if (!barrierMode()) return;
     KeyFeedback fb = wait_->onKeyDown(note, nowUs);
     if (fb.verdict == KeyVerdict::Wrong)
         wrongFlashes_.push_back({note, nowUs + kWrongFlashUs});
@@ -198,14 +195,12 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     sched_->advance(delta, eventsBuf_);
     uint64_t newPos = sched_->positionUs();
     if (newPos < prevPosUs_) {  // loop wrapped
-        if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
-            wait_->resync();
+        if (barrierMode()) wait_->resync();
         soundingLights_.clear();
     }
     prevPosUs_ = newPos;
 
-    if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
-        wait_->update();
+    if (barrierMode()) wait_->update();
 
     emitter_.consume(eventsBuf_, nowUs, out);
 
@@ -254,15 +249,12 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
             renderer_.addDue(s.note, colorForTrack(s.track));
 
         // Wait mode: the due chord at 100%.
-        if ((mode_ == Mode::Wait || mode_ == Mode::Accompaniment) &&
-            wait_->chordPending()) {
+        if (barrierMode() && wait_->chordPending()) {
             sched_->notesOnAt(wait_->barrierTimeUs(),
                               trackCfg_.practicedMask(practice_), queryBuf_);
             for (const SchedEvent& e : queryBuf_) {
-                bool stillPending = false;
-                for (uint8_t p : wait_->pendingNotes())
-                    if (p == e.note) stillPending = true;
-                if (stillPending && trackInMask(lightsMask, e.track))
+                if (wait_->isPending(e.note) &&
+                    trackInMask(lightsMask, e.track))
                     renderer_.addDue(e.note, colorForTrack(e.track));
             }
         }
@@ -322,7 +314,7 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi) const {
     }
 
     JsonArray pending = doc["pendingNotes"].to<JsonArray>();
-    if (wait_ && (mode_ == Mode::Wait || mode_ == Mode::Accompaniment))
+    if (wait_ && barrierMode())
         for (uint8_t n : wait_->pendingNotes()) pending.add(n);
 
     if (wifi) {
