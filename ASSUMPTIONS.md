@@ -3,6 +3,11 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A7 (2026-07-07, 4): scheduler emits ALL events tagged with their track; hand filtering
+  happens in each consumer via TrackMask — lights and accompaniment need *different*
+  filters (muted hand: no lights but piano plays it), so filtering inside the scheduler
+  would be wrong. Barrier = wait-mode hold: nothing at or past the barrier fires until
+  cleared; loop wrap flushes note-offs for sounding notes.
 - A6 (2026-07-07, 3): key geometry = rear-of-keyboard cluster model (octave 164.5mm;
   C-E group = 5×14.1mm slots, F-B group = 7×13.43mm slots) — matches where the strip
   physically sits better than front white-key widths; 1mm edge margin guarantees
