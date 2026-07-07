@@ -37,7 +37,7 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
 - [x] Wait-mode matcher (per-key chord clearing, wrong-note events, echo guard hook)
 - [x] Lookahead ramp renderer (0→cap over lead-time, jump to 100%; ONE cap var, ONE
       lead var) → LED frame buffer
-- [ ] Demo/accompaniment note emitter (same schedule → MIDI-out queue)
+- [x] Demo/accompaniment note emitter (same schedule → MIDI-out queue)
 
 ### W2 — device layer (compiles, hardware-verification deferred)
 - [ ] FastLED output (GPIO16, power cap, brightness setting)
@@ -93,3 +93,8 @@ Assembly day = wire → flash → pair → practice, no AI assumed present.
   need `$env:Path` refresh). Tests: one dir per module under `firmware/test/test_*`,
   shared helpers in `firmware/test/helpers/` (non-test dir). Parser: header-only reader,
   15 native tests green, compiles for esp32.
+- 2026-07-07 iters 3–6: **W1 COMPLETE.** key→LED map (cluster geometry, A6), scheduler
+  (tempo/loop/barrier, A7), wait-mode matcher + echo guard (A8/A9), ramp renderer
+  (layered frame buffer), note emitter (mask + echo registration). 69 native tests, all
+  green; esp32dev compiles at every step. Core classes: MidiSong/parseMidi, Scheduler,
+  WaitMode, EchoGuard, FrameRenderer, NoteEmitter — all pure C++ in lib/core.
