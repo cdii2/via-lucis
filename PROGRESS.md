@@ -159,7 +159,7 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
 - [x] F2 — status loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/
       loopStartMs_/loopEndMs_; native test pins loop:{enabled:false,0,0} after a
       load that follows an enabled loop. The wave's only status VALUE change.
-- [ ] F3 — test-pattern clock (A35): activating strip/rainbow while Playing
+- [x] F3 — test-pattern clock (A35): activating strip/rainbow while Playing
       auto-pauses (transport("pause") + note-offs sent); "off" does NOT auto-resume
       — the existing play path re-baselines the clock, so the pattern-off
       fast-forward burst becomes impossible. Native test pins pause→gap→play
@@ -225,6 +225,29 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
   request 400, fixture dedupe, +more) + 3 pre-existing v1 issues documented as
   follow-ups (cross-task fence, status loop honesty, test-pattern clock). Final
   tree: 121 native tests, esp32dev green.
+- 2026-07-07 F-wave: **F1–F3 ALL CLOSED** (the three sanctioned post-R-wave
+  follow-ups). F1 cross-task fence (A33): one plain FreeRTOS mutex owned by App
+  (created in begin()), taken once around the whole of tick() and by every
+  HTTP-task entry point — closes A32's three HTTP-vs-loop races (renderer_ swap,
+  loadSong rebuild, statusJson iteration); onPianoNoteOn stays lock-free (it runs
+  inside ble_.poll(), already under tick's lock); zero new work on the latency
+  path; RAII FenceGuard, no naked take/give; statusJson dropped const. F2 status
+  loop honesty (A34): rebuildAfterLoad() clears loopEnabled_/loopStartMs_/
+  loopEndMs_ so /api/status stops reporting a stale loop after a load — the wave's
+  ONLY sanctioned status VALUE delta, written red-first. F3 test-pattern clock
+  (A35): App::setTestPattern auto-pauses when Playing (transport("pause") +
+  note-offs), "off" does not auto-resume — the play path re-baselines the clock so
+  the skipped-time burst is structurally impossible; guarded on Playing to avoid
+  Finished→Idle. Native tests 121 → 126 (F1 +3 coherence pins, F2 +1 red-first,
+  F3 +1 continuity pin), esp32dev green after every item, one commit per F-item on
+  the worktree branch (65f4e61 F1 → 1ebd39c F2 → F3, NOT pushed — pushes are
+  Christian's). REST routes and reply field names byte-identical except F2's loop
+  values; Settings field names, GPIO16/ramp/colors, frameDirty_ semantics:
+  unchanged. Lessons: BLE note callbacks fire on the loop task (verified in
+  BLE-MIDI src), so the engine has exactly one cross-task axis (HTTP vs loop) — a
+  mutex, not a queue, since HTTP handlers need synchronous bool+status replies;
+  onKeyDown must NOT re-lock (non-recursive mutex + it's already inside the tick
+  lock). Closing /code-review over the wave diff still owed before it lands on main.
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

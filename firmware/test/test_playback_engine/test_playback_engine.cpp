@@ -494,6 +494,42 @@ void test_load_song_clears_reported_loop() {
         std::string::npos);
 }
 
+// --- F3: test-pattern clock ---------------------------------------------
+// The App fix makes activating a strip/rainbow pattern auto-pause playback
+// (transport("pause") + note-offs). It relies on this engine contract: a
+// paused engine ignores wall-clock time entirely, and the play path
+// re-baselines the clock (lastTickUs_=0) so no skipped-time burst can fire
+// when the pattern is turned off and the user presses play. (A35)
+
+void test_pause_gap_play_re_baselines_no_burst() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);      // baseline the clock
+    e.tick(300000, gOut);    // ~299ms in
+    uint64_t posBefore = e.positionUs();
+    TEST_ASSERT_TRUE(posBefore > 250000 && posBefore < 350000);
+
+    // Pattern activates -> pause. A large wall-clock gap now passes with NO
+    // ticks (the pattern branch early-returns on device; the paused engine
+    // ignores time regardless).
+    e.transport("pause", 0, gOut);
+    uint64_t now = 300000 + 60000000ULL;  // 60s later
+
+    // Pattern off -> user presses play. The re-baseline tick has delta 0, so
+    // position stays exactly where it paused — no fast-forward of the gap.
+    e.transport("play", 0, gOut);
+    e.tick(now, gOut);
+    TEST_ASSERT_EQUAL_UINT64(posBefore, e.positionUs());
+
+    // The next real tick advances by its own delta (~100ms scaled by tempo),
+    // NOT by the 60s gap.
+    e.tick(now + 100000, gOut);
+    uint64_t advanced = e.positionUs() - posBefore;
+    TEST_ASSERT_TRUE(advanced >= 90000 && advanced <= 110000);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -520,5 +556,6 @@ int main(int, char**) {
     RUN_TEST(test_configure_between_tick_and_frame_uses_new_config);
     RUN_TEST(test_statusjson_between_ticks_is_internally_consistent);
     RUN_TEST(test_load_song_clears_reported_loop);
+    RUN_TEST(test_pause_gap_play_re_baselines_no_burst);
     return UNITY_END();
 }

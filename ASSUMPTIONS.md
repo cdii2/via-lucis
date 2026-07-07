@@ -3,6 +3,27 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A35 (2026-07-07, F3): test-pattern clock — App::setTestPattern auto-pauses
+  playback when (and only when) engine_.state()==Playing at activation: build a
+  local std::vector<MidiOutMsg>, engine_.transport("pause",0,out), sendAll(out).
+  Chosen with zero new engine surface. Guarded on Playing so a pattern from
+  Idle/Finished doesn't disturb state (transport("pause") would flip
+  Finished→Idle). Pattern "off" does NOT auto-resume — the user presses play,
+  and the existing play path (lastTickUs_=0 → next tick re-baselines) makes the
+  pattern-off fast-forward burst structurally impossible; the pattern branch in
+  tick() early-returns while active, so an unpaused clock would otherwise run
+  the whole skipped span in one advance() on pattern-off. Bonus: pause sends
+  note-offs, so demo/accompaniment notes no longer ring unstopped through a
+  pattern. setTestPattern already holds the F1 fence, so the pattern activation
+  and the pause it triggers are ONE atomic unit. Native engine test (red not
+  applicable — the engine already re-baselines; the fix is device wiring gated
+  by the esp32dev build) pins the continuity contract the fix relies on:
+  Playing at P → pause → 60s wall-clock gap with no ticks → play → tick re-
+  baselines (position stays P, delta 0) → next tick advances ~100ms (scaled by
+  tempo), NOT the 60s gap. Docs checked (BRINGUP/TROUBLESHOOTING/BUILD-GUIDE):
+  the strip-test step is a bare-board pre-song bring-up step with no simultaneous
+  playback described, so no sentence contradicts "activating a pattern pauses
+  playback" — no doc edit needed. 125 → 126 native tests.
 - A34 (2026-07-07, F2): status loop honesty — rebuildAfterLoad() now also
   clears loopEnabled_/loopStartMs_/loopEndMs_. Chosen over deriving the status
   loop fields from Scheduler getters: the fresh Scheduler genuinely has no loop

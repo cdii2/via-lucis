@@ -88,6 +88,20 @@ bool App::setTestPattern(const std::string& pattern) {
     } else {
         return false;
     }
+    // Activating a pattern auto-pauses playback ONLY when actually Playing
+    // (F3, A35): the pattern branch in tick() early-returns, so an unpaused
+    // scheduler clock would otherwise fast-forward the skipped time in one
+    // burst on pattern-off. Guarding on Playing avoids flipping Finished->Idle
+    // via transport("pause"). Pause also sends note-offs for any demo/
+    // accompaniment notes left ringing. "off" does NOT auto-resume — the user
+    // presses play, and that path re-baselines the clock (A35). This pause is
+    // one atomic unit with the pattern activation (same held fence).
+    if (test_ != TestPattern::None &&
+        engine_.state() == PlayState::Playing) {
+        std::vector<MidiOutMsg> out;
+        engine_.transport("pause", 0, out);
+        sendAll(out);
+    }
     return true;
 }
 
