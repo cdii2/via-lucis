@@ -40,6 +40,21 @@ See [docs/BOM.md](docs/BOM.md) for the full parts list with links. Summary:
 Reference piano: **Roland FP-30X** (Bluetooth MIDI). Any piano with BLE-MIDI should
 work; piano-specific quirks are isolated behind one small interface.
 
+## Try the web UI without any hardware
+
+The phone remote can be previewed on your desk right now — a small mock device
+serves the real UI against a fake piano (stdlib Python, no dependencies):
+
+```
+python tools/mock_device.py
+```
+
+then open <http://localhost:8321>. Transport, modes, tempo, loop and track
+controls all respond; wait mode holds a pending chord so you can see the
+"play these keys" state. It's a UI preview, not a firmware simulator — the
+engine itself is covered by the native test suite (see
+[docs/SIMULATOR.md](docs/SIMULATOR.md)).
+
 ## Status
 
 **Pre-hardware.** Design is locked ([docs/SPEC.md](docs/SPEC.md)), parts are ordered,
