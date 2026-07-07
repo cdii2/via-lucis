@@ -128,4 +128,9 @@ on hardware (PROGRESS §Needs Hardware).
   validated (SMF 0/1, TPQ division, notes, <256KB). ninsheetmusic.org Cloudflare-hard-
   blocked automation (A25) → its items + MuseScore anime OSTs queued in SONGBOOK.md
   "Needs Christian" with exact URLs. songs/local/ confirmed untracked (gitignore).
-  Nothing committed — commit of songs/pd/ + docs is Christian's call.
+  (Agent left the tree uncommitted; loop committed songs/pd/ + docs as 3a21e5f —
+  local commits are in-scope, only publishing is Christian's.)
+- 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
+  esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
+  (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only
+  docs/BUILD-GUIDE.md → BRINGUP.md.
