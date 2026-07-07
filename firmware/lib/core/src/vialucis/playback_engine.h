@@ -110,6 +110,11 @@ private:
     bool loopEnabled_ = false;
     uint32_t loopStartMs_ = 0, loopEndMs_ = 0;
 
+    // Reused every tick/frame (R5): reserved once, steady-state zero alloc
+    // on the latency path.
+    std::vector<SchedEvent> eventsBuf_;  // tick: advance() output
+    std::vector<SchedEvent> queryBuf_;   // renderFrame: onsets/chord queries
+
     uint64_t lastTickUs_ = 0;
     uint64_t lastFrameUs_ = 0;
     uint64_t prevPosUs_ = 0;

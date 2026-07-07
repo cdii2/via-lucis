@@ -56,20 +56,31 @@ public:
     uint64_t durationUs() const { return duration_; }
     bool finished() const;
 
-    // Jump to a song time. Returns note-offs for everything sounding so the
-    // consumer can silence lights/MIDI.
+    // Every query below comes in two shapes (R5): the caller-owned-buffer
+    // variant (clears `out`, then fills — reuse a reserved vector for zero
+    // steady-state allocation on the frame path) and a by-value convenience
+    // overload that delegates to it.
+
+    // Jump to a song time. `out` gets note-offs for everything sounding so
+    // the consumer can silence lights/MIDI.
+    void seek(uint64_t us, std::vector<SchedEvent>& out);
     std::vector<SchedEvent> seek(uint64_t us);
 
-    // Advance real (wall-clock) time; returns due events in order.
+    // Advance real (wall-clock) time; `out` gets due events in order.
+    void advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out);
     std::vector<SchedEvent> advance(uint64_t realDeltaUs);
 
     // First note onset at or after `us` on a masked-in track (kNoOnset if none).
     uint64_t nextOnsetAfter(uint64_t us, uint32_t trackMask) const;
 
     // All note-ons at exactly `us` on masked-in tracks (a chord, for wait mode).
+    void notesOnAt(uint64_t us, uint32_t trackMask,
+                   std::vector<SchedEvent>& out) const;
     std::vector<SchedEvent> notesOnAt(uint64_t us, uint32_t trackMask) const;
 
     // Note-ons with fromUs <= onset <= toUs on masked-in tracks (ramp preview).
+    void onsetsBetween(uint64_t fromUs, uint64_t toUs, uint32_t trackMask,
+                       std::vector<SchedEvent>& out) const;
     std::vector<SchedEvent> onsetsBetween(uint64_t fromUs, uint64_t toUs,
                                           uint32_t trackMask) const;
 

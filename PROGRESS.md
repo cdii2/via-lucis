@@ -107,8 +107,10 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
 - [x] R4 — statusJson(wifi struct) sinks to core; splice in web_server dies; native
       contract test vs docs/API.md shape (wifi = last key on the wire, byte-compatible;
       other routes still omit wifi; 111 native)
-- [ ] R5 — out-param variants for Scheduler advance/seek/notesOnAt/onsetsBetween +
+- [x] R5 — out-param variants for Scheduler advance/seek/notesOnAt/onsetsBetween +
       NoteEmitter consume/allOff; reserved buffers → zero steady-state alloc
+      (A29: queries clear-then-fill, producers append; WaitMode chord buffer too;
+      by-value overloads kept — all 12+3 scheduler tests green; 115 native)
 - [ ] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);
       (void*)1 sentinel + double-free trap die; boundary math → core + tests
 - [ ] R7 (optional) — Settings field table, names byte-identical — or rejected with

@@ -5,6 +5,7 @@
 namespace vialucis {
 
 void App::begin() {
+    tickOut_.reserve(64);  // reused every tick — steady-state zero alloc
     store_.begin();
     store_.loadSettings(settings_);  // keeps defaults if absent
     engine_.configure(settings_, LedOutput::kLedCount);

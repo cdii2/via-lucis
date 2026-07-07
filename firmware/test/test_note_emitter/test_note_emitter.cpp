@@ -81,6 +81,24 @@ static void test_orphan_note_off_still_emitted() {
     TEST_ASSERT_EQUAL(MidiOutType::NoteOff, msgs[0].type);
 }
 
+// R5: producer variants APPEND to the caller's queue — the engine feeds one
+// shared out-vector per tick, so consume/allOff must never clear it.
+static void test_out_param_consume_and_all_off_append() {
+    NoteEmitter e(kTrackMaskAll);
+    std::vector<MidiOutMsg> out;
+    out.push_back({MidiOutType::Cc, 0, 64, 127});  // already queued this tick
+
+    e.consume({on(60, 0), on(64, 0)}, 0, out);
+    TEST_ASSERT_EQUAL_size_t(3, out.size());  // appended after the CC
+    TEST_ASSERT_EQUAL_UINT8(60, out[1].data1);
+
+    e.allOff(out);
+    TEST_ASSERT_EQUAL_size_t(5, out.size());  // both note-offs appended
+    TEST_ASSERT_EQUAL(MidiOutType::NoteOff, out[3].type);
+    e.allOff(out);
+    TEST_ASSERT_EQUAL_size_t(5, out.size());  // idempotent
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_demo_emits_all_tracks);
@@ -90,5 +108,6 @@ int main(int, char**) {
     RUN_TEST(test_masked_out_notes_do_not_register_echo);
     RUN_TEST(test_all_off_flushes_sounding);
     RUN_TEST(test_orphan_note_off_still_emitted);
+    RUN_TEST(test_out_param_consume_and_all_off_append);
     return UNITY_END();
 }

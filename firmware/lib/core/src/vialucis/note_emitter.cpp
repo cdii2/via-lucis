@@ -2,9 +2,8 @@
 
 namespace vialucis {
 
-std::vector<MidiOutMsg> NoteEmitter::consume(
-    const std::vector<SchedEvent>& events, uint64_t nowUs) {
-    std::vector<MidiOutMsg> out;
+void NoteEmitter::consume(const std::vector<SchedEvent>& events,
+                          uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     for (const SchedEvent& e : events) {
         if (!trackInMask(mask_, e.track)) continue;
         switch (e.type) {
@@ -25,14 +24,24 @@ std::vector<MidiOutMsg> NoteEmitter::consume(
                 break;
         }
     }
+}
+
+std::vector<MidiOutMsg> NoteEmitter::consume(
+    const std::vector<SchedEvent>& events, uint64_t nowUs) {
+    std::vector<MidiOutMsg> out;
+    consume(events, nowUs, out);
     return out;
+}
+
+void NoteEmitter::allOff(std::vector<MidiOutMsg>& out) {
+    sounding_.drain([&](const Sounding& s) {
+        out.push_back({MidiOutType::NoteOff, s.channel, s.note, 0});
+    });
 }
 
 std::vector<MidiOutMsg> NoteEmitter::allOff() {
     std::vector<MidiOutMsg> out;
-    sounding_.drain([&](const Sounding& s) {
-        out.push_back({MidiOutType::NoteOff, s.channel, s.note, 0});
-    });
+    allOff(out);
     return out;
 }
 

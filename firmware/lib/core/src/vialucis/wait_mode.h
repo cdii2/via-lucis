@@ -57,6 +57,7 @@ private:
     Scheduler& sched_;
     uint32_t mask_;
     EchoGuard* guard_ = nullptr;
+    std::vector<SchedEvent> chordBuf_;  // reused by update() — no per-tick alloc
     std::vector<uint8_t> pending_;
     std::vector<uint8_t> cleared_;  // members already struck this chord
     uint64_t barrierTime_ = kNoOnset;

@@ -21,11 +21,17 @@ public:
     void setEmitMask(uint32_t m) { mask_ = m; }
     void setEchoGuard(EchoGuard* g) { guard_ = g; }
 
-    // Feed the events a Scheduler::advance() returned; get messages to send.
+    // Feed the events a Scheduler::advance() returned; messages to send are
+    // APPENDED to `out` (R5: producers feed the caller's shared per-tick
+    // queue — they never clear it). By-value overloads for convenience.
+    void consume(const std::vector<SchedEvent>& events, uint64_t nowUs,
+                 std::vector<MidiOutMsg>& out);
     std::vector<MidiOutMsg> consume(const std::vector<SchedEvent>& events,
                                     uint64_t nowUs);
 
-    // Note-offs for everything we currently have sounding (stop/seek/panic).
+    // Note-offs for everything we currently have sounding (stop/seek/panic),
+    // appended to `out`.
+    void allOff(std::vector<MidiOutMsg>& out);
     std::vector<MidiOutMsg> allOff();
 
 private:

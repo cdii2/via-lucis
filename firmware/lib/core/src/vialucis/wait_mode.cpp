@@ -17,7 +17,8 @@ void WaitMode::armFrom(uint64_t us) {
 
 void WaitMode::update() {
     if (barrierTime_ == kNoOnset || chordLoaded_ || !sched_.atBarrier()) return;
-    for (const SchedEvent& e : sched_.notesOnAt(barrierTime_, mask_)) {
+    sched_.notesOnAt(barrierTime_, mask_, chordBuf_);
+    for (const SchedEvent& e : chordBuf_) {
         if (std::find(pending_.begin(), pending_.end(), e.note) ==
             pending_.end())
             pending_.push_back(e.note);

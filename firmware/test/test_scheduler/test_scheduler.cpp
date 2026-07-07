@@ -208,6 +208,55 @@ static void test_next_onset_respects_track_mask() {
     TEST_ASSERT_EQUAL_UINT64(kNoOnset, s.nextOnsetAfter(1, trackBit(1)));
 }
 
+// --- R5: caller-owned-buffer variants (zero steady-state alloc) ---------
+
+static void test_out_param_advance_matches_by_value_and_clears_buffer() {
+    MidiSong song = chordSong();
+    Scheduler byValue(song), byBuffer(song);
+    std::vector<SchedEvent> buf;
+    buf.push_back({SchedEventType::Pedal, 9, 9, 9, 9, 9});  // stale garbage
+
+    for (uint64_t step : {100000ull, 410000ull, 600000ull}) {
+        auto expect = byValue.advance(step);
+        byBuffer.advance(step, buf);  // must clear the stale content first
+        TEST_ASSERT_EQUAL_size_t(expect.size(), buf.size());
+        for (size_t i = 0; i < expect.size(); ++i) {
+            TEST_ASSERT_EQUAL_UINT8(expect[i].note, buf[i].note);
+            TEST_ASSERT_EQUAL(expect[i].type, buf[i].type);
+            TEST_ASSERT_EQUAL_UINT64(expect[i].timeUs, buf[i].timeUs);
+        }
+    }
+    TEST_ASSERT_EQUAL_UINT64(byValue.positionUs(), byBuffer.positionUs());
+}
+
+static void test_out_param_queries_clear_then_fill() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    std::vector<SchedEvent> buf;
+
+    s.onsetsBetween(400000, 1000000, kTrackMaskAll, buf);
+    TEST_ASSERT_EQUAL_size_t(3, buf.size());
+    s.onsetsBetween(1000001, 2000000, kTrackMaskAll, buf);
+    TEST_ASSERT_EQUAL_size_t(0, buf.size());  // cleared, not appended
+
+    s.notesOnAt(1000000, kTrackMaskAll, buf);
+    TEST_ASSERT_EQUAL_size_t(2, buf.size());  // the G4+B4 chord
+    s.notesOnAt(123, kTrackMaskAll, buf);
+    TEST_ASSERT_EQUAL_size_t(0, buf.size());
+}
+
+static void test_out_param_seek_flushes_into_buffer() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    s.advance(100000);  // C4 sounding
+    std::vector<SchedEvent> buf;
+    s.seek(700000, buf);
+    TEST_ASSERT_EQUAL_size_t(1, buf.size());  // C4's flush note-off
+    TEST_ASSERT_EQUAL(SchedEventType::NoteOff, buf[0].type);
+    TEST_ASSERT_EQUAL_UINT8(60, buf[0].note);
+    TEST_ASSERT_EQUAL_UINT64(700000, s.positionUs());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_events_arrive_in_time_windows);
@@ -222,5 +271,8 @@ int main(int, char**) {
     RUN_TEST(test_next_onset_query);
     RUN_TEST(test_onsets_between_window);
     RUN_TEST(test_next_onset_respects_track_mask);
+    RUN_TEST(test_out_param_advance_matches_by_value_and_clears_buffer);
+    RUN_TEST(test_out_param_queries_clear_then_fill);
+    RUN_TEST(test_out_param_seek_flushes_into_buffer);
     return UNITY_END();
 }

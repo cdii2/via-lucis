@@ -79,16 +79,21 @@ void Scheduler::flushSounding(uint64_t atUs, std::vector<SchedEvent>& out) {
     });
 }
 
-std::vector<SchedEvent> Scheduler::seek(uint64_t us) {
-    std::vector<SchedEvent> out;
+void Scheduler::seek(uint64_t us, std::vector<SchedEvent>& out) {
+    out.clear();
     flushSounding(us, out);
     pos_ = static_cast<double>(us);
     idx_ = indexForTime(us);
+}
+
+std::vector<SchedEvent> Scheduler::seek(uint64_t us) {
+    std::vector<SchedEvent> out;
+    seek(us, out);
     return out;
 }
 
-std::vector<SchedEvent> Scheduler::advance(uint64_t realDeltaUs) {
-    std::vector<SchedEvent> out;
+void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
+    out.clear();
     double target = pos_ + static_cast<double>(realDeltaUs) * (tempo_ / 100.0);
 
     for (int guard = 0; guard < 64; ++guard) {
@@ -110,7 +115,7 @@ std::vector<SchedEvent> Scheduler::advance(uint64_t realDeltaUs) {
         emitUpTo(stopUs, /*includeStop=*/reason != kBarrier, out);
         pos_ = stop;
 
-        if (reason == kBarrier) return out;
+        if (reason == kBarrier) return;
         if (reason == kLoop) {
             flushSounding(loopEnd_, out);
             double leftover = target - static_cast<double>(loopEnd_);
@@ -125,30 +130,48 @@ std::vector<SchedEvent> Scheduler::advance(uint64_t realDeltaUs) {
     if (!loopOn_ && pos_ > static_cast<double>(duration_) &&
         idx_ >= events_.size())
         pos_ = static_cast<double>(duration_);
+}
+
+std::vector<SchedEvent> Scheduler::advance(uint64_t realDeltaUs) {
+    std::vector<SchedEvent> out;
+    advance(realDeltaUs, out);
     return out;
 }
 
-std::vector<SchedEvent> Scheduler::notesOnAt(uint64_t us,
-                                             uint32_t trackMask) const {
-    std::vector<SchedEvent> out;
+void Scheduler::notesOnAt(uint64_t us, uint32_t trackMask,
+                          std::vector<SchedEvent>& out) const {
+    out.clear();
     for (size_t i = indexForTime(us);
          i < events_.size() && events_[i].timeUs == us; ++i) {
         const SchedEvent& e = events_[i];
         if (e.type == SchedEventType::NoteOn && trackInMask(trackMask, e.track))
             out.push_back(e);
     }
+}
+
+std::vector<SchedEvent> Scheduler::notesOnAt(uint64_t us,
+                                             uint32_t trackMask) const {
+    std::vector<SchedEvent> out;
+    notesOnAt(us, trackMask, out);
     return out;
 }
 
-std::vector<SchedEvent> Scheduler::onsetsBetween(uint64_t fromUs, uint64_t toUs,
-                                                 uint32_t trackMask) const {
-    std::vector<SchedEvent> out;
+void Scheduler::onsetsBetween(uint64_t fromUs, uint64_t toUs,
+                              uint32_t trackMask,
+                              std::vector<SchedEvent>& out) const {
+    out.clear();
     for (size_t i = indexForTime(fromUs);
          i < events_.size() && events_[i].timeUs <= toUs; ++i) {
         const SchedEvent& e = events_[i];
         if (e.type == SchedEventType::NoteOn && trackInMask(trackMask, e.track))
             out.push_back(e);
     }
+}
+
+std::vector<SchedEvent> Scheduler::onsetsBetween(uint64_t fromUs, uint64_t toUs,
+                                                 uint32_t trackMask) const {
+    std::vector<SchedEvent> out;
+    onsetsBetween(fromUs, toUs, trackMask, out);
     return out;
 }
 

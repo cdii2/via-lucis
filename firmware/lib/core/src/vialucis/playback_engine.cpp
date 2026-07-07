@@ -17,6 +17,8 @@ PlaybackEngine::PlaybackEngine() {
     leftColor_ = defaults.leftColor;
     rightColor_ = defaults.rightColor;
     wrongColor_ = defaults.wrongColor;
+    eventsBuf_.reserve(64);
+    queryBuf_.reserve(64);
 }
 
 void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
@@ -65,7 +67,7 @@ void PlaybackEngine::applyMasks() {
 }
 
 void PlaybackEngine::stopAllSound(std::vector<MidiOutMsg>& out) {
-    for (const MidiOutMsg& m : emitter_.allOff()) out.push_back(m);
+    emitter_.allOff(out);
     soundingLights_.clear();
     // The strip clears on the very next tick: a dirty frame renders
     // immediately, and with nothing sounding it comes out dark (A27).
@@ -193,7 +195,7 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     uint64_t delta = nowUs - lastTickUs_;
     lastTickUs_ = nowUs;
 
-    std::vector<SchedEvent> events = sched_->advance(delta);
+    sched_->advance(delta, eventsBuf_);
     uint64_t newPos = sched_->positionUs();
     if (newPos < prevPosUs_) {  // loop wrapped
         if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
@@ -205,11 +207,10 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     if (mode_ == Mode::Wait || mode_ == Mode::Accompaniment)
         wait_->update();
 
-    for (const MidiOutMsg& m : emitter_.consume(events, nowUs))
-        out.push_back(m);
+    emitter_.consume(eventsBuf_, nowUs, out);
 
     uint32_t lightsMask = trackCfg_.lightsMask();
-    for (const SchedEvent& e : events) {
+    for (const SchedEvent& e : eventsBuf_) {
         if (!trackInMask(lightsMask, e.track)) continue;
         if (e.type == SchedEventType::NoteOn) {
             soundingLights_.add({e.note, e.track});
@@ -243,8 +244,8 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
 
         // Ramp preview: notes coming up within the lead window.
         uint64_t lead = renderer_.ramp().leadUs;
-        for (const SchedEvent& e :
-             sched_->onsetsBetween(pos + 1, pos + lead, lightsMask))
+        sched_->onsetsBetween(pos + 1, pos + lead, lightsMask, queryBuf_);
+        for (const SchedEvent& e : queryBuf_)
             renderer_.addUpcoming(e.note, colorForTrack(e.track), e.timeUs,
                                   pos);
 
@@ -255,9 +256,9 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
         // Wait mode: the due chord at 100%.
         if ((mode_ == Mode::Wait || mode_ == Mode::Accompaniment) &&
             wait_->chordPending()) {
-            for (const SchedEvent& e : sched_->notesOnAt(
-                     wait_->barrierTimeUs(),
-                     trackCfg_.practicedMask(practice_))) {
+            sched_->notesOnAt(wait_->barrierTimeUs(),
+                              trackCfg_.practicedMask(practice_), queryBuf_);
+            for (const SchedEvent& e : queryBuf_) {
                 bool stillPending = false;
                 for (uint8_t p : wait_->pendingNotes())
                     if (p == e.note) stillPending = true;

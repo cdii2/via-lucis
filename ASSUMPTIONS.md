@@ -3,6 +3,13 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A29 (2026-07-07, R5): buffer-variant semantics split by role — Scheduler queries
+  (advance/seek/notesOnAt/onsetsBetween) CLEAR the caller's buffer then fill (reuse
+  pattern), while NoteEmitter producers (consume/allOff) APPEND (they feed the one
+  shared per-tick MIDI-out queue, so the engine passes its out-vector straight
+  through with no intermediate copy). WaitMode::update also got a reused chord
+  buffer — it queries notesOnAt every tick while holding at a barrier, which the
+  R-item list didn't name but the zero-steady-state-alloc goal requires.
 - A28 (2026-07-07, R3): dedupe shape = shared core SoundingSet<Entry> (add /
   eraseFirst-by-predicate / drain / clear) used by engine lights, scheduler timeline
   and note emitter — NOT the review's alternative of the engine reading the
