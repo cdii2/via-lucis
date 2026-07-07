@@ -111,8 +111,9 @@ PASS (grep for FAIL/ERROR) + `pio run -e esp32dev` clean + API shapes byte-compa
       NoteEmitter consume/allOff; reserved buffers → zero steady-state alloc
       (A29: queries clear-then-fill, producers append; WaitMode chord buffer too;
       by-value overloads kept — all 12+3 scheduler tests green; 115 native)
-- [ ] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);
+- [x] R6 — one body-intake module (chunk boundaries, size caps, _tempObject lifecycle);
       (void*)1 sentinel + double-free trap die; boundary math → core + tests
+      (A30: also fixes free((void*)1) on upload + double-reply bugs; 120 native)
 - [ ] R7 (optional) — Settings field table, names byte-identical — or rejected with
       logged reason
 

@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 
+#include "vialucis/body_intake.h"
+
 #if __has_include("webui_gz.h")
 #include "webui_gz.h"
 #define VIALUCIS_HAVE_WEBUI 1
@@ -25,7 +27,42 @@ void sendError(AsyncWebServerRequest* req, int code, const char* msg) {
     sendJson(req, code, out);
 }
 
-// Collects a small JSON body across chunks, then hands it to `handle`.
+// --- body intake (R6) --------------------------------------------------
+// One discipline for every request body. BodyIntake is the ONLY thing ever
+// stored in _tempObject, always heap-allocated, always deleted-and-nulled
+// on disconnect — the request destructor's blanket free(_tempObject) then
+// never fires on it (the old upload path parked (void*)1 there, which that
+// free() would have chewed on). Chunk boundary math lives in core
+// (vialucis/body_intake.h); the two sinks below act on its decisions.
+
+constexpr size_t kJsonBodyCap = 4096;
+
+struct BodyIntake {
+    String buf;            // buffer sink accumulates here
+    bool sawBody = false;  // stream sink: at least one chunk accepted
+    bool failed = false;   // reply already sent — swallow remaining chunks
+};
+
+BodyIntake& intakeFor(AsyncWebServerRequest* req) {
+    BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
+    if (!st) {
+        st = new BodyIntake();
+        req->_tempObject = st;
+        req->onDisconnect([req]() {
+            delete static_cast<BodyIntake*>(req->_tempObject);
+            req->_tempObject = nullptr;
+        });
+    }
+    return *st;
+}
+
+void intakeFail(AsyncWebServerRequest* req, int code, const char* msg) {
+    intakeFor(req).failed = true;
+    sendError(req, code, msg);
+}
+
+// Buffer sink: collect a small JSON body across chunks, then hand it to
+// `handle`.
 using JsonHandler =
     std::function<void(AsyncWebServerRequest*, JsonDocument&)>;
 
@@ -35,25 +72,18 @@ void onJsonBody(const char* path, JsonHandler handle) {
         nullptr,
         [handle](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                  size_t index, size_t total) {
-            if (total > 4096) {
-                sendError(req, 413, "body too large");
+            BodyIntake& in = intakeFor(req);
+            if (in.failed) return;  // rejected earlier; drain silently
+            ChunkPlan plan = planChunk(index, len, total, kJsonBodyCap);
+            if (plan.tooLarge) {
+                intakeFail(req, 413, "body too large");
                 return;
             }
-            String* buf =
-                reinterpret_cast<String*>(req->_tempObject);
-            if (!buf) {
-                buf = new String();
-                buf->reserve(total);
-                req->_tempObject = buf;
-                req->onDisconnect([req]() {
-                    delete reinterpret_cast<String*>(req->_tempObject);
-                    req->_tempObject = nullptr;
-                });
-            }
-            buf->concat(reinterpret_cast<const char*>(data), len);
-            if (index + len < total) return;  // more chunks coming
+            if (plan.first) in.buf.reserve(total);
+            in.buf.concat(reinterpret_cast<const char*>(data), len);
+            if (!plan.last) return;  // more chunks coming
             JsonDocument doc;
-            if (deserializeJson(doc, buf->c_str()) !=
+            if (deserializeJson(doc, in.buf.c_str()) !=
                 DeserializationError::Ok) {
                 sendError(req, 400, "bad json");
                 return;
@@ -111,36 +141,42 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
         sendJson(req, 200, out);
     });
 
-    // Raw-body upload: /api/songs?name=<file>.mid
+    // Raw-body upload (stream sink): /api/songs?name=<file>.mid
     gServer.on(
         "/api/songs", HTTP_POST,
         [](AsyncWebServerRequest* req) {
-            // final response sent from the body handler; this guards the
-            // no-body case
-            if (!req->_tempObject) sendError(req, 400, "empty upload");
+            // Final response is sent from the body handler; this guards the
+            // no-body case (and stays quiet if a reply already went out).
+            BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
+            if (st && st->failed) return;
+            if (!st || !st->sawBody) sendError(req, 400, "empty upload");
         },
         nullptr,
         [&app](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                size_t index, size_t total) {
+            BodyIntake& in = intakeFor(req);
+            if (in.failed) return;  // rejected earlier; drain silently
             if (!req->hasParam("name")) {
-                sendError(req, 400, "missing ?name=");
+                intakeFail(req, 400, "missing ?name=");
                 return;
             }
             std::string name = req->getParam("name")->value().c_str();
             if (!SongStore::validName(name)) {
-                sendError(req, 400, "bad name (want *.mid)");
+                intakeFail(req, 400, "bad name (want *.mid)");
                 return;
             }
-            if (total > SongStore::kMaxSongBytes) {
-                sendError(req, 413, "file too large (256KB max)");
+            ChunkPlan plan =
+                planChunk(index, len, total, SongStore::kMaxSongBytes);
+            if (plan.tooLarge) {
+                intakeFail(req, 413, "file too large (256KB max)");
                 return;
             }
-            req->_tempObject = reinterpret_cast<void*>(1);  // saw a body
-            if (!app.store().appendChunk(name, data, len, index == 0)) {
-                sendError(req, 500, "write failed");
+            in.sawBody = true;
+            if (!app.store().appendChunk(name, data, len, plan.first)) {
+                intakeFail(req, 500, "write failed");
                 return;
             }
-            if (index + len >= total) {
+            if (plan.last) {
                 JsonDocument doc;
                 doc["name"] = name;
                 std::string out;

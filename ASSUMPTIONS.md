@@ -3,6 +3,16 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A30 (2026-07-07, R6): the intake rewrite quietly fixes three latent REST bugs the
+  old duplicated chunk handling had — (1) the upload path parked (void*)1 in
+  _tempObject, which ESPAsyncWebServer's request destructor blanket-free()s →
+  free((void*)1) heap corruption on every completed upload; (2) an oversize JSON
+  body sent a 413 for EVERY arriving chunk (multiple replies on one request);
+  (3) a rejected upload (bad name/oversize) later triggered a second "empty upload"
+  400 from the completion callback. All three are protocol-hygiene fixes invisible
+  to a correct client; SPEC-visible behavior, routes and reply shapes unchanged.
+  BodyIntake (heap struct, delete-and-null on disconnect) is now the only thing
+  ever stored in _tempObject; a `failed` flag drains remaining chunks silently.
 - A29 (2026-07-07, R5): buffer-variant semantics split by role — Scheduler queries
   (advance/seek/notesOnAt/onsetsBetween) CLEAR the caller's buffer then fill (reuse
   pattern), while NoteEmitter producers (consume/allOff) APPEND (they feed the one
