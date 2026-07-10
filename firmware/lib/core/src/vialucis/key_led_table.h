@@ -7,10 +7,30 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 #include "vialucis/key_led_map.h"
 
 namespace vialucis {
+
+// One measured calibration point: "this key sits under this LED" —
+// the wizard's (LED ↔ note) primitive (DESIGN-lightshow §5).
+struct Landmark {
+    uint8_t note = 0;
+    uint16_t led = 0;
+};
+
+// Typed table/builder failures — C3 maps these to REST 400 messages.
+enum class TableError : uint8_t {
+    None,
+    TooFewLandmarks,   // multi-point needs >= 2
+    BadLandmarkNote,   // outside the 88 keys
+    BadLandmarkLed,    // outside the strip
+    UnsortedLandmarks, // notes must strictly ascend
+    DirectionMixed,    // LED sequence must be strictly one-directional
+    RangeOffStrip,     // an entry escapes [0, ledCount) or is inverted
+    Overlap,           // adjacent (valid) keys share LEDs
+};
 
 class KeyLedTable {
 public:
@@ -44,8 +64,29 @@ private:
 namespace TableBuilder {
 
 // The 2-point tier: the old two-setting math (offsetMm + ledsPerMeter)
-// filling the table — integer-identical to calling the v1 formula per key.
-KeyLedTable fromTwoPoint(const LedMapConfig& cfg);
+// filling the table — integer-identical to calling the v1 formula per key
+// when `reversed` is false. `reversed` mirrors the built table for
+// right-to-left strip installations (LED 0 at the treble end).
+KeyLedTable fromTwoPoint(const LedMapConfig& cfg, bool reversed = false);
+
+// The multi-point tier: piecewise-linear interpolation between measured
+// (note, led) landmarks — key-center mm (standard cluster model as the
+// shape prior) maps to fractional LED position through the landmark knots;
+// end segments extrapolate. A strictly DESCENDING led sequence is a
+// reversed mount and mirrors the result. Adjacent-key collisions after
+// rounding shrink toward ascending order (a key emptied by the shrink goes
+// valid=false — too-coarse strips light one key rather than two wrong ones).
+TableError fromLandmarks(const std::vector<Landmark>& landmarks,
+                         uint16_t ledCount, KeyLedTable& out);
+
+// The invariants every stored/PUT table must satisfy (C-wave charter):
+// in-strip, one consistent direction, adjacent valid keys never overlap.
+// Gaps (valid=false keys) are fine — they render dark, as today.
+// On failure `badKey` (if given) names the offending MIDI note.
+TableError validate(const KeyLedTable& t, uint8_t* badKey = nullptr);
+
+// The table mirrored across the strip (index i -> ledCount-1-i).
+KeyLedTable mirrored(const KeyLedTable& t);
 
 }  // namespace TableBuilder
 

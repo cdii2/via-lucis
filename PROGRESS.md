@@ -254,7 +254,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       to v1 across default + fuzzed settings. "Byte-identical" defined (OV4): integer
       equality of all 88 `LedRange` values (and resulting frames) — no float
       tolerance, no rounding slack.
-- [ ] C2 — remaining builders + validation, plus a global strip-direction
+- [x] C2 — remaining builders + validation, plus a global strip-direction
       (reversed-mount) flag so right-to-left installations work (OV4; dead/shared
       LEDs stay out of scope — brief §5's hardware precondition): multi-point
       (piecewise-linear between

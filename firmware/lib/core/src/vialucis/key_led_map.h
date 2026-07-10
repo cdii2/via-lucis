@@ -26,9 +26,16 @@ struct LedRange {
     bool valid = false;
 };
 
+// Margin keeping neighboring keys from claiming the same LED — shared by
+// every builder that maps key edges to LEDs.
+constexpr float kKeyEdgeMarginMm = 1.0f;
+
 // Center of a key in mm right of the A0 key's left edge; negative if the note
 // is outside the 88-key range (21..108).
 float keyCenterMm(uint8_t midiNote);
+
+// Rear-cluster slot width of a key in mm (C-E vs F-B group); 0 outside 21..108.
+float keySlotWidthMm(uint8_t midiNote);
 
 // LEDs to light for a key. Ranges of adjacent keys never overlap; keys whose
 // slot falls off the strip return valid=false.

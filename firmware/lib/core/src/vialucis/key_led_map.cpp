@@ -8,8 +8,7 @@ namespace {
 constexpr float kOctaveMm = 164.5f;
 constexpr float kCeSlot = 70.5f / 5.0f;   // C,C#,D,D#,E
 constexpr float kFbSlot = 94.0f / 7.0f;   // F,F#,G,G#,A,A#,B
-// Margin keeps neighboring keys from claiming the same LED.
-constexpr float kEdgeMarginMm = 1.0f;
+constexpr float kEdgeMarginMm = kKeyEdgeMarginMm;
 
 // Center of each note-in-octave, mm from the octave's C left edge.
 constexpr float kCenterInOctave[12] = {
@@ -45,6 +44,11 @@ float virtualPos(uint8_t midiNote) {
 float keyCenterMm(uint8_t midiNote) {
     if (midiNote < 21 || midiNote > 108) return -1.0f;
     return virtualPos(midiNote) - kA0LeftEdge;
+}
+
+float keySlotWidthMm(uint8_t midiNote) {
+    if (midiNote < 21 || midiNote > 108) return 0.0f;
+    return slotWidth((midiNote - 12) % 12);
 }
 
 LedRange ledsForNote(uint8_t midiNote, const LedMapConfig& cfg) {

@@ -3,6 +3,24 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A37 (2026-07-10, C2): multi-point builder maps in mm-space — piecewise-linear
+  (note→keyCenterMm, led) knots with the standard cluster model as the shape
+  prior, end segments extrapolating; key slot edges (± the shared 1mm margin,
+  now kKeyEdgeMarginMm in key_led_map.h) map through the knots so slot widths
+  scale with local density. Uniformly-stretched keyboards come out exact;
+  genuinely irregular ones are what the per-key tier is for. Strip direction:
+  a strictly-descending landmark LED sequence IS a reversed mount (built
+  canonical, then mirrored — no separate flag needed for the measured tier);
+  fromTwoPoint grows a `reversed` default-false param (mirror after the
+  v1-identical build) since its two scalars can't express direction. Rounding
+  collisions between adjacent keys shrink upward (first = prevLast+1); a key
+  emptied by the shrink goes valid=false — on a too-coarse strip one dark key
+  beats two wrongly-lit ones. fromTwoPoint deliberately gets NO shrink sweep
+  (byte-identity with v1 outranks the invariant; v1's own coarse fallback can
+  collide). validate() = the REST-boundary invariant check (typed TableError +
+  offending key for C3's 400s): in-strip, non-inverted, ONE consistent
+  direction, adjacent valid keys never overlap; gaps of invalid keys fine.
+  132 → 144 native tests.
 - A36 (2026-07-10, C1): KeyLedTable = a class holding std::array<LedRange,88>
   + a ledCount, copied by value into FrameRenderer (≈530 B — same
   copy-of-config style the renderer already used for LedMapConfig; no dangling
