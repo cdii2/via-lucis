@@ -43,6 +43,10 @@ bool ModeDirector::setPresentation(bool on) {
     if (on && !engine_.songLoaded()) return false;
     if (presentation_ != on) engine_.markFrameDirty();
     presentation_ = on;
+    // Leaving presentation ends any playing show — the two states must
+    // never desync (a hidden still-playing show would 409 every upload
+    // and keep the song clock audibly running; P-wave closing review).
+    if (!on) showPlaying_ = false;
     return true;
 }
 

@@ -15,8 +15,32 @@ namespace {
 
 AsyncWebServer gServer(80);
 
+// CORS (P2, proven by the P-POC): the off-device editor talks to these
+// routes from file:// (Origin: null) and LAN pages. `*` covers null
+// origins; the Private-Network-Access header keeps Chrome's public→private
+// preflight happy when it starts enforcing.
+void addCors(AsyncWebServerResponse* res) {
+    res->addHeader("Access-Control-Allow-Origin", "*");
+    res->addHeader("Access-Control-Allow-Methods",
+                   "GET, POST, PUT, DELETE, OPTIONS");
+    res->addHeader("Access-Control-Allow-Headers", "Content-Type");
+    res->addHeader("Access-Control-Allow-Private-Network", "true");
+}
+
 void sendJson(AsyncWebServerRequest* req, int code, const std::string& body) {
-    req->send(code, "application/json", body.c_str());
+    AsyncWebServerResponse* res =
+        req->beginResponse(code, "application/json", body.c_str());
+    addCors(res);
+    req->send(res);
+}
+
+// A bare 204 still needs the CORS header set, or a browser DELETE reports
+// failure after the server succeeded (the fetch sees no Allow-Origin on the
+// response). Route every 204 through here.
+void send204(AsyncWebServerRequest* req) {
+    AsyncWebServerResponse* res = req->beginResponse(204);
+    addCors(res);
+    req->send(res);
 }
 
 void sendError(AsyncWebServerRequest* req, int code, const char* msg) {
@@ -45,6 +69,11 @@ struct BodyIntake {
     std::string name;      // stream sink: validated once on the first chunk
     bool sawBody = false;  // stream sink: at least one chunk accepted
     bool failed = false;   // reply already sent — swallow remaining chunks
+    // Invoked on disconnect if still set (cleared on success). A stream sink
+    // that starts writing a file registers a discard here so a mid-upload
+    // disconnect never leaves a truncated file counting against quota
+    // (SHOW-FORMAT §3 promises the partial is discarded).
+    std::function<void()> cleanup;
 };
 
 BodyIntake& intakeFor(AsyncWebServerRequest* req) {
@@ -53,7 +82,9 @@ BodyIntake& intakeFor(AsyncWebServerRequest* req) {
         st = new BodyIntake();
         req->_tempObject = st;
         req->onDisconnect([req]() {
-            delete static_cast<BodyIntake*>(req->_tempObject);
+            BodyIntake* s = static_cast<BodyIntake*>(req->_tempObject);
+            if (s && s->cleanup) s->cleanup();
+            delete s;
             req->_tempObject = nullptr;
         });
     }
@@ -223,7 +254,7 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        sendError(req, 404, "no such song");
                        return;
                    }
-                   req->send(204);
+                   send204(req);
                });
 
     // --- tracks ------------------------------------------------------------
@@ -384,6 +415,14 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                     return;
                 }
             }
+            if (plan.first) {
+                // From here on a file exists on flash; if the connection
+                // drops before plan.last, discard the truncated remnant.
+                std::string discardName = in.name;
+                in.cleanup = [&app, discardName]() {
+                    app.store().removeShow(discardName);
+                };
+            }
             in.sawBody = true;
             if (!app.store().appendShowChunk(in.name, data, len,
                                              plan.first)) {
@@ -391,6 +430,7 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                 return;
             }
             if (plan.last) {
+                in.cleanup = nullptr;  // complete — keep the file
                 JsonDocument doc;
                 doc["name"] = in.name;
                 std::string out;
@@ -435,7 +475,7 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        sendError(req, 404, "no such show");
                        return;
                    }
-                   req->send(204);
+                   send204(req);
                });
 
     // --- AFK playlist (E3) ---------------------------------------------
@@ -534,6 +574,14 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     });
 
     gServer.onNotFound([](AsyncWebServerRequest* req) {
+        // Cross-origin JSON requests preflight with OPTIONS — answer them
+        // for every /api route (the P-POC editor path depends on it).
+        if (req->method() == HTTP_OPTIONS) {
+            AsyncWebServerResponse* res = req->beginResponse(204);
+            addCors(res);
+            req->send(res);
+            return;
+        }
         sendError(req, 404, "not found");
     });
 

@@ -126,9 +126,11 @@ changes mid-show keep Free-run continuous (named P2 test).
 ## 5. Editor (P3) & distribution
 
 - Lives OFF-device in `editor/` (VL3 recommendation): a single-file static
-  app (piano-roll over the loaded MIDI via `@tonejs/midi`, canvas timeline,
-  effect clips with span/scope/drive, grouping+nesting), compiling to the
-  cue stream + JSON twin, uploading via `/api/shows`.
+  app (piano-roll over the loaded MIDI via a BUILT-IN SMF parser — a CDN
+  dependency like `@tonejs/midi` can't load from `file://`, the proven
+  distribution; canvas timeline, effect clips with span/scope/drive,
+  grouping+nesting), compiling to the cue stream + JSON twin, uploading
+  via `/api/shows`.
 - **Distribution: a release artifact** (`editor.html`) the user downloads
   and opens locally — `file://` + CORS proven by the P-POC. The repo/Pages
   page links the download; it does NOT host the live editor (mixed-content

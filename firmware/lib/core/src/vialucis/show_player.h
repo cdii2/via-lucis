@@ -53,13 +53,15 @@ public:
     uint16_t ledCount() const { return ledCount_; }
 
 private:
-    // Fire note-driven bindings whose clip-local time falls in the window
-    // (prevClip, curClip] and their note-offs; then render the shared effect.
-    void driveNoteBinds(const ShowCue& cue, fx::NoteDriven* nd,
-                        int64_t prevSongMs, uint32_t songMs);
-    // Build the scope mask for `cue` into mask_ (returns true for scope 0 =
-    // whole strip, where mask_ is not consulted).
-    bool buildMask(const ShowCue& cue);
+    // Fire note events (ons AND offs, one time-sorted list per cue) whose
+    // clip-local time the cursor has reached — O(1) amortized per frame,
+    // the repeat-cue cursor pattern (P-wave closing review).
+    void driveNoteBinds(size_t cueIndex, fx::NoteDriven* nd,
+                        uint32_t songMs);
+    // Build the scope mask for cue `ci` into mask_ from its precomputed
+    // 88-key bitmap (returns true for scope 0 = whole strip, mask unused).
+    // Bounded O(88) per active cue regardless of bind count.
+    bool buildMask(size_t ci);
     const fx::Palette16* paletteForCue(const ShowCue& cue) const;
 
     Show show_;
@@ -69,9 +71,18 @@ private:
 
     std::vector<std::unique_ptr<fx::Effect>> effects_;  // by effectIndex
     std::vector<fx::NoteDriven*> nd_;                    // notedriven or null
-    // Per cue, note-off time (clip-local ms) for each bind: min(onset+300,
-    // next same-note onset). Precomputed at load (index-parallel to cue.binds).
-    std::vector<std::vector<uint32_t>> noteOffMs_;
+
+    // Per cue: 88-key scope bitmap (11 bytes — NOT a per-LED mask cache,
+    // which would cost ledCount bytes × cues) + the time-sorted note
+    // on/off event list with its cursor.
+    struct BindEvent {
+        uint32_t clipMs;
+        uint8_t note;
+        bool off;
+    };
+    std::vector<std::array<uint8_t, 11>> keyBits_;
+    std::vector<std::vector<BindEvent>> bindEvents_;
+    std::vector<size_t> bindCursor_;
 
     std::vector<Rgb> scratch_;    // one effect's frame
     std::vector<uint8_t> mask_;   // scope mask (1 = in scope)

@@ -21,17 +21,15 @@ void AfkPlayer::setTable(const KeyLedTable& t) {
     haveSpan_ = false;
     for (uint8_t n = KeyLedTable::kFirstNote;
          n < KeyLedTable::kFirstNote + KeyLedTable::kKeyCount; ++n) {
-        LedRange r = t.forNote(n);
+        LedRange r = t.forNoteOrdered(n);  // one normalization (P-review)
         if (!r.valid) continue;
-        uint16_t lo = std::min(r.first, r.last);
-        uint16_t hi = std::max(r.first, r.last);
         if (!haveSpan_) {
-            spanFirst_ = lo;
-            spanLast_ = hi;
+            spanFirst_ = r.first;
+            spanLast_ = r.last;
             haveSpan_ = true;
         } else {
-            spanFirst_ = std::min(spanFirst_, lo);
-            spanLast_ = std::max(spanLast_, hi);
+            spanFirst_ = std::min(spanFirst_, r.first);
+            spanLast_ = std::max(spanLast_, r.last);
         }
     }
 }

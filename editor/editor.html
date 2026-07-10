@@ -400,18 +400,19 @@ function bakeCue(c, opacityMult, offsetMs, effIndex, palettes){
   // scope payload
   let scope;
   if(c.scopeType === 1) scope = { type:1, lo:c.lo & 0x7f, hi:c.hi & 0x7f };
-  else if(c.scopeType === 2) scope = { type:2, notes:(c.notes||[]).map(n=>n&0x7f) };
+  else if(c.scopeType === 2) scope = { type:2, notes:(c.notes||[]).map(n=>n&0x7f).slice(0,255) }; // count is a u8 on the wire
   else if(c.scopeType === 3){
     // NOTE-BINDING — bake the song's actual notes inside the (offset) span
     const from = c.startMs, to = c.openEnded ? currentDuration() : c.endMs;
     const bound = [];
     if(song) for(const n of song.notes)
-      if(n.onMs >= from && n.onMs < to) bound.push({ onsetMs: Math.round(n.onMs + offsetMs), note: n.note & 0x7f });
+      if(n.onMs >= from && n.onMs < to) bound.push({ onsetMs: Math.max(0, Math.round(n.onMs + offsetMs)), note: n.note & 0x7f });
     bound.sort((a,b)=>a.onsetMs-b.onsetMs);
     scope = { type:3, bound };
   } else scope = { type:0 };
   return { startMs, endMs, effectIndex: effIndex, blend: c.blend & 1, opacity,
-           drive: c.drive & 1, scopeType: c.scopeType, paletteRef, speed, flags: 0, scope };
+           drive: c.drive & 1, scopeType: c.scopeType, paletteRef, speed, flags: 0, scope,
+           lane: c.lane };  // lane: sort tiebreaker only, not encoded
 }
 function customPalette(a, b){
   const pa = hex2rgb(a), pb = hex2rgb(b), out = [];
@@ -441,8 +442,10 @@ function compile(){
       for(const c of members)
         cues.push(bakeCue(c, mult, off, effIndexOf(c.effect), palettes));
   }
-  // stream order = render order (later over earlier). stable by start then lane.
-  cues.sort((a,b)=> (a.startMs-b.startMs) );
+  // stream order = render order (later over earlier). Tie on startMs: the
+  // LOWER lane must render on top (SHOW-FORMAT §1), i.e. appear LATER in the
+  // stream — so order ties by descending lane (higher lane first, lower last).
+  cues.sort((a,b)=> (a.startMs-b.startMs) || (b.lane-a.lane) );
 
   return {
     magic: "VLS1", versionMajor: EMIT_MAJOR, versionMinor: EMIT_MINOR,
@@ -758,7 +761,7 @@ function renderInspector(){
   set("i_scope","change",e=>{ c.scopeType=parseInt(e.target.value); renderAll(); });
   set("i_lo","change",e=>{ c.lo=clamp(parseInt(e.target.value)||0,0,127); draw(); });
   set("i_hi","change",e=>{ c.hi=clamp(parseInt(e.target.value)||0,0,127); draw(); });
-  set("i_notes","change",e=>{ c.notes=e.target.value.split(",").map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)); });
+  set("i_notes","change",e=>{ c.notes=e.target.value.split(",").map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)&&n>=0&&n<=127).slice(0,255); });
   set("i_drive","change",e=>{ c.drive=parseInt(e.target.value); renderAll(); });
   set("i_blend","change",e=>{ c.blend=parseInt(e.target.value); });
   set("i_op","input",e=>{ c.opacity=parseFloat(e.target.value); el("i_opv").textContent=c.opacity.toFixed(2); draw(); });
@@ -783,7 +786,7 @@ function renderGroups(){
       <div class="top"><input type="text" class="gname" value="${esc(g.name)}" style="width:120px">
         <button class="btn small danger gdel">ungroup</button></div>
       <div class="sub">${n} clip(s) · opacity mult <input type="range" class="gop" min="0" max="1" step="0.01" value="${g.opacity}" style="width:90px"><span class="gopv">${g.opacity.toFixed(2)}</span></div>
-      <div class="sub">Instances (offset ms): <input type="number" class="goff" placeholder="ms" style="width:80px;min-height:28px"><button class="btn small gadd">+ instance</button>
+      <div class="sub">Instances (offset ms): <input type="number" class="goff" min="0" placeholder="ms" style="width:80px;min-height:28px"><button class="btn small gadd">+ instance</button>
         <div>${(g.instances||[]).map((o,i)=>`<span class="ins">+${o}ms <button class="btn small girm" data-i="${i}" style="min-height:20px;padding:0 5px">×</button></span>`).join("")}</div></div>
     </div>`;
   }).join("");
@@ -794,7 +797,7 @@ function renderGroups(){
       groups=groups.filter(x=>x.id!==g.id); renderAll(); });
     const op=node.querySelector(".gop"); op.addEventListener("input",e=>{ g.opacity=parseFloat(e.target.value);
       node.querySelector(".gopv").textContent=g.opacity.toFixed(2); });
-    node.querySelector(".gadd").addEventListener("click",()=>{ const v=parseInt(node.querySelector(".goff").value);
+    node.querySelector(".gadd").addEventListener("click",()=>{ const v=Math.max(0,parseInt(node.querySelector(".goff").value));
       if(!isNaN(v)){ g.instances=g.instances||[]; g.instances.push(v); renderGroups(); } });
     node.querySelectorAll(".girm").forEach(b=>b.addEventListener("click",()=>{ g.instances.splice(parseInt(b.dataset.i),1); renderGroups(); }));
   });
@@ -984,6 +987,11 @@ function runSelfTest(){
   A(setCue && JSON.stringify(setCue.scope.notes)===JSON.stringify([36,48,60]), "scope2 note set [36,48,60]");
   // speed fixed-point
   A(m.cues.find(c=>c.effectIndex===m.effects.indexOf("rainbow")).speed===32, "speed 2.0×16=32");
+  // z-order: clips A(lane0), C(lane2), D(lane3) all start at 0 — stream order
+  // must be descending lane (higher lane earlier, lower lane last/on-top).
+  const zeroStart = m.cues.filter(c=>c.startMs===0);
+  let zorder=true; for(let i=1;i<zeroStart.length;i++) if(zeroStart[i].lane>zeroStart[i-1].lane) zorder=false;
+  A(zorder && zeroStart[zeroStart.length-1].lane===0, "z-order: lower lane renders later (on top)");
 
   // group flatten check: group the two clips, add an instance, expect doubled cues + opacity mult
   clips[0].groupId = 0; // reset

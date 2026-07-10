@@ -15,7 +15,9 @@ struct Reader {
     size_t pos = 0;
     bool bad = false;
 
-    bool need(size_t n) const { return pos + n <= len; }
+    // Overflow-safe on 32-bit targets: n is attacker-controlled wire data,
+    // and pos+n can wrap size_t there (P-wave closing review).
+    bool need(size_t n) const { return n <= len - pos && pos <= len; }
 
     uint8_t u8() {
         if (!need(1)) { bad = true; return 0; }
@@ -68,6 +70,8 @@ ShowResult parseMeta(Reader& r, size_t end, ShowMeta& meta) {
     while (r.pos < end) {
         uint8_t c = r.u8();
         if (c == 0) break;
+        if (meta.name.size() >= 48)  // the documented cap IS the contract
+            return mk(ShowResult::Kind::BadSection);
         meta.name.push_back(static_cast<char>(c));
     }
     return mk(ShowResult::Kind::Ok);
@@ -118,6 +122,11 @@ ShowResult parsePalettes(Reader& r, size_t end,
 ShowResult parseCues(Reader& r, size_t end, std::vector<ShowCue>& out) {
     uint16_t count = r.u16();
     if (r.bad) return mk(ShowResult::Kind::Truncated);
+    // The count is wire data: a 2-byte section claiming 0xFFFF cues must
+    // not reserve megabytes before the per-cue checks run (P-wave closing
+    // review). 16 bytes is a cue's minimum encoding.
+    if (static_cast<size_t>(count) * 16 > end - r.pos)
+        return mk(ShowResult::Kind::BadCue);
     out.clear();
     out.reserve(count);
     for (uint16_t i = 0; i < count; ++i) {

@@ -448,12 +448,26 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       *(2026-07-10: editor.html, single-file/offline — a BUILT-IN SMF parser
       replaced @tonejs/midi (no CDN allowed from file://); binary self-test
       15/15 round-trip; formatVersion handshake; .vlp project format for
-      re-editable authoring. Cue sort = startMs; lane-precedence z-order
-      flagged as a later design call.)*
+      re-editable authoring. Cue sort = startMs, ties broken by descending
+      lane so the lower lane renders on top (SHOW-FORMAT §1 z-order — settled
+      in the P-wave closing review, A52).)*
 - [ ] P4 — score-follow clock: **gated on its own grilled design session (VL6)** —
       advances on match via wait-mode's machinery, tolerant of wrong/extra/skipped.
       Do not start from the current brief alone.
-- [ ] closing /code-review over the wave diff.
+      *(2026-07-10 build run: deliberately NOT built — the gate is the plan's
+      own. Everything it needs is staged: clockSource 2 is reserved in the
+      format and refused with a typed error, the editor shows it disabled,
+      and TLV sections extend v1 streams without migration. Next step is the
+      /grilling session with Christian, then P4 builds against its output.)*
+- [x] closing /code-review over the wave diff — 8 angles (4 paired agents).
+      Applied: show.cpp overflow/DoS/name-length guards; show_player reworked
+      to bounded per-frame work (per-cue 88-key bitmaps, sorted BindEvent
+      cursors); director owns start policy + setPresentation(false) clears the
+      show; app stopShowLocked shared teardown; web_server CORS send204 on
+      DELETE + partial-upload discard; editor note-set clamp + lane z-order +
+      offset clamp; tools/vls_dump.py added. Deferred-with-reasons + full
+      list in A52. Regression tests: director mid-show clear, parseCues DoS.
+      285 → 287 native tests; esp32 flash 48.0% / RAM 22.0%.
 
 Deferred beyond v2 (open items in the brief, untouched by this plan): falling-notes
 view, extended blend modes, show export/share format + xLights import, AFK starter
@@ -577,6 +591,19 @@ catalog curation, BOM scaling guidance.
   (entangled configure wiring, A44); PS-roundtrip of a .cpp mangled UTF-8
   once (restored from git — the Temper lesson holds here too; use
   [System.IO.File] with explicit UTF8 for byte-safe rewrites).
+- 2026-07-10 v2 build run — **E-WAVE + P-WAVE NOW CLOSED (all five waves
+  C→Q→M→E→P done).** E-wave closing review landed (A50). P-wave: P-POC/P0/P1/
+  P2/P3 built, P-wave closing review applied (A52) — show.cpp overflow/DoS/
+  name guards, show_player reworked to bounded per-frame work, director owns
+  show start policy + setPresentation(false) clears the show, app
+  stopShowLocked teardown, web_server CORS send204 on DELETE + partial-upload
+  discard, editor note-set clamp + lane z-order + offset clamp, tools/
+  vls_dump.py added. Regression tests: director mid-show clear, parseCues DoS.
+  **287 native tests ALL PASS; esp32dev SUCCESS (flash 48.0%, RAM 22.0%).**
+  P4 score-follow deliberately NOT built (gated on VL6 — Christian's grilled
+  design session). A half-applied batch left one compile error (buildMask arg)
+  found+fixed by running the native gate before layering the remaining edits —
+  the lesson holds: verify the tree compiles before stacking new work.
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

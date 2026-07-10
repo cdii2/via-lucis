@@ -254,7 +254,8 @@ void test_presentation_plays_a_show_on_the_song_clock() {
     ShowCue cue;  // whole-strip autonomous rainbow, open-ended
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);
-    r.director.startShow(std::move(s), 7);
+    gOut.clear();
+    r.director.startShow(std::move(s), 7, gOut);
     TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
     // App wiring emulated: free-run = follow mode + play.
     gOut.clear();
@@ -287,12 +288,37 @@ void test_show_dies_with_the_song() {
     ShowCue cue;
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);
-    r.director.startShow(std::move(s), 7);
+    gOut.clear();
+    r.director.startShow(std::move(s), 7, gOut);
     TEST_ASSERT_TRUE(r.director.showPlaying());
     r.unload();
     r.tick(2 * kSec);
     TEST_ASSERT_FALSE(r.director.showPlaying());
     TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Reactive);
+}
+
+// P-wave closing regression: leaving Presentation mid-show must clear
+// showPlaying(), or a hidden still-playing show would 409 every subsequent
+// upload and keep the song clock running with the strip back in Practice.
+void test_leaving_presentation_midshow_clears_show_playing() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    Show s;
+    s.effects.push_back("rainbow");
+    ShowCue cue;
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    gOut.clear();
+    r.director.startShow(std::move(s), 7, gOut);
+    TEST_ASSERT_TRUE(r.director.showPlaying());
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
+    // Song stays loaded — this is NOT an unload; it is the explicit exit.
+    TEST_ASSERT_TRUE(r.director.setPresentation(false));
+    TEST_ASSERT_FALSE_MESSAGE(r.director.showPlaying(),
+        "leaving Presentation must not leave a show playing (upload 409 desync)");
+    TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
 // --- the probe as a director-owned forced source (moved from C3) -----------
@@ -398,6 +424,7 @@ int main(int, char**) {
     RUN_TEST(test_afk_plays_the_configured_playlist_not_the_fallback);
     RUN_TEST(test_presentation_plays_a_show_on_the_song_clock);
     RUN_TEST(test_show_dies_with_the_song);
+    RUN_TEST(test_leaving_presentation_midshow_clears_show_playing);
     RUN_TEST(test_reactive_free_play_glows_and_decays);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);

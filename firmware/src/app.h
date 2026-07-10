@@ -85,6 +85,7 @@ public:
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
     void touchWriteActivity();  // fenced callers only
+    void stopShowLocked();      // shared show-teardown; caller holds lock_
     // transport() body without the fence; caller must already hold lock_
     // (used by setTestPattern's auto-pause under its own guard).
     bool transportLocked(const std::string& action, uint32_t positionMs);
@@ -115,6 +116,14 @@ private:
     // Loop-task tick buffer, reused every iteration (REST calls use locals —
     // they run on the HTTP task).
     std::vector<MidiOutMsg> tickOut_;
+
+    // Practice mode/hand as last chosen via REST — a show hijacks the
+    // sub-mode for its clock, so stopping one restores what the player had
+    // (P-wave closing review; the engine doesn't expose these).
+    std::string lastMode_ = "wait";
+    std::string lastPractice_ = "both";
+    std::string preShowMode_, preShowPractice_;
+    bool preShowValid_ = false;
 };
 
 }  // namespace vialucis

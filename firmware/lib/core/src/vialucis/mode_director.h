@@ -54,10 +54,21 @@ public:
     // the song (mode demo), Free-run = tempo-scaled follow. The caller
     // (App) sets the practice sub-mode + transport; this starts the show
     // frame source and flips Presentation on.
-    void startShow(Show&& show, uint32_t seed) {
+    // Owns the WHOLE start policy (closing review): the clock source picks
+    // the practice sub-mode (Demo = the device plays; Free-run = tempo-
+    // scaled follow), a leftover practice loop is cleared (a loop wrap
+    // would hard-reset every effect mid-performance), and playback starts
+    // from the top. Note-offs the transport emits land in `out`.
+    void startShow(Show&& show, uint32_t seed,
+                   std::vector<MidiOutMsg>& out) {
+        uint8_t clock = show.meta.clockSource;
         showPlayer_.load(std::move(show), table_, seed);
         showPlaying_ = true;
         presentation_ = true;
+        engine_.setMode(clock == 0 ? "demo" : "follow", "both", out);
+        engine_.setLoop(false, 0, 0);
+        engine_.transport("stop", 0, out);
+        engine_.transport("play", 0, out);
         engine_.markFrameDirty();
     }
     void stopShow() {

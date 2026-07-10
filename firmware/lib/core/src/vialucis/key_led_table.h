@@ -47,6 +47,19 @@ public:
         return ranges_[midiNote - kFirstNote];
     }
 
+    // Same, with first <= last guaranteed (reversed tables store descending
+    // ranges) — THE normalization every mask/span consumer uses (P-wave
+    // closing review: AfkPlayer and ShowPlayer each hand-rolled it).
+    LedRange forNoteOrdered(uint8_t midiNote) const {
+        LedRange r = forNote(midiNote);
+        if (r.valid && r.first > r.last) {
+            uint16_t t = r.first;
+            r.first = r.last;
+            r.last = t;
+        }
+        return r;
+    }
+
     void set(uint8_t midiNote, const LedRange& r) {
         if (midiNote < kFirstNote || midiNote >= kFirstNote + kKeyCount)
             return;

@@ -17,6 +17,7 @@ matcher and LED pipeline are natively tested instead (see docs/SIMULATOR.md).
 """
 import json
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -256,9 +257,8 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, self._status())
                 return
             # upload: /api/shows?name=<n>.vls
-            import urllib.parse as _up
-            q = _up.urlparse(self.path).query
-            name = _up.parse_qs(q).get("name", [""])[0]
+            q = urllib.parse.urlparse(self.path).query
+            name = urllib.parse.parse_qs(q).get("name", [""])[0]
             n = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(n)
             if not name.endswith(".vls"):

@@ -536,6 +536,22 @@ void test_note_binding_drive() {
     TEST_ASSERT_TRUE(peakAt(out, table, 60) > 0);
 }
 
+// (l) parseCues count-DoS: a CUES section whose u16 count claims far more
+// records than its bytes can hold must be rejected (BadCue) BEFORE any
+// reserve — never trust the count into an allocation (P-wave closing review).
+void test_cue_count_dos() {
+    StreamBuilder sb;
+    sb.add(1, metaSection(0, 100, "x"));
+    sb.add(2, effectsSection({"rainbow"}));
+    // CUES payload is JUST the u16 count = 0xFFFF, with zero cue bytes after.
+    sb.add(4, std::vector<uint8_t>{0xFF, 0xFF});
+    std::vector<uint8_t> bytes = sb.build();
+    Show show;
+    ShowResult r = Show::parse(bytes.data(), bytes.size(), show);
+    TEST_ASSERT_EQUAL(ShowResult::Kind::BadCue, r.kind);
+    TEST_ASSERT_EQUAL_size_t(0, show.cues.size());  // nothing reserved/parsed
+}
+
 }  // namespace
 
 int main() {
@@ -551,5 +567,6 @@ int main() {
     RUN_TEST(test_compositor_blends);
     RUN_TEST(test_clip_local_determinism);
     RUN_TEST(test_note_binding_drive);
+    RUN_TEST(test_cue_count_dos);
     return UNITY_END();
 }

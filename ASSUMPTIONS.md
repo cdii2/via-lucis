@@ -3,6 +3,36 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A52 (2026-07-10, P-wave closing review): 8 angles, 4 paired finder agents.
+  APPLIED — show.cpp: Reader::need 32-bit-wrap guard, parseCues count×16 ≤
+  remaining check BEFORE reserve (count-DoS), META name >48 ⇒ BadSection.
+  show_player REWORKED for bounded per-frame work: per-cue 88-key scope
+  bitmaps (O(88) masks, not O(binds) rebuilds), time-sorted BindEvent lists +
+  per-cue cursors (replaces the O(cues) pointer-identity self-lookup),
+  buildMask/driveNoteBinds keyed by cue INDEX, backward seek rewinds cursors,
+  forNoteOrdered() normalizes lo/hi once. mode_director: startShow owns the
+  WHOLE start policy (clock→sub-mode, loop clear, stop+play) and
+  setPresentation(false) clears showPlaying_ (state-desync — a hidden playing
+  show would 409 every upload). app: lastMode_/lastPractice_ snapshot +
+  stopShowLocked() shared teardown (no-ops on stray stop, never halts live
+  practice, restores pre-show mode). web_server: CORS layer + send204() for
+  both DELETE routes (a bare 204 with no Allow-Origin fails the browser fetch)
+  + BodyIntake.cleanup discards a truncated .vls on mid-upload disconnect.
+  editor.html: note-set count clamped to 255 (u8 wire count) + CSV validated
+  to 0..127, compile() z-order tiebreak by descending lane (lower lane renders
+  on top per SHOW-FORMAT §1 — this SETTLES the "later design call" P3 flagged),
+  group-instance offset min=0 + onset clamp (negatives wrapped via >>>0).
+  tools/vls_dump.py written (binary→JSON twin, stdlib, byte-identical to the
+  editor's jsonTwin — verified by round-trip). DEFERRED with reasons —
+  upload-quota TOCTOU across parallel uploads (single-user device, ~960KB
+  partition headroom); song-upload lacking the show path's busy-guard (v1
+  contract: song uploads during playback were always allowed); web_server
+  upload-handler parameterization + song_store binary-helper dedupe (2 call
+  sites; revisit at a third); ShowPlay device-enum lacking message() (two
+  "busy" literals, cosmetic); ShowCue in-RAM ~2.4× wire (typical shows small,
+  64KB cap bounds it). P4 score-follow NOT built (gated on VL6). One leftover
+  compile error from the half-applied batch fixed (buildMask(cue)→buildMask(ci)).
+  285 → 287 native tests; esp32 flash 48.0%, RAM 22.0%.
 - A51 (2026-07-10, P1+P2): the show core's spec resolutions are recorded in
   show.h/show_player.h headers (TooLarge kind added; stable-sort preserves
   stream z-order for equal starts; unknown scopeType = BadCue since its

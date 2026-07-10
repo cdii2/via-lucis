@@ -105,7 +105,26 @@ bool App::unloadSong() {
 bool App::setPresentation(bool on) {
     FenceGuard g(lock_);
     touchWriteActivity();
+    if (!on && director_.showPlaying()) {
+        stopShowLocked();  // leaving presentation ends the show properly
+        return true;
+    }
     return director_.setPresentation(on);
+}
+
+// Shared show teardown (caller holds the fence): stop rendering, halt the
+// transport, and give the player back the practice mode/hand they had.
+void App::stopShowLocked() {
+    bool wasPlaying = director_.showPlaying();
+    director_.stopShow();
+    if (!wasPlaying) return;  // stray /api/shows/stop must not halt practice
+    transportLocked("stop", 0);
+    if (preShowValid_) {
+        std::vector<MidiOutMsg> out;
+        engine_.setMode(preShowMode_, preShowPractice_, out);
+        sendAll(out);
+        preShowValid_ = false;
+    }
 }
 
 std::string App::afkJson() {
@@ -138,33 +157,32 @@ App::ShowPlay App::playShow(const std::string& name, std::string* err) {
     if (!store_.readShow(name, data)) return ShowPlay::NotFound;
     Show show;
     ShowResult r = Show::parse(data.data(), data.size(), show);
+    std::vector<uint8_t>().swap(data);  // drop the 64KB buffer pre-fence
     if (!r.ok()) {
         if (err) *err = r.message();
         return ShowPlay::BadStream;
     }
-    uint8_t clock = show.meta.clockSource;  // 0=demo, 1=freeRun (2 refused)
     FenceGuard g(lock_);
     touchWriteActivity();
     if (!engine_.songLoaded()) return ShowPlay::NoSong;
     if (engine_.state() == PlayState::Playing && !director_.showPlaying())
         return ShowPlay::Busy;  // don't hijack a live practice session
-    // The clock source picks the practice sub-mode driving the Scheduler:
-    // Demo = the device plays the song; Free-run = tempo-scaled follow.
+    preShowMode_ = lastMode_;   // restored when the show stops
+    preShowPractice_ = lastPractice_;
+    preShowValid_ = true;
+    // The director owns the whole start policy (clock → sub-mode, loop
+    // clear, from-the-top transport); we deliver its MIDI side effects.
     std::vector<MidiOutMsg> out;
-    engine_.setMode(clock == 0 ? "demo" : "follow", "both", out);
-    sendAll(out);
     director_.startShow(std::move(show),
-                        static_cast<uint32_t>(esp_timer_get_time()));
-    transportLocked("stop", 0);   // from the top…
-    transportLocked("play", 0);   // …and rolling
+                        static_cast<uint32_t>(esp_timer_get_time()), out);
+    sendAll(out);
     return ShowPlay::Ok;
 }
 
 bool App::stopShow() {
     FenceGuard g(lock_);
     touchWriteActivity();
-    director_.stopShow();  // back to Practice (presentation off)
-    transportLocked("stop", 0);
+    stopShowLocked();
     return true;
 }
 
@@ -204,6 +222,10 @@ bool App::setMode(const std::string& mode, const std::string& practice) {
     std::vector<MidiOutMsg> out;
     bool ok = engine_.setMode(mode, practice, out);
     sendAll(out);
+    if (ok) {  // remember the player's own choice (show stop restores it)
+        lastMode_ = mode;
+        lastPractice_ = practice.empty() ? "both" : practice;
+    }
     return ok;
 }
 
