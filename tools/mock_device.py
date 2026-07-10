@@ -46,7 +46,9 @@ settings = {
     "repeatCueEnabled": True, "repeatColor": "#FFFFFF",
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
+    "afkTimeoutSec": 180,
 }
+top = {"presentation": False, "last_activity": time.time()}
 songs = [
     {"name": "clair-de-lune.mid", "size": 4321},
     {"name": "ode-to-joy.mid", "size": 1290},
@@ -139,7 +141,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def _status(self):
         advance()
+        idle = int(time.time() - top["last_activity"])
+        has_song = bool(state["song"])
+        if has_song:
+            mode = "presentation" if top["presentation"] else "practice"
+        elif settings["afkTimeoutSec"] and idle >= settings["afkTimeoutSec"]:
+            mode = "afk"
+        else:
+            mode = "reactive"
         return {"version": "0.1.0-mock", **state,
+                "topMode": mode, "idleSec": idle,
+                "afkTimeoutSec": settings["afkTimeoutSec"],
                 "wifi": {"mode": "sta", "ip": "127.0.0.1"}}
 
     def _body(self):
@@ -172,6 +184,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
+        top["last_activity"] = time.time()  # writes reset the idle clock
+        if self.path == "/api/topmode":
+            b = self._body()
+            m = b.get("mode")
+            if m == "presentation":
+                if not state["song"]:
+                    self._json(400, {"error": "no song loaded"})
+                    return
+                top["presentation"] = True
+            elif m == "practice":
+                top["presentation"] = False
+            else:
+                self._json(400, {"error": "bad mode"})
+                return
+            self._json(200, self._status())
+            return
+        if self.path == "/api/songs/unload":
+            state.update(song="", positionMs=0, state="idle",
+                         loop={"enabled": False, "startMs": 0, "endMs": 0})
+            top["presentation"] = False
+            self._json(200, self._status())
+            return
         if self.path == "/api/transport":
             b = self._body()
             a = b.get("action")

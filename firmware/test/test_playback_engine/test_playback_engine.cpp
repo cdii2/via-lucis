@@ -530,6 +530,26 @@ void test_pause_gap_play_re_baselines_no_burst() {
     TEST_ASSERT_TRUE(advanced >= 90000 && advanced <= 110000);
 }
 
+// --- M3: top-mode status growth ---------------------------------------------
+
+void test_status_top_fields_before_wifi_which_stays_last() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong());
+    WifiStatus w{"sta", "10.0.0.9"};
+    TopStatus t{"practice", 42, 180};
+    std::string s = e.statusJson(&w, &t);
+    TEST_ASSERT_TRUE(s.find("\"topMode\":\"practice\"") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"idleSec\":42") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"afkTimeoutSec\":180") != std::string::npos);
+    // wifi remains the FINAL key on the wire (R4 contract).
+    size_t wifiPos = s.find("\"wifi\":");
+    TEST_ASSERT_TRUE(wifiPos != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"topMode\":") < wifiPos);
+    // Without top, the fields are absent — non-status routes unchanged.
+    std::string bare = e.statusJson();
+    TEST_ASSERT_TRUE(bare.find("topMode") == std::string::npos);
+}
+
 // --- C3/M2: the geometry table seam (probe tests moved to
 // test_mode_director with the M2 lift) ------------------------------------
 
@@ -629,5 +649,6 @@ int main(int, char**) {
     RUN_TEST(test_pause_gap_play_re_baselines_no_burst);
     RUN_TEST(test_set_table_overrides_configure_geometry);
     RUN_TEST(test_unload_while_playing_flushes_and_clears);
+    RUN_TEST(test_status_top_fields_before_wifi_which_stays_last);
     return UNITY_END();
 }

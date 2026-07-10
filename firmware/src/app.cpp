@@ -37,6 +37,7 @@ void App::begin() {
                                calib_).ok())
         calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount);
     engine_.setTable(calib_.table);
+    director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
     leds_.begin(settings_.brightness);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
@@ -151,7 +152,10 @@ bool App::setTestPattern(const std::string& pattern) {
 
 std::string App::statusJson(const WifiStatus* wifi) {
     FenceGuard g(lock_);
-    return engine_.statusJson(wifi);
+    uint64_t now = static_cast<uint64_t>(esp_timer_get_time());
+    TopStatus top{ModeDirector::topModeName(director_.topMode(now)),
+                  director_.idleSec(now), director_.idleTimeoutSec()};
+    return engine_.statusJson(wifi, &top);
 }
 
 void App::applySettings(bool calibScalarsChanged) {
@@ -169,6 +173,7 @@ void App::applySettings(bool calibScalarsChanged) {
         touchWriteActivity();
         engine_.configure(settings_);
         if (rebuild) engine_.setTable(calib_.table);
+        director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
         leds_.setBrightness(settings_.brightness);
     }
     // Flash write UNFENCED (F-wave review R1): settings_ is HTTP-task-owned —

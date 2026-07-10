@@ -360,7 +360,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
         AFK NEVER fires while a song is loaded (hard req).
         Forced sources above ALL modes: test pattern · probe dot.
       ```
-- [ ] M3 — status/API surface: `topMode` (+ idle fields) added to `/api/status`;
+- [x] M3 — status/API surface: `topMode` (+ idle fields) added to `/api/status`;
       mode-entry routes per VL2; webui mode surface. Existing `mode` field semantics
       untouched.
 - [ ] closing /code-review over the wave diff.

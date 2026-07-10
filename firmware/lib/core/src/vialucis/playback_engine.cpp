@@ -426,7 +426,8 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
     return renderer_.frame();
 }
 
-std::string PlaybackEngine::statusJson(const WifiStatus* wifi) const {
+std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
+                                       const TopStatus* top) const {
     JsonDocument doc;
     doc["version"] = kVersion;
     doc["song"] = songName_;
@@ -473,6 +474,12 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi) const {
     JsonArray pending = doc["pendingNotes"].to<JsonArray>();
     if (wait_ && barrierMode())
         for (uint8_t n : wait_->pendingNotes()) pending.add(n);
+
+    if (top) {  // M3 growth — appended before wifi (wifi stays last)
+        doc["topMode"] = top->mode;
+        doc["idleSec"] = top->idleSec;
+        doc["afkTimeoutSec"] = top->afkTimeoutSec;
+    }
 
     if (wifi) {
         JsonObject w = doc["wifi"].to<JsonObject>();

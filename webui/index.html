@@ -358,6 +358,10 @@ input[type=color] {
         <button data-hand="right">Right</button>
       </div>
     </div>
+    <div class="row" id="presRow" style="display:none;margin-top:10px">
+      <label class="name" for="presToggle">Presentation (light show)</label>
+      <span class="tog"><input type="checkbox" id="presToggle" aria-label="Presentation mode"><span class="tr"></span></span>
+    </div>
   </div>
 
   <div class="card">
@@ -425,6 +429,12 @@ input[type=color] {
     <input type="range" id="s_previewCap" min="0" max="100" step="1">
     <div class="row"><label for="s_leadMs">Lookahead lead time</label><span class="valout" id="v_leadMs">1000 ms</span></div>
     <input type="range" id="s_leadMs" min="0" max="3000" step="50">
+  </div>
+
+  <div class="card set-grid">
+    <h2>Ambient lights</h2>
+    <div class="row"><label for="s_afkTimeoutSec">Start after idle (seconds)</label><input type="number" id="s_afkTimeoutSec" data-key="afkTimeoutSec" step="30" min="0" max="86400"></div>
+    <div class="note-txt">With no song loaded, the strip drifts into an ambient show after this long. 0 = never. A key press or any control wakes it instantly — and it can never start while a song is loaded.</div>
   </div>
 
   <div class="card set-grid">
@@ -653,12 +663,23 @@ function pollBle() {
 function renderStatus(s) {
   var hasSong = !!s.song;
 
-  // song + state
+  // song + state (+ top mode, M3: ambient states show instead of "idle")
   $("songName").textContent = hasSong ? s.song : "No song loaded";
   $("btnUnload").style.display = hasSong ? "" : "none";
   var badge = $("stateBadge");
-  badge.textContent = s.state;
-  badge.className = "badge " + s.state;
+  if (!hasSong && s.topMode === "afk") {
+    badge.textContent = "ambient";
+    badge.className = "badge";
+  } else if (s.topMode === "presentation") {
+    badge.textContent = "show";
+    badge.className = "badge waiting";
+  } else {
+    badge.textContent = s.state;
+    badge.className = "badge " + s.state;
+  }
+  $("presRow").style.display = hasSong ? "" : "none";
+  if (document.activeElement !== $("presToggle"))
+    $("presToggle").checked = s.topMode === "presentation";
   $("fwVersion").textContent = "v" + s.version;
 
   // wifi chip
@@ -1029,6 +1050,7 @@ function applySettings(s, quiet) {
   }
   setIf("s_repeatFloorMs", s.repeatFloorMs);
   setIf("s_repeatWaitPulseMs", s.repeatWaitPulseMs);
+  setIf("s_afkTimeoutSec", s.afkTimeoutSec);
   settingsLoaded = true;
 }
 
@@ -1060,6 +1082,12 @@ $("s_leadMs").addEventListener("input", function () {
 $("s_brightness").addEventListener("input", function () {
   $("v_brightness").textContent = $("s_brightness").value;
   queueSetting("brightness", +$("s_brightness").value);
+});
+$("presToggle").addEventListener("change", function () {
+  var mode = $("presToggle").checked ? "presentation" : "practice";
+  api("POST", "/api/topmode", { mode: mode })
+    .then(function (s) { if (s) renderStatus(s); })
+    .catch(function (e) { toast(e.message, true); });
 });
 $("btnUnload").addEventListener("click", function () {
   api("POST", "/api/songs/unload")

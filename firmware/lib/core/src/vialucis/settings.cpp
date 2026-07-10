@@ -55,6 +55,7 @@ std::string Settings::toJson() const {
     doc["repeatFillPeakPct"] = repeatFillPeakPct;
     doc["repeatFloorMs"] = repeatFloorMs;
     doc["repeatWaitPulseMs"] = repeatWaitPulseMs;
+    doc["afkTimeoutSec"] = afkTimeoutSec;
     std::string out;
     serializeJson(doc, out);
     return out;
@@ -118,6 +119,9 @@ bool Settings::fromJson(const char* json, Settings& out) {
     if (o["repeatWaitPulseMs"].is<uint32_t>())
         out.repeatWaitPulseMs =
             std::min<uint32_t>(o["repeatWaitPulseMs"].as<uint32_t>(), 1000);
+    if (o["afkTimeoutSec"].is<uint32_t>())
+        out.afkTimeoutSec =
+            std::min<uint32_t>(o["afkTimeoutSec"].as<uint32_t>(), 86400);
 
     // The collision guard cuts BOTH ways: a wrongColor edit that lands on
     // the current repeatColor is rejected too (Q-wave closing review).

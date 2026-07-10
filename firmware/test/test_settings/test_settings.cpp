@@ -96,6 +96,8 @@ static void test_to_json_emits_exactly_the_contract_field_names() {
         // existing changed.
         "repeatCueEnabled", "repeatColor", "repeatFillStartPct",
         "repeatFillPeakPct", "repeatFloorMs", "repeatWaitPulseMs",
+        // M3 growth: the AFK idle timeout.
+        "afkTimeoutSec",
     };
     constexpr size_t kCount = sizeof(kContract) / sizeof(kContract[0]);
 
@@ -146,6 +148,14 @@ static void test_repeat_cue_fields_round_trip_and_clamp() {
         "{\"repeatFillPeakPct\":250,\"repeatFloorMs\":99999}", clamp));
     TEST_ASSERT_EQUAL_UINT8(100, clamp.repeatFillPeakPct);
     TEST_ASSERT_EQUAL_UINT32(1000, clamp.repeatFloorMs);
+
+    // M3: afkTimeoutSec — default 180, 0 allowed (never), clamped to a day.
+    Settings afk;
+    TEST_ASSERT_EQUAL_UINT32(180, afk.afkTimeoutSec);
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"afkTimeoutSec\":0}", afk));
+    TEST_ASSERT_EQUAL_UINT32(0, afk.afkTimeoutSec);
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"afkTimeoutSec\":999999}", afk));
+    TEST_ASSERT_EQUAL_UINT32(86400, afk.afkTimeoutSec);
 }
 
 static void test_wrong_red_repeat_color_rejected() {

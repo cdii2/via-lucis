@@ -30,7 +30,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
       {"index": 0, "name": "Right", "hand": "right", "lights": true}
     ],
     "pendingNotes": [60, 64],         // wait mode: keys currently owed
-    "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap
+    "topMode": "practice",            // v2 M3: reactive | afk | practice | presentation
+    "idleSec": 12,                    // seconds since the last activity
+    "afkTimeoutSec": 180,             // mirror of the setting (0 = never)
+    "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap — LAST key
   }
   ```
   The UI polls this (~2×/s while open). Cheap to serve; no allocation storms.
@@ -72,6 +75,22 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     are sent to the piano while wait mode watches the practiced hand.
   - `demo`/`follow` ignore `practice`.
 
+## Top mode (v2 M-wave)
+
+The four top modes sit ABOVE the practice sub-modes: Reactive ⇄ AFK with no
+song (idle timeout arms AFK; any key or state-changing call wakes it — and
+AFK can never fire while a song is loaded), Practice ⇄ Presentation with
+one. Only the Practice⇄Presentation edge is directly settable; the rest
+follow from song state and activity.
+
+- `POST /api/topmode` body `{"mode": "presentation"}` or `{"mode": "practice"}`
+  → `200` + status JSON, `400 no song loaded` (presentation needs one),
+  `400 bad mode`. Unloading the song drops presentation automatically.
+- The AFK idle timeout is the `afkTimeoutSec` setting (0 = never).
+- `POST /api/songs/unload` → `200` + status JSON: back to the no-song state
+  (song/transport/loop cleared; settings, calibration and the idle clock
+  untouched — but the call itself counts as activity).
+
 ## Tempo / loop
 
 - `POST /api/tempo` body `{"percent": 85}` (1–500, clamped) → `200`.
@@ -90,7 +109,8 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "wifiSsid": "HomeNet", "wifiPass": "...",
     "repeatCueEnabled": true, "repeatColor": "#FFFFFF",
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
-    "repeatFloorMs": 35, "repeatWaitPulseMs": 60
+    "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
+    "afkTimeoutSec": 180
   }
   ```
   The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —

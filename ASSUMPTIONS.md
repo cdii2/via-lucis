@@ -3,6 +3,18 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A46 (2026-07-10, M3): top-mode surface — /api/status grows topMode/idleSec/
+  afkTimeoutSec (before wifi; wifi stays the LAST key per R4; absent on
+  non-status routes — TopStatus is an optional param like WifiStatus). The
+  idle timeout is a SETTINGS scalar per VL2 (`afkTimeoutSec`, default 180,
+  0=never, clamped to a day) — the settings key set grew (contract test
+  updated). Mode entry = POST /api/topmode {"mode":"presentation"|"practice"}
+  — only the Practice⇄Presentation edge is settable; Reactive/AFK follow from
+  song state + activity. Webui: state badge reads "ambient"/"show" for
+  afk/presentation, a Presentation toggle appears with a loaded song, and
+  Settings gained an "Ambient lights" card. Mock server mirrors the whole
+  surface (idle-derived topMode; writes reset its idle clock). 187 → 188
+  native tests.
 - A45 (2026-07-10, M2): ModeDirector = core class holding a PlaybackEngine&
   (App owns both; declared after engine_). Song-loaded truth is READ LIVE
   from engine_.songLoaded() — no mirrored flag. The probe moved from the

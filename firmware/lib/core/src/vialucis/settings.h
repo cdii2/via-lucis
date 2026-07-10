@@ -50,6 +50,10 @@ struct Settings {
     uint32_t repeatFloorMs = 35;
     uint32_t repeatWaitPulseMs = 60;
 
+    // AFK idle timeout (M3, brief §1): seconds of no-song inactivity before
+    // ambient lighting arms. 0 = never.
+    uint32_t afkTimeoutSec = 180;
+
     std::string toJson() const;
     // Tolerant: missing fields keep current values; false only on unparseable
     // input. Numeric fields are clamped to sane ranges.

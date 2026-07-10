@@ -310,6 +310,24 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    sendJson(req, 200, app.settings().toJson());
                });
 
+    // --- top mode (M3) -----------------------------------------------------
+    onJsonBody("/api/topmode",
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   std::string mode = doc["mode"] | "";
+                   bool on;
+                   if (mode == "presentation") on = true;
+                   else if (mode == "practice") on = false;
+                   else {
+                       sendError(req, 400, "bad mode");
+                       return;
+                   }
+                   if (!app.setPresentation(on)) {
+                       sendError(req, 400, "no song loaded");
+                       return;
+                   }
+                   sendJson(req, 200, app.statusJson());
+               });
+
     // --- calibration (C3) --------------------------------------------------
     gServer.on("/api/calibration", HTTP_GET,
                [&app](AsyncWebServerRequest* req) {
