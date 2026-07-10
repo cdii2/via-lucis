@@ -6,7 +6,9 @@
 // its 70.5mm evenly across 5 keys (14.1mm slots) and the F-B group divides its
 // 94mm across 7 keys (~13.43mm slots). Origin = left edge of the A0 key.
 //
-// Calibration is exactly two user settings (SPEC): offsetMm and ledsPerMeter.
+// v2 (DESIGN-lightshow §5): this formula is no longer read directly by the
+// renderer — it survives as the math behind TableBuilder::fromTwoPoint (the
+// 2-point calibration tier). offsetMm and ledsPerMeter are that tier's inputs.
 
 #include <cstdint>
 

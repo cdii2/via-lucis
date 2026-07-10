@@ -104,7 +104,8 @@ private:
     std::unique_ptr<Scheduler> sched_;
     std::unique_ptr<WaitMode> wait_;
     NoteEmitter emitter_{0};
-    FrameRenderer renderer_{LedMapConfig{}, RampConfig{}};
+    FrameRenderer renderer_{TableBuilder::fromTwoPoint(LedMapConfig{}),
+                            RampConfig{}};
     TrackConfig trackCfg_;
     Rgb leftColor_, rightColor_, wrongColor_;
 

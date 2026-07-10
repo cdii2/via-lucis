@@ -21,7 +21,7 @@ void FrameRenderer::clear() {
 }
 
 void FrameRenderer::paint(uint8_t note, Rgb color, Layer layer) {
-    LedRange range = ledsForNote(note, map_);
+    LedRange range = table_.forNote(note);
     if (!range.valid) return;
     for (uint16_t i = range.first; i <= range.last && i < frame_.size(); ++i) {
         if (layer > layer_[i]) {

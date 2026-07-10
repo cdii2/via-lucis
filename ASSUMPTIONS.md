@@ -3,6 +3,19 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A36 (2026-07-10, C1): KeyLedTable = a class holding std::array<LedRange,88>
+  + a ledCount, copied by value into FrameRenderer (≈530 B — same
+  copy-of-config style the renderer already used for LedMapConfig; no dangling
+  refs, no indirection on the frame path). Default-constructed table = zero
+  LEDs / every key invalid (real tables come from builders); PlaybackEngine's
+  member initializer builds TableBuilder::fromTwoPoint(LedMapConfig{}) so the
+  pre-configure() default behavior is byte-identical to v1. TableBuilder is a
+  namespace (fromTwoPoint today; C2 adds the rest). ledsForNote stays public
+  as the builder's math and the tests' v1 oracle — production render code no
+  longer calls it (grep-verified: FrameRenderer::paint was the only site).
+  Characterization = integer equality (OV4): 88 ranges over 200 fuzzed
+  configs + degenerate configs (0 density / 0 LEDs / far offset) + LED-level
+  frame comparison over 20 fuzzed configs. 126 → 132 native tests.
 - A35 (2026-07-07, F3): test-pattern clock — App::setTestPattern auto-pauses
   playback when (and only when) engine_.state()==Playing at activation: build a
   local std::vector<MidiOutMsg>, engine_.transport("pause",0,out), sendAll(out).

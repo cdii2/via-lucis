@@ -248,7 +248,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 ### C-wave — calibration: per-key LED table (the reopened LOCK)
 
-- [ ] C1 — core `KeyLedTable` (88 per-key `LedRange` entries) replaces the formula at
+- [x] C1 — core `KeyLedTable` (88 per-key `LedRange` entries) replaces the formula at
       every read site; `TableBuilder::fromTwoPoint(offsetMm, ledsPerMeter)` = the old
       math filling the table. Characterization FIRST: table-built frames byte-identical
       to v1 across default + fuzzed settings. "Byte-identical" defined (OV4): integer

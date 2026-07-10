@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "vialucis/key_led_map.h"
+#include "vialucis/key_led_table.h"
 
 namespace vialucis {
 
@@ -24,9 +24,11 @@ struct RampConfig {
 
 class FrameRenderer {
 public:
-    FrameRenderer(const LedMapConfig& map, const RampConfig& ramp)
-        : map_(map), ramp_(ramp), frame_(map.ledCount),
-          layer_(map.ledCount, Layer::None) {}
+    // Geometry comes ONLY from the per-key table (VL1) — the renderer never
+    // re-derives it from settings.
+    FrameRenderer(const KeyLedTable& table, const RampConfig& ramp)
+        : table_(table), ramp_(ramp), frame_(table.ledCount()),
+          layer_(table.ledCount(), Layer::None) {}
 
     void clear();
 
@@ -48,7 +50,7 @@ private:
 
     void paint(uint8_t note, Rgb color, Layer layer);
 
-    LedMapConfig map_;
+    KeyLedTable table_;
     RampConfig ramp_;
     std::vector<Rgb> frame_;
     std::vector<Layer> layer_;

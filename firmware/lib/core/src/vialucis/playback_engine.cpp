@@ -23,7 +23,8 @@ PlaybackEngine::PlaybackEngine() {
 
 void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
     guard_.setWindowUs(static_cast<uint64_t>(s.echoWindowMs) * 1000);
-    renderer_ = FrameRenderer(s.ledMapConfig(ledCount), s.rampConfig());
+    renderer_ = FrameRenderer(TableBuilder::fromTwoPoint(s.ledMapConfig(ledCount)),
+                              s.rampConfig());
     leftColor_ = s.leftColor;
     rightColor_ = s.rightColor;
     wrongColor_ = s.wrongColor;

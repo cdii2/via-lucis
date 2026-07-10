@@ -14,7 +14,7 @@ static const Rgb kRed{255, 0, 0};
 static FrameRenderer makeRenderer() {
     LedMapConfig map;  // defaults: 180/m, 360 LEDs
     RampConfig ramp;   // defaults: cap 0.45, lead 1s
-    return FrameRenderer(map, ramp);
+    return FrameRenderer(TableBuilder::fromTwoPoint(map), ramp);
 }
 
 static bool allBlack(const FrameRenderer& r) {
