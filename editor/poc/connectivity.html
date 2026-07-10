@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Via Lucis — editor↔device connectivity POC</title>
+<style>
+body { font-family: ui-monospace, Consolas, monospace; background:#0d0e11; color:#ece9e2; padding:20px; max-width:720px; margin:0 auto; }
+h1 { font-size:1.1rem; color:#f0b44c; }
+input { background:#1d2026; color:#ece9e2; border:1px solid #2a2d35; padding:8px; border-radius:6px; width:280px; }
+button { background:#f0b44c; color:#1c1305; border:none; padding:8px 16px; border-radius:6px; font-weight:700; cursor:pointer; }
+table { border-collapse:collapse; margin-top:16px; width:100%; font-size:0.85rem; }
+td,th { border:1px solid #2a2d35; padding:6px 8px; text-align:left; }
+.ok { color:#37c871; } .fail { color:#e5484d; } .warn { color:#f0b44c; }
+#ctx { color:#8f8d86; font-size:0.8rem; margin:8px 0; }
+</style>
+</head>
+<body>
+<h1>Via Lucis — editor↔device connectivity POC (P-POC / OV1)</h1>
+<p id="ctx"></p>
+<p>
+  Device base URL:
+  <input id="base" value="http://localhost:8321">
+  <button id="run">Run matrix</button>
+</p>
+<table id="results"><tr><th>Check</th><th>Result</th><th>Detail</th></tr></table>
+<script>
+// Proves (or breaks) the VL3 assumptions BEFORE the P-wave builds on them:
+// an OFF-device editor page — HTTPS-hosted, file://, or served on the
+// device's own AP — must be able to GET and POST/PUT JSON against the
+// device API. Failure classes this page tells apart: CORS rejection,
+// mixed-content block (https page → http device: fetch never leaves the
+// browser), network unreachable, HTTP error.
+var ctx = document.getElementById("ctx");
+ctx.textContent = "This page is running from origin: " +
+  (location.origin === "null" ? "null (file://)" : location.origin) +
+  " · protocol " + location.protocol;
+
+function row(name, cls, result, detail) {
+  var tr = document.createElement("tr");
+  tr.innerHTML = "<td>" + name + "</td><td class='" + cls + "'>" + result +
+                 "</td><td>" + detail + "</td>";
+  document.getElementById("results").appendChild(tr);
+}
+
+function classify(e, base) {
+  // A https page fetching a http device is a mixed-content block — the
+  // request never leaves the browser (spec-mandated; CORS can't fix it).
+  if (location.protocol === "https:" && base.indexOf("http:") === 0)
+    return "mixed-content block (https page → http device) — expected per spec";
+  return "TypeError from fetch = CORS rejection or network unreachable: " + e;
+}
+
+async function check(name, base, path, opts) {
+  try {
+    var r = await fetch(base + path, opts);
+    var body = await r.text();
+    if (r.ok) row(name, "ok", "PASS " + r.status, body.slice(0, 80));
+    else row(name, "warn", "HTTP " + r.status, body.slice(0, 80));
+    return r.ok;
+  } catch (e) {
+    row(name, "fail", "BLOCKED", classify(e, base));
+    return false;
+  }
+}
+
+document.getElementById("run").addEventListener("click", async function () {
+  document.querySelectorAll("#results tr:not(:first-child)")
+    .forEach(function (r) { r.remove(); });
+  var base = document.getElementById("base").value.replace(/\/$/, "");
+  // 1. Simple GET (no preflight).
+  await check("GET /api/status", base, "/api/status");
+  // 2. GET of a document resource.
+  await check("GET /api/calibration", base, "/api/calibration");
+  // 3. JSON POST — triggers a CORS preflight (OPTIONS) cross-origin.
+  await check("POST /api/transport (JSON body ⇒ preflight)", base,
+              "/api/transport",
+              { method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "pause" }) });
+  // 4. PUT — the show-upload verb the P-wave editor needs.
+  await check("PUT /api/settings (upload verb)", base, "/api/settings",
+              { method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({}) });
+  row("— context —", "warn", location.origin === "null" ? "file://" :
+      location.origin, "matrix run " + new Date().toISOString());
+});
+</script>
+</body>
+</html>

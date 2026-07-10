@@ -391,12 +391,19 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 ### P-wave — presentation: the light-show DAW (brief §4; heaviest, last)
 
-- [ ] P-POC — browser↔device connectivity proof (OV1; runnable any time after C4
+- [x] P-POC — browser↔device connectivity proof (OV1; runnable any time after C4
       exists, MUST pass before P0 closes): a static page opened three ways —
       HTTPS-hosted, `file://`, and on the device's AP — exercising GET/POST against
       the mock server and (once hardware exists) the real device. Proves the
       CORS / Private-Network-Access / mixed-content / `Origin: null` assumptions
       behind VL3 before months of momentum are behind them. An afternoon.
+      *DONE 2026-07-10 (`editor/poc/`): file:// (Origin null) + CORS `*` +
+      preflight PASSES against the mock — the downloadable-editor path is
+      proven; HTTPS-hosted → http device is a spec-mandated mixed-content
+      BLOCK (CORS can't fix it), so Pages can host the download, not the
+      live editor. Device firmware must ship ACAO:*, OPTIONS 204, and
+      Allow-Private-Network (mock mirrors all three). Real-device re-run
+      stays in Needs Hardware.*
 - [ ] P0 — design pass, no code (hardened per eng review 2A): baked cue-stream binary
       format spec **with a version field + compatibility rule** (device refuses
       newer-major streams with a typed error, never garbage rendering), minimum blend
