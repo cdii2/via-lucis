@@ -173,7 +173,7 @@ axis: HTTP (async_tcp task) vs loop task — A32's three races and nothing else.
       sections, derived loop status, transportLocked dedupe, configASSERT,
       honesty edits in A33/A34/A35 + accessor boundary comments).
 
-## v2 — Aesthetic & show systems (planned 2026-07-09, not started)
+## v2 — Aesthetic & show systems (planned 2026-07-09, built + closed 2026-07-10)
 
 Executes `docs/DESIGN-lightshow.md` (grilled 2026-07-09). Five waves, ordered
 **C → Q → M → E → P** by dependency: geometry first (everything downstream reads the
