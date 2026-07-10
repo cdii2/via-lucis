@@ -136,7 +136,12 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
           <select id="clockSource">
             <option value="0">Demo</option>
             <option value="1">Free-run</option>
-            <option value="2" disabled>Score-follow (needs firmware P4)</option>
+            <option value="2">Score-follow</option>
+          </select>
+        </label>
+        <label class="inl" id="followTrackWrap" style="display:none">Follow track
+          <select id="followTrack" title="Which MIDI track the score-follow clock listens to. Auto lets the device pick.">
+            <option value="255">Auto</option>
           </select>
         </label>
       </div>
@@ -447,9 +452,11 @@ function compile(){
   // stream — so order ties by descending lane (higher lane first, lower last).
   cues.sort((a,b)=> (a.startMs-b.startMs) || (b.lane-a.lane) );
 
+  const ftRaw = parseInt(el("followTrack").value, 10);
   return {
     magic: "VLS1", versionMajor: EMIT_MAJOR, versionMinor: EMIT_MINOR,
     clockSource: parseInt(el("clockSource").value,10) & 0xff,
+    followTrack: Number.isNaN(ftRaw) ? 0xFF : (ftRaw & 0xff),  // 0xFF = Auto; encoded only for score-follow
     durationMs: currentDuration(),
     showName: showNameSan(),
     effects, palettes, cues
@@ -459,10 +466,12 @@ function compile(){
 /* ------------------------- .vls ENCODER (SHOW-FORMAT §1) --------------- */
 function encodeVls(m){
   // META (type 1): u8 clockSource · u32 durationMs · zero-terminated name (<=48 bytes)
+  //                · [only when clockSource==2] u8 followTrackIndex (0xFF = Auto)
   const meta = new BW();
   meta.u8(m.clockSource).u32(m.durationMs);
   let nm = m.showName; while(new TextEncoder().encode(nm).length > 47) nm = nm.slice(0,-1);
   meta.str0(nm);
+  if(m.clockSource === 2) meta.u8(m.followTrack ?? 0xFF);  // P4 (VL6 Q6/Q14): score-follow's follow track
   // EFFECTS (type 2): u8 count · count x zero-terminated name
   const eff = new BW(); eff.u8(m.effects.length); for(const n of m.effects) eff.str0(n);
   // PALETTES (type 3): u8 count · count x 16*3 RGB
@@ -497,7 +506,7 @@ function decodeVls(u8){
   if(magic !== "VLS1") throw new Error("bad magic");
   const versionMajor = u8[p++], versionMinor = u8[p++];
   const sectionCount = dv.getUint16(p,true); p += 2;
-  const m = { magic, versionMajor, versionMinor, clockSource:0, durationMs:0, showName:"",
+  const m = { magic, versionMajor, versionMinor, clockSource:0, followTrack:0xFF, durationMs:0, showName:"",
               effects:[], palettes:[], cues:[] };
   const readStr0 = ()=>{ let s=""; while(u8[p]!==0){ s+=String.fromCharCode(u8[p++]); } p++; return s; };
   for(let si=0; si<sectionCount; si++){
@@ -505,7 +514,9 @@ function decodeVls(u8){
     const len = dv.getUint32(p,true); p+=4;
     const secEnd = p + len;
     if(type === 0xFFFF){ p = secEnd; break; }
-    if(type === 1){ m.clockSource = u8[p++]; m.durationMs = dv.getUint32(p,true); p+=4; m.showName = readStr0(); }
+    if(type === 1){ m.clockSource = u8[p++]; m.durationMs = dv.getUint32(p,true); p+=4; m.showName = readStr0();
+      // trailing follow-track byte: present only for score-follow; absent means Auto (0xFF)
+      m.followTrack = (m.clockSource === 2 && p < secEnd) ? u8[p++] : 0xFF; }
     else if(type === 2){ const n = u8[p++]; for(let i=0;i<n;i++) m.effects.push(readStr0()); }
     else if(type === 3){ const n = u8[p++]; for(let i=0;i<n;i++){ const pal=[]; for(let k=0;k<16;k++){ pal.push([u8[p++],u8[p++],u8[p++]]); } m.palettes.push(pal); } }
     else if(type === 4){ const n = dv.getUint16(p,true); p+=2;
@@ -533,7 +544,9 @@ function jsonTwin(m){
     magic: m.magic, versionMajor: m.versionMajor, versionMinor: m.versionMinor,
     sections: [
       { type:1, name:"META", clockSource:m.clockSource, clockSourceName:["demo","freeRun","scoreFollow"][m.clockSource]||"?",
-        durationMs:m.durationMs, showName:m.showName },
+        durationMs:m.durationMs, showName:m.showName,
+        ...(m.clockSource===2 ? { followTrack:m.followTrack,
+          followTrackName: m.followTrack===0xFF ? "auto" : "track "+m.followTrack } : {}) },
       { type:2, name:"EFFECTS", effects:m.effects },
       { type:3, name:"PALETTES", palettes:m.palettes },
       { type:4, name:"CUES", count:m.cues.length, cues: m.cues.map(cueTwin) },
@@ -812,11 +825,31 @@ function showNameSan(){ return (el("showName").value || "show").replace(/[^A-Za-
 function toast(msg, kind){ const t=el("toast"); t.textContent=msg; t.className="show"+(kind?" "+kind:"");
   clearTimeout(toast._t); toast._t=setTimeout(()=>t.className="",4200); }
 
+/* ---- score-follow follow-track selector (P4, VL6 Q6/Q14) ----
+   Pure authoring UI: picks which MIDI track the device's score-follow clock
+   listens to. The editor only bakes the index into META; all following logic
+   lives on the device. */
+function populateFollowTrack(keep){
+  const sel = el("followTrack");
+  const prev = (keep !== undefined && keep !== null) ? keep : parseInt(sel.value, 10);
+  let html = '<option value="255">Auto</option>';
+  if(song) song.tracks.slice(0, 255).forEach((t,i)=>{     // u8 index; 0xFF reserved for Auto
+    html += `<option value="${i}">${i}: ${esc(t.name || ("track "+i))}</option>`; });
+  sel.innerHTML = html;
+  const want = String(prev);
+  sel.value = [...sel.options].some(o=>o.value===want) ? want : "255";
+}
+function updateFollowTrackVis(){
+  el("followTrackWrap").style.display = el("clockSource").value === "2" ? "" : "none";
+}
+el("clockSource").addEventListener("change", updateFollowTrackVis);
+
 el("btnLoadMidi").onclick = ()=> el("fileMidi").click();
 el("fileMidi").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader(); rd.onload=()=>{ try{
     song = parseMidi(new Uint8Array(rd.result));
     el("songInfo").textContent = `Loaded ${f.name}: ${song.notes.length} notes, ${song.tracks.length} track(s), ${(song.durationMs/1000).toFixed(1)}s, ${song.tempo.length} tempo change(s).`;
+    populateFollowTrack();
     renderAll(); toast("MIDI loaded","ok");
   }catch(err){ toast("MIDI error: "+err.message,"err"); } };
   rd.readAsArrayBuffer(f); e.target.value=""; };
@@ -838,6 +871,7 @@ el("pzOut").onclick=()=>{ pxPerRow=Math.max(2, pxPerRow-1); renderAll(); };
 /* ---- project save/load (.vlp) ---- */
 el("btnSaveVlp").onclick = ()=>{
   const proj = { vialucisProject:1, showName:el("showName").value, clockSource:parseInt(el("clockSource").value),
+    followTrack:parseInt(el("followTrack").value),
     clips, groups, clipSeq, groupSeq, pxPerMs, pxPerRow,
     song: song ? { ticksPerQuarter:song.ticksPerQuarter, tempo:song.tempo, notes:song.notes, tracks:song.tracks, durationMs:song.durationMs } : null };
   download(showNameSan()+".vlp", JSON.stringify(proj,null,2), "application/json");
@@ -850,6 +884,7 @@ el("fileVlp").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
     el("showName").value=p.showName||"my-show"; el("clockSource").value=p.clockSource||0;
     clips=p.clips||[]; groups=p.groups||[]; clipSeq=p.clipSeq||1; groupSeq=p.groupSeq||1;
     pxPerMs=p.pxPerMs||0.06; pxPerRow=p.pxPerRow||5; song=p.song||null; selection=new Set();
+    populateFollowTrack(p.followTrack); updateFollowTrackVis();
     if(song){ el("songInfo").textContent=`Project song: ${song.notes.length} notes.`; }
     renderAll(); toast("Project loaded","ok");
   }catch(err){ toast("Project error: "+err.message,"err"); } };
@@ -963,6 +998,9 @@ function runSelfTest(){
   A(back.magic==="VLS1", "decoded magic");
   A(back.clockSource===1, "clockSource freeRun round-trips");
   A(back.showName==="selftest", "show name round-trips");
+  // non-score-follow META must carry NO trailing follow-track byte (byte-identical to v1)
+  const metaLen = new DataView(bin.buffer, bin.byteOffset).getUint32(10, true);
+  A(metaLen === 1 + 4 + ("selftest".length + 1), "freeRun META has no follow-track byte (len "+metaLen+")");
   A(back.cues.length===4, "4 cues ("+back.cues.length+")");
   A(JSON.stringify(back.effects)===JSON.stringify(m.effects), "effects table matches: "+m.effects.join(","));
   A(back.palettes.length===m.palettes.length, "palette count "+m.palettes.length);
@@ -1001,16 +1039,32 @@ function runSelfTest(){
   // clip C & D top-level (2) + group members (2) x placements (base+1 instance=2) = 2 + 4 = 6
   A(m2.cues.length===6, "group+instance flattens to 6 cues ("+m2.cues.length+")");
 
+  // ---- P4 score-follow: follow-track byte round-trips (VL6 Q6/Q14) ----
+  el("clockSource").value = "2"; updateFollowTrackVis(); populateFollowTrack();
+  el("followTrack").value = "0";                        // the fake song's only track
+  const mf = compile(), binF = encodeVls(mf), backF = decodeVls(binF);
+  A(backF.clockSource===2, "scoreFollow clockSource round-trips");
+  A(mf.followTrack===0 && backF.followTrack===0, "follow-track index 0 round-trips");
+  const metaLenF = new DataView(binF.buffer, binF.byteOffset).getUint32(10, true);
+  A(metaLenF === metaLen + 1, "score-follow META is exactly one byte longer ("+metaLenF+")");
+  const twinMeta = jsonTwin(backF).sections[0];
+  A(twinMeta.followTrack===0 && twinMeta.followTrackName==="track 0", "json twin exposes follow track");
+  el("followTrack").value = "255";                      // Auto
+  const backA = decodeVls(encodeVls(compile()));
+  A(backA.followTrack===0xFF, "Auto follow track emits 0xFF");
+
   box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
   console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);
   // reset editor to empty after the test
   song=null; clips=[]; groups=[]; selection=new Set(); el("showName").value="my-show"; el("clockSource").value="0";
+  populateFollowTrack(255); updateFollowTrackVis();
   renderAll();
 }
 
 /* ===================================================================== *
  * 9. BOOT
  * ===================================================================== */
+updateFollowTrackVis();          // sync in case the browser restored the clock <select> on reload
 renderAll();
 if(new URLSearchParams(location.search).get("selftest")==="1") runSelfTest();
 </script>
