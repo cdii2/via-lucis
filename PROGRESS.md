@@ -409,7 +409,13 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       live editor. Device firmware must ship ACAO:*, OPTIONS 204, and
       Allow-Private-Network (mock mirrors all three). Real-device re-run
       stays in Needs Hardware.*
-- [ ] P0 — design pass, no code (hardened per eng review 2A): baked cue-stream binary
+- [x] P0 — *(docs/SHOW-FORMAT.md 2026-07-10 — format v1 TLV + compatibility
+      rule, opacity+additive blend set, 64KB whole-load RAM decision, 384KB/16
+      quota with typed refusals, REST protocol + upload semantics, editor
+      distribution = release artifact per the P-POC. The VL3 ruling itself is
+      STILL Christian's — everything builds against the recommendation, and
+      the ruling only moves distribution, never the format/player.)* —
+      design pass, no code (hardened per eng review 2A): baked cue-stream binary
       format spec **with a version field + compatibility rule** (device refuses
       newer-major streams with a typed error, never garbage rendering), minimum blend
       set (opacity + additive), show storage layout (`/shows/`) **with a storage
