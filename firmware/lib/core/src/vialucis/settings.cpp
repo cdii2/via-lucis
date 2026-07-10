@@ -67,6 +67,7 @@ bool Settings::fromJson(const char* json, Settings& out) {
     if (!doc.is<JsonObjectConst>()) return false;
     JsonObjectConst o = doc.as<JsonObjectConst>();
 
+    Rgb prevWrong = out.wrongColor;
     readColor(o["leftColor"], out.leftColor);
     readColor(o["rightColor"], out.rightColor);
     readColor(o["wrongColor"], out.wrongColor);
@@ -117,6 +118,13 @@ bool Settings::fromJson(const char* json, Settings& out) {
     if (o["repeatWaitPulseMs"].is<uint32_t>())
         out.repeatWaitPulseMs =
             std::min<uint32_t>(o["repeatWaitPulseMs"].as<uint32_t>(), 1000);
+
+    // The collision guard cuts BOTH ways: a wrongColor edit that lands on
+    // the current repeatColor is rejected too (Q-wave closing review).
+    if (out.wrongColor.r == out.repeatColor.r &&
+        out.wrongColor.g == out.repeatColor.g &&
+        out.wrongColor.b == out.repeatColor.b)
+        out.wrongColor = prevWrong;
     return true;
 }
 

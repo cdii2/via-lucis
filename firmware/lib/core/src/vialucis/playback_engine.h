@@ -45,6 +45,13 @@ struct RepeatCueConfig {
     float peakPct = 0.45f;   // 1.0 ⇒ pure hue-snap glide at onset
     uint32_t floorMs = 35;   // visibility floor, borrowed from the tail
     uint32_t waitPulseMs = 60;  // Q2: fixed wait-mode re-due pulse width
+
+    bool operator==(const RepeatCueConfig& o) const {
+        return enabled == o.enabled && color.r == o.color.r &&
+               color.g == o.color.g && color.b == o.color.b &&
+               startPct == o.startPct && peakPct == o.peakPct &&
+               floorMs == o.floorMs && waitPulseMs == o.waitPulseMs;
+    }
 };
 
 // The two wifi facts /api/status reports (docs/API.md). The device layer
@@ -206,13 +213,13 @@ private:
     std::array<std::vector<RepeatWindow>, 88> repeatByKey_;
     std::array<size_t, 88> repeatCursor_{};
 
-    // Q2: wait-mode re-due pulse. When the barrier advances to a new chord,
-    // any key that was ALSO in the previous chord pulses repeatColor for a
-    // fixed wall-clock width (the song is halted — there is no timing to
-    // protect, so the pulse is fixed, not gap-derived).
+    // Q2: wait-mode re-due pulse deadlines. WaitMode reports which keys
+    // re-due (it owns the chord lifecycle); the engine only times the fixed
+    // wall-clock pulse (the song is halted — no timing to protect).
     std::array<uint64_t, 88> waitPulseUntilUs_{};
-    std::vector<uint8_t> prevChordKeys_;
-    uint64_t lastChordBarrierUs_ = kNoOnset;
+    // Set by buildRepeatGaps: total windows across all keys — renderFrame
+    // skips the whole per-key scan for songs with no qualifying repeats.
+    size_t repeatWindowCount_ = 0;
 };
 
 }  // namespace vialucis

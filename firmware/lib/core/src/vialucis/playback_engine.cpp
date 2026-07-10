@@ -2,6 +2,8 @@
 
 #include <ArduinoJson.h>
 
+#include <algorithm>
+
 #include "vialucis/version.h"
 
 namespace vialucis {
@@ -13,12 +15,6 @@ constexpr uint64_t kFramePeriodUs = 16667;   // ~60 fps LED refresh
 // pathology): no human re-press has a sub-10ms silent gap — that's a MIDI
 // artifact, and cueing it would flicker.
 constexpr uint64_t kRepeatCollapseUs = 10000;
-
-vialucis::Rgb scalePct(vialucis::Rgb c, float k) {
-    return {static_cast<uint8_t>(c.r * k + 0.5f),
-            static_cast<uint8_t>(c.g * k + 0.5f),
-            static_cast<uint8_t>(c.b * k + 0.5f)};
-}
 }  // namespace
 
 PlaybackEngine::PlaybackEngine() {
@@ -44,7 +40,10 @@ void PlaybackEngine::configure(const Settings& s) {
     rc.peakPct = s.repeatFillPeakPct / 100.0f;
     rc.floorMs = s.repeatFloorMs;
     rc.waitPulseMs = s.repeatWaitPulseMs;
-    setRepeatCue(rc);
+    // Skip when unchanged: an unrelated settings PUT (brightness, colors)
+    // must not rebuild windows under the fence or kill a live pulse
+    // (Q-wave closing review).
+    if (!(rc == repeatCue_)) setRepeatCue(rc);
 }
 
 void PlaybackEngine::setTable(const KeyLedTable& t) {
@@ -97,6 +96,7 @@ Rgb PlaybackEngine::colorForTrack(uint8_t track) const {
 void PlaybackEngine::buildRepeatGaps() {
     for (auto& v : repeatByKey_) v.clear();
     repeatCursor_.fill(0);
+    repeatWindowCount_ = 0;
     if (song_.notes.empty()) return;
     // The parser keeps notes sorted by onTick; walk once per key tracking
     // the latest off so far. A re-press while the key still sounds (cross-
@@ -115,8 +115,12 @@ void PlaybackEngine::buildRepeatGaps() {
             uint64_t gap = onUs - lastOff[k];
             if (gap >= kRepeatCollapseUs) {
                 uint64_t span = gap > floorUs ? gap : floorUs;
-                repeatByKey_[k].push_back(
-                    {onUs - span, onUs, n.track});
+                // A floor larger than the onset's own timestamp must not
+                // underflow (settings allow floors up to 1s; songs can
+                // re-press within their first second).
+                uint64_t fillStart = onUs > span ? onUs - span : 0;
+                repeatByKey_[k].push_back({fillStart, onUs, n.track});
+                ++repeatWindowCount_;
             }
         }
         if (lastOff[k] == kNoOnset || offUs > lastOff[k])
@@ -126,30 +130,26 @@ void PlaybackEngine::buildRepeatGaps() {
 
 void PlaybackEngine::resetWaitPulse() {
     waitPulseUntilUs_.fill(0);
-    prevChordKeys_.clear();
-    lastChordBarrierUs_ = kNoOnset;
 }
 
 void PlaybackEngine::resyncRepeatCursors(uint64_t posUs) {
     resetWaitPulse();
     for (size_t k = 0; k < 88; ++k) {
         const auto& v = repeatByKey_[k];
-        size_t lo = 0, hi = v.size();
-        while (lo < hi) {  // first window whose onset is still ahead
-            size_t mid = (lo + hi) / 2;
-            if (v[mid].onsetUs <= posUs) lo = mid + 1;
-            else hi = mid;
-        }
-        repeatCursor_[k] = lo;
+        // First window whose onset is still ahead of the new position.
+        auto it = std::upper_bound(
+            v.begin(), v.end(), posUs,
+            [](uint64_t pos, const RepeatWindow& w) {
+                return pos < w.onsetUs;
+            });
+        repeatCursor_[k] = static_cast<size_t>(it - v.begin());
     }
 }
 
 void PlaybackEngine::rebuildAfterLoad() {
     sched_ = std::make_unique<Scheduler>(song_);
     trackCfg_ = TrackConfig::defaultsFor(song_);
-    buildRepeatGaps();
-    resetWaitPulse();
-    prevChordKeys_.reserve(16);
+    buildRepeatGaps();  // applyMasks below resets the pulse deadlines
     wait_ = std::make_unique<WaitMode>(*sched_, kTrackMaskAll);
     wait_->setEchoGuard(&guard_);
     soundingLights_.clear();
@@ -342,26 +342,17 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     prevPosUs_ = newPos;
 
     if (barrierMode()) {
-        wait_->update();
-        // Q2: a NEW chord just loaded at the barrier — keys that were also
-        // in the previous chord are re-dues; start their fixed pulse.
-        if (wait_->chordPending() &&
-            wait_->barrierTimeUs() != lastChordBarrierUs_) {
-            if (repeatCue_.enabled && lastChordBarrierUs_ != kNoOnset) {
-                for (uint8_t n : wait_->pendingNotes()) {
-                    for (uint8_t p : prevChordKeys_) {
-                        if (p != n) continue;
-                        if (n >= 21 && n <= 108)
-                            waitPulseUntilUs_[n - 21] =
-                                nowUs + static_cast<uint64_t>(
-                                            repeatCue_.waitPulseMs) * 1000;
-                        frameDirty_ = true;
-                        break;
-                    }
-                }
+        // Q2: WaitMode owns the chord lifecycle and reports the edge (new
+        // chord loaded) plus its same-key re-dues — no barrier-time mirror
+        // to forget to reset (Q-wave closing review).
+        if (wait_->update() && repeatCue_.enabled) {
+            for (uint8_t n : wait_->reDueKeys()) {
+                if (n < 21 || n > 108) continue;
+                waitPulseUntilUs_[n - 21] =
+                    nowUs +
+                    static_cast<uint64_t>(repeatCue_.waitPulseMs) * 1000;
+                frameDirty_ = true;
             }
-            prevChordKeys_ = wait_->pendingNotes();
-            lastChordBarrierUs_ = wait_->barrierTimeUs();
         }
     }
 
@@ -418,7 +409,8 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
         // Wait mode has no timing to protect: it gets Q2's fixed pulse,
         // not the crescendo (brief §2 heading: all non-wait modes).
         std::array<bool, 88> fillActive{};
-        if (repeatCue_.enabled && mode_ != Mode::Wait) {
+        if (repeatCue_.enabled && mode_ != Mode::Wait &&
+            repeatWindowCount_ > 0) {  // most songs: skip the whole scan
             for (size_t k = 0; k < 88; ++k) {
                 const std::vector<RepeatWindow>& v = repeatByKey_[k];
                 size_t& cur = repeatCursor_[k];
@@ -432,7 +424,7 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
                 float pct = repeatCue_.startPct +
                             (repeatCue_.peakPct - repeatCue_.startPct) * frac;
                 renderer_.addRepeatFill(static_cast<uint8_t>(21 + k),
-                                        scalePct(repeatCue_.color, pct));
+                                        scaleRgb(repeatCue_.color, pct));
                 fillActive[k] = true;
             }
         }

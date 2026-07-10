@@ -242,6 +242,32 @@ void test_wait_mode_gets_no_crescendo_fill() {
     TEST_ASSERT_EQUAL_UINT8(0, c.r);
 }
 
+void test_floor_larger_than_onset_does_not_underflow() {
+    // A 1s floor with a re-press at 525ms: fillStart would go negative —
+    // it must clamp to 0 and the cue must still show (Q-wave closing
+    // review: uint64 wrap silently killed the window).
+    PlaybackEngine e;
+    setupEngine(e, borrowSong(), "follow");
+    RepeatCueConfig big;
+    big.floorMs = 1000;
+    e.setRepeatCue(big);
+    runTo(e, 400000);  // well inside the clamped window
+    Rgb c = ledAt(e.renderFrame(1000 + 400000), 60);
+    TEST_ASSERT_TRUE_MESSAGE(isWhiteish(c), "clamped window still cues");
+}
+
+void test_unrelated_config_reapply_keeps_state() {
+    // configure() with an identical repeat config must not rebuild windows
+    // mid-gap (a brightness PUT would otherwise kill a live fill's cursor
+    // resync is fine — but the skip avoids ANY churn under the fence).
+    PlaybackEngine e;
+    setupEngine(e, repeatSong(), "follow");
+    runTo(e, 750000);
+    TEST_ASSERT_TRUE(isWhiteish(ledAt(e.renderFrame(1000 + 750000), 60)));
+    e.configure(Settings{});  // same repeat config — skip path
+    TEST_ASSERT_TRUE(isWhiteish(ledAt(e.renderFrame(1000 + 750000), 60)));
+}
+
 // --- Q2: wait-mode re-due pulse -------------------------------------------
 
 void test_wait_re_due_same_key_pulses_then_settles() {
@@ -305,5 +331,7 @@ int main(int, char**) {
     RUN_TEST(test_wait_re_due_same_key_pulses_then_settles);
     RUN_TEST(test_wait_different_key_next_chord_has_no_pulse);
     RUN_TEST(test_wait_pulse_respects_disabled_cue);
+    RUN_TEST(test_floor_larger_than_onset_does_not_underflow);
+    RUN_TEST(test_unrelated_config_reapply_keeps_state);
     return UNITY_END();
 }

@@ -35,15 +35,24 @@ public:
     // Arm the first barrier from the current song position.
     void begin() { armFrom(sched_.positionUs()); }
 
-    // Re-arm after a seek or loop wrap moved the song position.
+    // Re-arm after a seek or loop wrap moved the song position. Chord
+    // history dies with the position — a re-due can only be claimed across
+    // two chords the player actually walked through.
     void resync() {
         sched_.clearBarrier();
+        lastChordKeys_.clear();
         armFrom(sched_.positionUs());
     }
 
     // Call after each Scheduler::advance(): loads the due chord when the
-    // scheduler is holding at our barrier.
-    void update();
+    // scheduler is holding at our barrier. Returns true exactly when a NEW
+    // chord loaded on this call — the chord-lifecycle edge belongs HERE,
+    // not to a caller-side barrier-time mirror (Q-wave closing review).
+    bool update();
+
+    // Keys of the just-loaded chord that were ALSO in the previous chord —
+    // same-key re-dues (the Q2 pulse's input). Valid after update()==true.
+    const std::vector<uint8_t>& reDueKeys() const { return reDue_; }
 
     KeyFeedback onKeyDown(uint8_t note, uint64_t nowUs);
 
@@ -67,6 +76,8 @@ private:
     std::vector<SchedEvent> chordBuf_;  // reused by update() — no per-tick alloc
     std::vector<uint8_t> pending_;
     std::vector<uint8_t> cleared_;  // members already struck this chord
+    std::vector<uint8_t> lastChordKeys_;  // previous chord (re-due compare)
+    std::vector<uint8_t> reDue_;
     uint64_t barrierTime_ = kNoOnset;
     bool chordLoaded_ = false;
 };

@@ -17,6 +17,14 @@ struct Rgb {
     uint8_t r = 0, g = 0, b = 0;
 };
 
+// THE color-brightness scale (round-half-up per channel) — every layer that
+// dims a color uses this one definition (ramp, repeat fill, effects).
+inline Rgb scaleRgb(Rgb c, float k) {
+    return {static_cast<uint8_t>(c.r * k + 0.5f),
+            static_cast<uint8_t>(c.g * k + 0.5f),
+            static_cast<uint8_t>(c.b * k + 0.5f)};
+}
+
 struct RampConfig {
     float previewCap = 0.45f;    // THE cap variable (0..1)
     uint64_t leadUs = 1000000;   // THE lead-time variable

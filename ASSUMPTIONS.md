@@ -3,6 +3,25 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A44 (2026-07-10, Q-wave closing review): 8 angles in 4 paired finder agents
+  over 227c1da..HEAD. Fixes: fillStart clamps to 0 when the visibility floor
+  exceeds the onset's own timestamp (uint64 wrap silently killed early
+  windows — settings allow 1s floors); the wrongColor↔repeatColor collision
+  guard now cuts BOTH ways (editing wrongColor onto the cue color reverts);
+  configure() diffs the repeat config and skips setRepeatCue when unchanged
+  (an unrelated brightness PUT no longer rebuilds windows under the F1 fence
+  or kills a live pulse); WaitMode owns the chord-lifecycle edge — update()
+  returns new-chord-loaded and exposes reDueKeys(), engine mirrors
+  (lastChordBarrierUs_/prevChordKeys_) DELETED (the exact mirror-state bug
+  class A34 eliminated for loops); scaleRgb is THE shared color scale in
+  frame_renderer.h (engine copy deleted); resyncRepeatCursors uses
+  std::upper_bound; renderFrame early-outs the whole per-key scan when the
+  song has zero repeat windows (repeatWindowCount_); duplicate
+  resetWaitPulse in rebuildAfterLoad removed. Deferred with reasons: full
+  RepeatCue class extraction (M2's ModeDirector restructures dispatch
+  anyway — re-evaluate then; noted in the M2 charter's context). Tempo
+  alignment self-checked: windows are SONG-time, positionUs is song-time —
+  aligned at any tempo. 177 → 180 native tests.
 - A43 (2026-07-10, M1): unloadSong resets song/scheduler/wait/loop/lights/
   emitter (emit mask forced 0 — applyMasks can't run without a scheduler) +
   repeat-cue windows and chord history; settings/calibration/BLE/idle clock

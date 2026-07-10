@@ -160,8 +160,24 @@ static void test_wrong_red_repeat_color_rejected() {
     TEST_ASSERT_EQUAL_UINT8(1, out.repeatColor.b);
 }
 
+static void test_wrong_color_cannot_land_on_repeat_color() {
+    // The guard cuts both ways: editing wrongColor onto the current
+    // repeatColor (default white) is rejected too.
+    Settings out;
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"wrongColor\":\"#FFFFFF\"}", out));
+    TEST_ASSERT_EQUAL_UINT8(255, out.wrongColor.r);  // stayed #FF0000
+    TEST_ASSERT_EQUAL_UINT8(0, out.wrongColor.g);
+    TEST_ASSERT_EQUAL_UINT8(0, out.wrongColor.b);
+    // A non-colliding wrongColor edit still works.
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"wrongColor\":\"#CC0000\"}", out));
+    TEST_ASSERT_EQUAL_UINT8(0xCC, out.wrongColor.r);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_wrong_color_cannot_land_on_repeat_color);
     RUN_TEST(test_defaults_match_spec);
     RUN_TEST(test_json_round_trip);
     RUN_TEST(test_missing_fields_keep_defaults);

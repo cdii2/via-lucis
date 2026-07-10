@@ -5,12 +5,6 @@
 namespace vialucis {
 namespace {
 
-Rgb scale(Rgb c, float k) {
-    return {static_cast<uint8_t>(c.r * k + 0.5f),
-            static_cast<uint8_t>(c.g * k + 0.5f),
-            static_cast<uint8_t>(c.b * k + 0.5f)};
-}
-
 uint8_t maxChannel(const Rgb& c) { return std::max(c.r, std::max(c.g, c.b)); }
 
 }  // namespace
@@ -44,7 +38,7 @@ void FrameRenderer::addUpcoming(uint8_t note, Rgb color, uint64_t onsetUs,
         fraction = 1.0f - static_cast<float>(onsetUs - nowUs) /
                               static_cast<float>(ramp_.leadUs);
     }
-    paint(note, scale(color, ramp_.previewCap * fraction), Layer::Ramp);
+    paint(note, scaleRgb(color, ramp_.previewCap * fraction), Layer::Ramp);
 }
 
 void FrameRenderer::addDue(uint8_t note, Rgb color) {

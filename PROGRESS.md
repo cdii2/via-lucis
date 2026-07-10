@@ -317,7 +317,14 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       Named tests: `repeatCueEnabled=false` ⇒ frames byte-identical to v1 (the OFF
       pin); wrong-red `repeatColor` rejected. BRINGUP item: cue legibility on the
       real strip at tempo.
-- [ ] closing /code-review over the wave diff.
+- [x] closing /code-review over the wave diff — 8 angles (4 paired agents), two
+      independent agents converged on all four behavioral findings (fillStart
+      uint64 underflow, configure's unconditional rebuild under the fence,
+      pulse-state wipe on unrelated PUTs, one-directional color-collision
+      guard); fixed + WaitMode now owns the chord-lifecycle edge (engine
+      mirrors deleted), shared scaleRgb, upper_bound resync, zero-repeat
+      render early-out. RepeatCue class extraction deferred to M2's
+      restructure (A44).
 
 ### M-wave — mode model + unloadSong (brief §1)
 
