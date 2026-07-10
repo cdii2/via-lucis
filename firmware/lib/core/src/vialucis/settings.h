@@ -19,6 +19,11 @@ constexpr float kOffsetMmLimit = 2000.0f;
 constexpr float kLedsPerMeterMin = 10.0f;
 constexpr float kLedsPerMeterMax = 1000.0f;
 
+// One definition of the product-default AFK timeout — Settings AND the
+// ModeDirector's pre-configure default both read it (M-wave closing review:
+// two hardcoded 180s would let the native tests silently pin a stale one).
+constexpr uint32_t kDefaultAfkTimeoutSec = 180;
+
 struct Settings {
     // Colors (SPEC: defaults left=blue right=green wrong=red, customizable,
     // defaults must never collide with wrong).
@@ -52,7 +57,7 @@ struct Settings {
 
     // AFK idle timeout (M3, brief §1): seconds of no-song inactivity before
     // ambient lighting arms. 0 = never.
-    uint32_t afkTimeoutSec = 180;
+    uint32_t afkTimeoutSec = kDefaultAfkTimeoutSec;
 
     std::string toJson() const;
     // Tolerant: missing fields keep current values; false only on unparseable

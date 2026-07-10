@@ -81,7 +81,7 @@ bool App::unloadSong() {
     FenceGuard g(lock_);
     touchWriteActivity();  // the unload itself restarts the idle drift
     engine_.unloadSong(out);
-    director_.setPresentation(false);  // presentation needs a song
+    // (presentation_ dies in director_.tick — any unload path, one owner.)
     sendAll(out);
     return true;
 }
@@ -138,15 +138,11 @@ bool App::setTrack(size_t index, const std::string& hand, bool lights) {
 bool App::setTestPattern(const std::string& pattern) {
     FenceGuard g(lock_);
     touchWriteActivity();
-    bool activating = pattern == "strip" || pattern == "rainbow";
-    if (!director_.setTestPattern(pattern)) return false;
-    // Activating a pattern auto-pauses playback ONLY when actually Playing
-    // (F3, A35): the director paints the pattern instead of practice, so an
-    // unpaused scheduler clock would otherwise fast-forward the skipped
-    // time in one burst on pattern-off. "off" never auto-resumes — the play
-    // path re-baselines the clock. One atomic unit under the held fence.
-    if (activating && engine_.state() == PlayState::Playing)
-        transportLocked("pause", 0);
+    // The F3 auto-pause rule lives in the director now; we just deliver
+    // the note-offs its pause emits.
+    std::vector<MidiOutMsg> out;
+    if (!director_.setTestPattern(pattern, out)) return false;
+    sendAll(out);
     return true;
 }
 
@@ -226,7 +222,9 @@ std::string App::probeJson() {
 void App::onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs) {
     // Runs on the loop task, dispatched from inside ble_.poll() (MIDI.read),
     // which tick() calls while already holding the fence — so this MUST NOT
-    // take the lock (the mutex is non-recursive). Zero new work per key event.
+    // take the lock (the mutex is non-recursive). Per key event the director
+    // adds exactly one u64 store (activity) + one probe bool check — anything
+    // heavier on this path needs latency scrutiny (iron rule).
     (void)velocity;
     director_.onKeyDown(note, nowUs);  // probe-first, then practice (M2)
 }

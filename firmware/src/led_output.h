@@ -20,9 +20,8 @@ public:
     void begin(uint8_t brightness);
     void setBrightness(uint8_t b);
     void show(const std::vector<Rgb>& frame);
-    void allOff();
     // The BRINGUP patterns render in core now (ModeDirector, M2) — this
-    // class is pure output.
+    // class is pure output; blanking is just show()ing a dark frame.
 };
 
 }  // namespace vialucis

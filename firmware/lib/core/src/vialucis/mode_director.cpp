@@ -48,7 +48,10 @@ bool ModeDirector::setPresentation(bool on) {
 TopMode ModeDirector::topMode(uint64_t nowUs) const {
     if (engine_.songLoaded())
         return presentation_ ? TopMode::Presentation : TopMode::Practice;
+    // Same clock guard idleSec uses: an out-of-order timestamp must read
+    // as zero idle, never wrap to instant-AFK.
     if (idleTimeoutSec_ > 0 && lastActivityUs_ != 0 &&
+        nowUs >= lastActivityUs_ &&
         nowUs - lastActivityUs_ >=
             static_cast<uint64_t>(idleTimeoutSec_) * 1000000ull)
         return TopMode::Afk;
@@ -70,11 +73,22 @@ uint32_t ModeDirector::idleSec(uint64_t nowUs) const {
     return static_cast<uint32_t>((nowUs - lastActivityUs_) / 1000000ull);
 }
 
-bool ModeDirector::setTestPattern(const std::string& name) {
+bool ModeDirector::setTestPattern(const std::string& name,
+                                  std::vector<MidiOutMsg>& out) {
     if (name == "strip") test_ = Test::Strip;
     else if (name == "rainbow") test_ = Test::Rainbow;
-    else if (name == "off") test_ = Test::None;
-    else return false;
+    else if (name == "off") {
+        test_ = Test::None;  // never auto-resumes (A35): play re-baselines
+        engine_.markFrameDirty();
+        return true;
+    } else {
+        return false;
+    }
+    // F3/A35: the pattern paints over practice while the scheduler clock
+    // would keep running — pause it here so EVERY caller keeps the
+    // no-skipped-time-burst guarantee, not just one REST route.
+    if (engine_.state() == PlayState::Playing)
+        engine_.transport("pause", 0, out);
     engine_.markFrameDirty();
     return true;
 }
@@ -115,6 +129,10 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         probe_.cancel();
         engine_.markFrameDirty();
     }
+    // Presentation is per-song: when the song goes away (ANY unload path),
+    // the flag dies with it — a later load must land in Practice, never a
+    // stale Presentation (M-wave closing review).
+    if (presentation_ && !engine_.songLoaded()) presentation_ = false;
     engine_.tick(nowUs, out);
     TopMode m = topMode(nowUs);
     if (m != lastMode_) {

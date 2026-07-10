@@ -23,6 +23,10 @@ from pathlib import Path
 WEBUI = Path(__file__).resolve().parent.parent / "webui" / "index.html"
 PORT = 8321
 
+def loop_off():
+    return {"enabled": False, "startMs": 0, "endMs": 0}
+
+
 state = {
     "song": "clair-de-lune.mid",
     "state": "waiting",          # idle | playing | waiting | finished
@@ -30,7 +34,7 @@ state = {
     "positionMs": 23400,
     "durationMs": 96000,
     "tempoPercent": 100,
-    "loop": {"enabled": False, "startMs": 0, "endMs": 0},
+    "loop": loop_off(),
     "tracks": [
         {"index": 0, "name": "Right", "hand": "right", "lights": True},
         {"index": 1, "name": "Left", "hand": "left", "lights": True},
@@ -110,6 +114,7 @@ def probe_tick():
         if note is not None:
             probe["note"] = note
             probe["armed"] = False
+            top["last_activity"] = time.time()  # a key press is activity
         # else: no key under the dot — keep waiting until timeout
 
 
@@ -218,7 +223,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/songs/unload":
             state.update(song="", positionMs=0, state="idle",
-                         loop={"enabled": False, "startMs": 0, "endMs": 0})
+                         loop=loop_off())
             top["presentation"] = False
             self._json(200, self._status())
             return
@@ -280,7 +285,7 @@ class Handler(BaseHTTPRequestHandler):
             state["positionMs"] = 0
             state["state"] = "idle"
             # Loop resets on song load, matching the firmware (F2/A34).
-            state["loop"] = {"enabled": False, "startMs": 0, "endMs": 0}
+            state["loop"] = loop_off()
             self._json(200, self._status())
         elif self.path == "/api/songs":
             self._json(201, {"name": "uploaded.mid"})

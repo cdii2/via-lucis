@@ -156,14 +156,49 @@ void test_reactive_renders_dark_practice_renders_engine() {
 void test_test_pattern_is_a_forced_source_over_any_mode() {
     Rig r;
     r.tick(1 * kSec);
-    TEST_ASSERT_TRUE(r.director.setTestPattern("strip"));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", gOut));
     const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
     TEST_ASSERT_EQUAL_INT(1, litCount(f));  // the walking white dot
-    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow"));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", gOut));
     TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec)) > 300);
-    TEST_ASSERT_FALSE(r.director.setTestPattern("nope"));
-    TEST_ASSERT_TRUE(r.director.setTestPattern("off"));
+    TEST_ASSERT_FALSE(r.director.setTestPattern("nope", gOut));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off", gOut));
     TEST_ASSERT_EQUAL_INT(0, litCount(r.director.renderFrame(1 * kSec)));
+}
+
+void test_pattern_activation_auto_pauses_playback() {
+    // F3/A35 now lives in the director: EVERY caller keeps the
+    // no-skipped-time-burst guarantee.
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("demo", "both", gOut);
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);              // baseline
+    r.tick(2 * kSec + 100000);     // 100ms in, notes sounding
+    std::vector<MidiOutMsg> out;
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", out));
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);  // paused
+    int offs = 0;
+    for (const MidiOutMsg& m : out)
+        if (m.type == MidiOutType::NoteOff) ++offs;
+    TEST_ASSERT_TRUE_MESSAGE(offs >= 1, "pause flushes sounding notes");
+    // "off" does not auto-resume; the position is frozen where it paused.
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off", out));
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+}
+
+void test_stale_presentation_never_survives_unload() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    TEST_ASSERT_TRUE(r.director.setPresentation(true));
+    r.unload();
+    r.tick(2 * kSec);  // the director notices the song is gone
+    r.load();          // a FRESH load must land in Practice, not the
+                       // previous song's Presentation
+    TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
 // --- the probe as a director-owned forced source (moved from C3) -----------
@@ -171,7 +206,7 @@ void test_test_pattern_is_a_forced_source_over_any_mode() {
 void test_probe_dot_outranks_test_pattern_and_modes() {
     Rig r;
     r.tick(1 * kSec);
-    r.director.setTestPattern("rainbow");
+    r.director.setTestPattern("rainbow", gOut);
     TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
                       r.director.armProbe(123, 1 * kSec, 30000));
     const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
@@ -264,6 +299,8 @@ int main(int, char**) {
     RUN_TEST(test_unload_returns_to_no_song_states);
     RUN_TEST(test_reactive_renders_dark_practice_renders_engine);
     RUN_TEST(test_test_pattern_is_a_forced_source_over_any_mode);
+    RUN_TEST(test_pattern_activation_auto_pauses_playback);
+    RUN_TEST(test_stale_presentation_never_survives_unload);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);
     RUN_TEST(test_probe_refused_while_playing_and_cancelled_by_play);

@@ -3,9 +3,32 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
-- A46 (2026-07-10, M3): top-mode surface — /api/status grows topMode/idleSec/
-  afkTimeoutSec (before wifi; wifi stays the LAST key per R4; absent on
-  non-status routes — TopStatus is an optional param like WifiStatus). The
+- A47 (2026-07-10, M-wave closing review): 8 angles, 4 paired agents, 15
+  findings → 11 fixed, 4 resolved-by-decision. Fixed: F3 auto-pause moved
+  INTO ModeDirector::setTestPattern (every caller keeps the no-burst
+  guarantee; director test pins it + note-off flush); stale presentation_
+  now dies in director tick whenever the song is gone (any unload path, one
+  owner — App's paired call removed; reload-lands-in-Practice test);
+  topMode() gained idleSec's clock guard (out-of-order timestamp reads as
+  zero idle, never wraps to instant-AFK); unloadSong clears EchoGuard
+  credits (new clearCredits — stale ignore-credits must not leak across
+  sessions); dead code removed (FrameRenderer::addDot + Layer::Forced,
+  LedOutput::allOff — forced sources render in the director now); shared
+  kDefaultAfkTimeoutSec (director + Settings read ONE constant); mock
+  loop_off() helper + probe-capture counts as activity; stale zero-new-work
+  comment rewritten as the actual per-key cost budget. Decisions: topMode/
+  idleSec/afkTimeoutSec ship on EVERY status reply (A46 amended — the webui
+  reads them off POST replies; only wifi stays GET-status-exclusive);
+  play-cancels-probe happening one loop-tick after the transport call is
+  ACCEPTED (bounded staleness ≪ the wizard's 500ms poll; the tick rule
+  covers every path into Playing, which the old synchronous call did not).
+  188 → 190 native tests.
+- A46 (2026-07-10, M3; amended by the M-wave closing review): top-mode
+  surface — status JSON grows topMode/idleSec/afkTimeoutSec (before wifi;
+  wifi stays the LAST key per R4). TopStatus is an optional ENGINE param,
+  but App passes it on EVERY status reply (all routes) — deliberately: the
+  webui reads s.topMode straight off POST /api/topmode and unload replies.
+  Only wifi remains GET-/api/status-exclusive. The
   idle timeout is a SETTINGS scalar per VL2 (`afkTimeoutSec`, default 180,
   0=never, clamped to a day) — the settings key set grew (contract test
   updated). Mode entry = POST /api/topmode {"mode":"presentation"|"practice"}

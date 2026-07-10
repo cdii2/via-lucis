@@ -22,6 +22,7 @@
 
 #include "vialucis/calibration_probe.h"
 #include "vialucis/playback_engine.h"
+#include "vialucis/settings.h"
 
 namespace vialucis {
 
@@ -55,7 +56,10 @@ public:
     uint32_t idleSec(uint64_t nowUs) const;
 
     // --- forced sources ---------------------------------------------------
-    bool setTestPattern(const std::string& name);  // strip | rainbow | off
+    // Activating a pattern while Playing auto-pauses (F3/A35 — the rule
+    // lives HERE so every caller gets it); the note-offs the pause emits
+    // land in `out`. "off" never auto-resumes.
+    bool setTestPattern(const std::string& name, std::vector<MidiOutMsg>& out);
     bool testPatternActive() const { return test_ != Test::None; }
 
     enum class ProbeArm : uint8_t { Ok, Playing, BadLed };
@@ -82,7 +86,7 @@ private:
     Test test_ = Test::None;
 
     bool presentation_ = false;
-    uint32_t idleTimeoutSec_ = 180;  // 0 = never
+    uint32_t idleTimeoutSec_ = kDefaultAfkTimeoutSec;  // 0 = never
     uint64_t lastActivityUs_ = 0;    // 0 = baseline on first tick
     TopMode lastMode_ = TopMode::Reactive;
 };

@@ -179,7 +179,8 @@ void PlaybackEngine::unloadSong(std::vector<MidiOutMsg>& out) {
     state_ = PlayState::Idle;
     prevPosUs_ = 0;
     lastTickUs_ = 0;
-    buildRepeatGaps();  // empty song ⇒ empty windows
+    guard_.clearCredits();  // no echo is owed once nothing was sent
+    buildRepeatGaps();      // empty song ⇒ empty windows
     resetWaitPulse();
 }
 

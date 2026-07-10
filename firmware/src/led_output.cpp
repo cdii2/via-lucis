@@ -24,8 +24,4 @@ void LedOutput::show(const std::vector<Rgb>& frame) {
     FastLED.show();
 }
 
-void LedOutput::allOff() {
-    FastLED.clear(true);
-}
-
 }  // namespace vialucis

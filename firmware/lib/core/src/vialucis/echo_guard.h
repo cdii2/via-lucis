@@ -34,6 +34,12 @@ public:
     uint64_t windowUs() const { return windowUs_; }
     void setWindowUs(uint64_t w) { windowUs_ = w; }
 
+    // Drop every outstanding credit (song unload: nothing we sent is owed
+    // an echo anymore — stale credits must not leak into the next session).
+    void clearCredits() {
+        for (Slot& s : slots_) s.count = 0;
+    }
+
 private:
     struct Slot {
         uint8_t count = 0;

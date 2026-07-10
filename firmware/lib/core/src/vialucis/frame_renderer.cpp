@@ -53,10 +53,4 @@ void FrameRenderer::addWrong(uint8_t note, Rgb color) {
     paint(note, color, Layer::Wrong);
 }
 
-void FrameRenderer::addDot(uint16_t led, Rgb color) {
-    if (led >= frame_.size()) return;
-    frame_[led] = color;
-    layer_[led] = Layer::Forced;
-}
-
 }  // namespace vialucis

@@ -33,6 +33,8 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "topMode": "practice",            // v2 M3: reactive | afk | practice | presentation
     "idleSec": 12,                    // seconds since the last activity
     "afkTimeoutSec": 180,             // mirror of the setting (0 = never)
+                                      // (the three fields above appear in EVERY
+                                      // status-JSON reply, unlike wifi)
     "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap — LAST key
   }
   ```
@@ -88,8 +90,9 @@ follow from song state and activity.
   `400 bad mode`. Unloading the song drops presentation automatically.
 - The AFK idle timeout is the `afkTimeoutSec` setting (0 = never).
 - `POST /api/songs/unload` → `200` + status JSON: back to the no-song state
-  (song/transport/loop cleared; settings, calibration and the idle clock
-  untouched — but the call itself counts as activity).
+  (song/transport/loop cleared; settings and calibration untouched). Like
+  every state-changing call it resets the idle clock, so the AFK drift
+  restarts from the unload.
 
 ## Tempo / loop
 

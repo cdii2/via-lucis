@@ -363,7 +363,12 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 - [x] M3 — status/API surface: `topMode` (+ idle fields) added to `/api/status`;
       mode-entry routes per VL2; webui mode surface. Existing `mode` field semantics
       untouched.
-- [ ] closing /code-review over the wave diff.
+- [x] closing /code-review over the wave diff — 8 angles, 15 findings: 11 fixed
+      (F3 pause into the director, stale-presentation dies in tick, topMode
+      clock guard, EchoGuard credits cleared on unload, dead addDot/Forced/
+      allOff removed, shared AFK-timeout constant, mock parity), 4 by
+      decision (topMode on every status reply — A46 amended; one-tick
+      probe-cancel staleness accepted). A47.
 
 ### E-wave — one effect engine, AFK + Reactive sequencers (brief §3)
 
