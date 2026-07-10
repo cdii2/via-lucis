@@ -3,6 +3,24 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A51 (2026-07-10, P1+P2): the show core's spec resolutions are recorded in
+  show.h/show_player.h headers (TooLarge kind added; stable-sort preserves
+  stream z-order for equal starts; unknown scopeType = BadCue since its
+  payload size is unknowable; END optional; section-order-independent
+  validation; bound-note velocity = 127 constant; note-off = min(onset+
+  300ms, next same-key onset) precomputed at load). P2 wiring: the clock
+  IS the Scheduler (Demo → sub-mode demo, Free-run → follow; tempo changes
+  keep position continuous — named test); director owns showPlayer_ +
+  showPlaying_ and the show dies with the song (same lifetime rule as
+  presentation_); App::playShow reads+parses UNFENCED then swaps under the
+  fence, refuses to hijack a live practice session (409 busy), and starts
+  from the top (stop+play re-baseline). Uploads: stream-sink like songs,
+  quota checks on the FIRST chunk (16 shows / 384KB / 64KB per — 507/413),
+  409 while anything renders live. GET /api/shows carries formatVersion 1
+  and name/size only (per-item meta would parse every file on list —
+  SHOW-FORMAT updated). Webui playback surface deliberately deferred: the
+  editor drives /api/shows; the webui keeps only the Presentation toggle.
+  285 native tests.
 - A50 (2026-07-10, E-wave closing review): 8 angles, 4 paired agents, 18
   findings → 14 fixed, 4 accepted/deferred with reasons. The two that
   mattered most: (1) PUT /api/afk built every track's effect UNDER the F1

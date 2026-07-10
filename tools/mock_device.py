@@ -64,6 +64,8 @@ afk = {
 AFK_EFFECTS = {"rainbow", "confetti", "sinelon", "juggle", "bpm",
                "fire2012", "pacifica", "twinklefox", "colorwaves",
                "pride2015"}
+shows = {}  # name -> size (P2 mock: enough for the editor's flows)
+show_playing = [None]
 songs = [
     {"name": "clair-de-lune.mid", "size": 4321},
     {"name": "ode-to-joy.mid", "size": 1290},
@@ -210,6 +212,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, calibration)
         elif self.path == "/api/afk":
             self._json(200, afk)
+        elif self.path == "/api/shows":
+            self._json(200, {"formatVersion": 1,
+                             "shows": [{"name": n, "size": s}
+                                       for n, s in shows.items()]})
         elif self.path == "/api/calibration/probe":
             probe_tick()
             self._json(200, {"armed": probe["armed"], "led": probe["led"],
@@ -233,6 +239,37 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "bad mode"})
                 return
             self._json(200, self._status())
+            return
+        if self.path.startswith("/api/shows"):
+            if self.path == "/api/shows/stop":
+                show_playing[0] = None
+                self._json(200, self._status())
+                return
+            if self.path.endswith("/play"):
+                name = self.path[len("/api/shows/"):-len("/play")]
+                if name not in shows:
+                    self._json(404, {"error": "no such show"})
+                elif not state["song"]:
+                    self._json(400, {"error": "no song loaded"})
+                else:
+                    show_playing[0] = name
+                    self._json(200, self._status())
+                return
+            # upload: /api/shows?name=<n>.vls
+            import urllib.parse as _up
+            q = _up.urlparse(self.path).query
+            name = _up.parse_qs(q).get("name", [""])[0]
+            n = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(n)
+            if not name.endswith(".vls"):
+                self._json(400, {"error": "bad name (want *.vls)"})
+            elif len(body) > 64 * 1024:
+                self._json(413, {"error": "show too large"})
+            elif len(shows) >= 16 or sum(shows.values()) + len(body) > 384 * 1024:
+                self._json(507, {"error": "show storage full"})
+            else:
+                shows[name] = len(body)
+                self._json(201, {"name": name})
             return
         if self.path == "/api/afk/control":
             b = self._body()
@@ -394,6 +431,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_DELETE(self):
+        if self.path.startswith("/api/shows/"):
+            name = self.path[len("/api/shows/"):]
+            if shows.pop(name, None) is None:
+                self._json(404, {"error": "no such show"})
+            else:
+                self.send_response(204)
+                self._cors()
+                self.end_headers()
+            return
         if self.path == "/api/calibration/probe":
             probe.update(armed=False, note=None)
             self._json(200, {"armed": False, "led": probe["led"],

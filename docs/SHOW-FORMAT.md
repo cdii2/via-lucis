@@ -97,7 +97,9 @@ binary stream as its JSON twin for round-trip checks.
 
 ## 3. REST protocol (device side, P1)
 
-- `GET /api/shows` → `[{"name","size","durationMs","clockSource"}]`
+- `GET /api/shows` → `{"formatVersion": 1, "shows": [{"name","size"}]}`
+  (per-item meta like durationMs would mean parsing every file on list —
+  deferred; the editor reads meta from its own project files).
 - `POST /api/shows?name=<n>.vls` — raw binary upload (chunked body intake,
   same as songs; disconnect mid-upload discards the partial file). Allowed
   in every mode EXCEPT while a show is playing or practice is Playing

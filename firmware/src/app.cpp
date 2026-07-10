@@ -132,6 +132,47 @@ bool App::applyAfk(const char* json, std::string* err) {
     return true;
 }
 
+App::ShowPlay App::playShow(const std::string& name, std::string* err) {
+    // Flash read + parse UNFENCED (locals only, F-wave discipline).
+    std::vector<uint8_t> data;
+    if (!store_.readShow(name, data)) return ShowPlay::NotFound;
+    Show show;
+    ShowResult r = Show::parse(data.data(), data.size(), show);
+    if (!r.ok()) {
+        if (err) *err = r.message();
+        return ShowPlay::BadStream;
+    }
+    uint8_t clock = show.meta.clockSource;  // 0=demo, 1=freeRun (2 refused)
+    FenceGuard g(lock_);
+    touchWriteActivity();
+    if (!engine_.songLoaded()) return ShowPlay::NoSong;
+    if (engine_.state() == PlayState::Playing && !director_.showPlaying())
+        return ShowPlay::Busy;  // don't hijack a live practice session
+    // The clock source picks the practice sub-mode driving the Scheduler:
+    // Demo = the device plays the song; Free-run = tempo-scaled follow.
+    std::vector<MidiOutMsg> out;
+    engine_.setMode(clock == 0 ? "demo" : "follow", "both", out);
+    sendAll(out);
+    director_.startShow(std::move(show),
+                        static_cast<uint32_t>(esp_timer_get_time()));
+    transportLocked("stop", 0);   // from the top…
+    transportLocked("play", 0);   // …and rolling
+    return ShowPlay::Ok;
+}
+
+bool App::stopShow() {
+    FenceGuard g(lock_);
+    touchWriteActivity();
+    director_.stopShow();  // back to Practice (presentation off)
+    transportLocked("stop", 0);
+    return true;
+}
+
+bool App::showBusy() {
+    FenceGuard g(lock_);
+    return engine_.state() == PlayState::Playing || director_.showPlaying();
+}
+
 bool App::afkControl(const std::string& action) {
     FenceGuard g(lock_);
     touchWriteActivity();

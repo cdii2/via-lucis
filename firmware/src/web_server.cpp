@@ -328,6 +328,116 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    sendJson(req, 200, app.statusJson());
                });
 
+    // --- shows (P2; SHOW-FORMAT.md §3) -----------------------------------
+    gServer.on("/api/shows", HTTP_GET, [&app](AsyncWebServerRequest* req) {
+        JsonDocument doc;
+        doc["formatVersion"] = 1;
+        JsonArray arr = doc["shows"].to<JsonArray>();
+        for (const SongFileInfo& s : app.store().listShows()) {
+            JsonObject o = arr.add<JsonObject>();
+            o["name"] = s.name;
+            o["size"] = s.size;
+        }
+        std::string out;
+        serializeJson(doc, out);
+        sendJson(req, 200, out);
+    });
+
+    // Raw-body show upload (stream sink, mirrors the song upload).
+    gServer.on(
+        "/api/shows", HTTP_POST,
+        [](AsyncWebServerRequest* req) {
+            BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
+            if (st && st->failed) return;
+            if (!st || !st->sawBody) sendError(req, 400, "empty upload");
+        },
+        nullptr,
+        [&app](AsyncWebServerRequest* req, uint8_t* data, size_t len,
+               size_t index, size_t total) {
+            BodyIntake& in = intakeFor(req);
+            if (in.failed) return;
+            ChunkPlan plan =
+                planChunk(index, len, total, SongStore::kMaxShowBytes);
+            if (plan.first) {
+                if (!req->hasParam("name")) {
+                    intakeFail(req, 400, "missing ?name=");
+                    return;
+                }
+                in.name = req->getParam("name")->value().c_str();
+                if (!SongStore::validShowName(in.name)) {
+                    intakeFail(req, 400, "bad name (want *.vls)");
+                    return;
+                }
+                if (plan.tooLarge) {
+                    intakeFail(req, 413, "show too large");
+                    return;
+                }
+                if (app.showBusy()) {  // never race a live render (OV1)
+                    intakeFail(req, 409, "busy");
+                    return;
+                }
+                if (app.store().listShows().size() >=
+                        SongStore::kMaxShowCount ||
+                    app.store().showTotalBytes() + total >
+                        SongStore::kMaxShowTotalBytes) {
+                    intakeFail(req, 507, "show storage full");
+                    return;
+                }
+            }
+            in.sawBody = true;
+            if (!app.store().appendShowChunk(in.name, data, len,
+                                             plan.first)) {
+                intakeFail(req, 500, "write failed");
+                return;
+            }
+            if (plan.last) {
+                JsonDocument doc;
+                doc["name"] = in.name;
+                std::string out;
+                serializeJson(doc, out);
+                sendJson(req, 201, out);
+            }
+        });
+
+    gServer.on("/api/shows/stop", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   app.stopShow();
+                   sendJson(req, 200, app.statusJson());
+               });
+
+    gServer.on("^\\/api\\/shows\\/([^\\/]+)\\/play$", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   std::string name = req->pathArg(0).c_str();
+                   std::string err;
+                   switch (app.playShow(name, &err)) {
+                       case App::ShowPlay::Ok:
+                           sendJson(req, 200, app.statusJson());
+                           return;
+                       case App::ShowPlay::NotFound:
+                           sendError(req, 404, "no such show");
+                           return;
+                       case App::ShowPlay::BadStream:
+                           sendError(req, 400, err.c_str());
+                           return;
+                       case App::ShowPlay::NoSong:
+                           sendError(req, 400, "no song loaded");
+                           return;
+                       case App::ShowPlay::Busy:
+                           sendError(req, 409, "busy");
+                           return;
+                   }
+               });
+
+    gServer.on("^\\/api\\/shows\\/([^\\/]+)$", HTTP_DELETE,
+               [&app](AsyncWebServerRequest* req) {
+                   std::string name = req->pathArg(0).c_str();
+                   if (!app.store().removeShow(name)) {
+                       sendError(req, 404, "no such show");
+                       return;
+                   }
+                   req->send(204);
+               });
+
     // --- AFK playlist (E3) ---------------------------------------------
     gServer.on("/api/afk", HTTP_GET, [&app](AsyncWebServerRequest* req) {
         sendJson(req, 200, app.afkJson());

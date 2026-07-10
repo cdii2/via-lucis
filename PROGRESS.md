@@ -433,12 +433,12 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       score-follow additions extend v1 streams without breaking them, plus a
       canonical JSON debug representation alongside the binary (editor exports both;
       failures stay inspectable). Written into docs before P1 starts.
-- [ ] P1 — device cue-stream player + presentation-only compositor (alpha/additive,
+- [x] P1 — device cue-stream player + presentation-only compositor (alpha/additive,
       composited top-to-bottom) — a separate render path; the practice priority stack
       is not touched. Named tests: malformed/truncated stream ⇒ typed error (never
       garbage rendering); version-mismatch refused (2A); stream notes beyond the
       table render dark, not crash.
-- [ ] P2 — clock sources: Demo (device playback owns sound + light) and Free-run
+- [x] P2 — clock sources: Demo (device playback owns sound + light) and Free-run
       (tempo-scaled scheduler). `clockSource` is per-show data. Named test: tempo
       change mid-show keeps the Free-run clock continuous.
 - [x] P3 — editor MVP in `editor/` (off-device, VL3): piano-roll over the loaded MIDI

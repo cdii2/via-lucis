@@ -67,6 +67,12 @@ public:
     bool applyAfk(const char* json, std::string* err);  // PUT: apply+save
     bool afkControl(const std::string& action);  // next | previous
 
+    // --- shows (P2) ------------------------------------------------------
+    enum class ShowPlay : uint8_t { Ok, NotFound, BadStream, NoSong, Busy };
+    ShowPlay playShow(const std::string& name, std::string* err);
+    bool stopShow();
+    bool showBusy();  // uploads are refused while anything renders live
+
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and

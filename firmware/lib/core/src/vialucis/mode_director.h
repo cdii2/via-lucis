@@ -25,6 +25,7 @@
 #include "vialucis/fx/note_driven.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
+#include "vialucis/show_player.h"
 
 namespace vialucis {
 
@@ -43,9 +44,29 @@ public:
     // everything reads the one per-key table). App calls this alongside
     // engine setTable.
     void setTable(const KeyLedTable& t) {
+        table_ = t;
         reactive_.setTable(t);
         afk_.setTable(t);
     }
+
+    // --- presentation playback (P2) -------------------------------------
+    // The clock is the Scheduler's song-time axis: Demo = the engine plays
+    // the song (mode demo), Free-run = tempo-scaled follow. The caller
+    // (App) sets the practice sub-mode + transport; this starts the show
+    // frame source and flips Presentation on.
+    void startShow(Show&& show, uint32_t seed) {
+        showPlayer_.load(std::move(show), table_, seed);
+        showPlaying_ = true;
+        presentation_ = true;
+        engine_.markFrameDirty();
+    }
+    void stopShow() {
+        showPlaying_ = false;
+        presentation_ = false;
+        engine_.markFrameDirty();
+    }
+    bool showPlaying() const { return showPlaying_; }
+    const ShowPlayer& showPlayer() const { return showPlayer_; }
 
     // --- AFK playlist (E3) --------------------------------------------
     // Boot/tests: prepare+apply in one call (allocates — see applyAfk's
@@ -130,6 +151,9 @@ private:
     fx::NoteDriven reactive_;      // E2: the live note-driven layer
     fx::AfkPlayer afk_{ledCount_};  // E3: replaces the M2 rainbow stub
     uint32_t fxFrame_ = 0;          // fixed-timestep counter for fx renders
+    KeyLedTable table_;             // the geometry truth (VL1)
+    ShowPlayer showPlayer_;         // P2: the Presentation frame source
+    bool showPlaying_ = false;
 
     enum class Test : uint8_t { None, Strip, Rainbow };
     Test test_ = Test::None;

@@ -131,9 +131,12 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         engine_.markFrameDirty();
     }
     // Presentation is per-song: when the song goes away (ANY unload path),
-    // the flag dies with it — a later load must land in Practice, never a
-    // stale Presentation (M-wave closing review).
-    if (presentation_ && !engine_.songLoaded()) presentation_ = false;
+    // the flag AND any playing show die with it — a later load must land
+    // in Practice, never a stale Presentation (M-wave closing review).
+    if (presentation_ && !engine_.songLoaded()) {
+        presentation_ = false;
+        showPlaying_ = false;
+    }
     engine_.tick(nowUs, out);
     TopMode m = topMode(nowUs);
     if (m != lastMode_) {
@@ -189,7 +192,13 @@ const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {
             reactive_.render(f);
             return frame_;
         }
-        case TopMode::Presentation:  // placeholder until the P-wave player
+        case TopMode::Presentation:
+            if (showPlaying_) {  // P2: the show reads the song-time clock
+                showPlayer_.renderAt(
+                    static_cast<uint32_t>(engine_.positionUs() / 1000),
+                    frame_);
+                return frame_;
+            }
             std::fill(frame_.begin(), frame_.end(), Rgb{});
             return frame_;
     }

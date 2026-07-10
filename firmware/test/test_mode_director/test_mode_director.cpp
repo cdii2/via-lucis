@@ -239,6 +239,62 @@ void test_reactive_free_play_glows_and_decays() {
     TEST_ASSERT_EQUAL_INT(0, lit);
 }
 
+// --- P2: presentation playback on the song-time clock ----------------------
+
+void test_presentation_plays_a_show_on_the_song_clock() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    Show s;
+    s.meta.clockSource = 1;  // free-run
+    s.meta.durationMs = 5000;
+    s.meta.name = "t";
+    s.effects.push_back("rainbow");
+    ShowCue cue;  // whole-strip autonomous rainbow, open-ended
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    r.director.startShow(std::move(s), 7);
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
+    // App wiring emulated: free-run = follow mode + play.
+    gOut.clear();
+    r.engine.setMode("follow", "both", gOut);
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 100000);
+    TEST_ASSERT_TRUE_MESSAGE(
+        litCount(r.director.renderFrame(2 * kSec + 100000)) > 300,
+        "the show paints the strip, not the placeholder dark frame");
+    // Named P2 test: a tempo change mid-show keeps the Free-run clock
+    // continuous — song position must not jump.
+    uint64_t before = r.engine.positionUs();
+    TEST_ASSERT_TRUE(r.engine.setTempo(50.0f));
+    TEST_ASSERT_EQUAL_UINT64(before, r.engine.positionUs());
+    r.tick(2 * kSec + 200000);  // still advancing, just slower
+    TEST_ASSERT_TRUE(r.engine.positionUs() > before);
+    // Stop: back to Practice, dark handed back to the practice renderer.
+    r.director.stopShow();
+    TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
+}
+
+void test_show_dies_with_the_song() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    Show s;
+    s.effects.push_back("rainbow");
+    ShowCue cue;
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    r.director.startShow(std::move(s), 7);
+    TEST_ASSERT_TRUE(r.director.showPlaying());
+    r.unload();
+    r.tick(2 * kSec);
+    TEST_ASSERT_FALSE(r.director.showPlaying());
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Reactive);
+}
+
 // --- the probe as a director-owned forced source (moved from C3) -----------
 
 void test_probe_dot_outranks_test_pattern_and_modes() {
@@ -340,6 +396,8 @@ int main(int, char**) {
     RUN_TEST(test_pattern_activation_auto_pauses_playback);
     RUN_TEST(test_stale_presentation_never_survives_unload);
     RUN_TEST(test_afk_plays_the_configured_playlist_not_the_fallback);
+    RUN_TEST(test_presentation_plays_a_show_on_the_song_clock);
+    RUN_TEST(test_show_dies_with_the_song);
     RUN_TEST(test_reactive_free_play_glows_and_decays);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);
