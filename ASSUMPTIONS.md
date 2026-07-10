@@ -3,6 +3,26 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A53 (2026-07-10, VL6 score-follow grill): P4's design is RESOLVED with
+  Christian (batch, 15 decisions, all on the recommended option) — full spec in
+  docs/DESIGN-lightshow.md §4a. Load-bearing shape: reuse wait-mode's barrier
+  matcher over a designated FOLLOW TRACK (editor-selected, default melody/right
+  hand); on a confident chord match SNAP the clock to that anchor then
+  EXTRAPOLATE forward at a HYBRID tempo (score-seeded, blended toward the
+  performer's measured tempo, clamped ≈25–300%); performance mode (NO wrong-note
+  red-flash). Robustness = forgiving + forward-biased + never-lurch: wrong/extra
+  notes ignored for the clock; performer-ahead = bounded look-ahead snap;
+  performer-back = forward-only re-arm (no smooth reverse in v1); rests = coast-
+  then-hold (washes keep breathing); lost/low-confidence = FALL BACK TO FREE-RUN
+  and auto-re-acquire (the safety net that makes it feel robust). First matched
+  anchor starts the clock (no count-in). Format: clockSource=2 (already reserved
+  + typed-refused) + one optional META follow-track-index field; matching params
+  stay firmware constants (no new TLV section — the reserved value + unknown-
+  section-skip rule cover a richer per-show config later with no migration).
+  Deferred to later waves (NOT P4 v1): smooth backward tracking, ornament/trill/
+  repeat modelling, per-note anchor authoring, confidence-driven pause. Design
+  only — no code this session ([[design-sessions-defer-code-to-fable]]); P4
+  builds against §4a next.
 - A52 (2026-07-10, P-wave closing review): 8 angles, 4 paired finder agents.
   APPLIED — show.cpp: Reader::need 32-bit-wrap guard, parseCues count×16 ≤
   remaining check BEFORE reserve (count-DoS), META name >48 ⇒ BadSection.

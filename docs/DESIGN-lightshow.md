@@ -194,6 +194,94 @@ sequences later, but the editor is ours.
 scheduler / a wait-mode-derived matcher that advances on match instead of halting).
 Score-follow likely reuses `wait_mode`'s existing note-matching machinery.
 
+### 4a. Score-follow clock — VL6, RESOLVED 2026-07-10 (the P4 spec)
+
+Grilled with Christian (batch, 15 decisions; all landed on the recommended
+option). This is the **build contract for P4** — Fable builds against it.
+
+**The problem it solves.** A light show needs a *smooth, continuous* clock (so
+autonomous washes breathe), but a performer gives *discrete, unpredictable*
+evidence (note onsets at unknown real times). Score-follow **estimates** a
+continuous song-position from those discrete matches. It reuses wait-mode's
+matcher, but where wait-mode *halts* at a barrier, score-follow *releases* the
+barrier and *advances the clock* toward the next one.
+
+**Scope (Q1, Q2).** P4 v1 = **step-anchored follow + gentle tempo
+extrapolation + free-run fallback** — a genuinely usable flagship, NOT a
+research-grade follower. It is a **performance mode: no wrong-note correction**
+— wrong notes never red-flash the strip; they simply don't advance the clock.
+(Ornament/repeat cleverness and per-note anchor authoring are explicitly a
+later wave.)
+
+**The clock model (Q3, Q4, Q5).**
+- **Anchors** = each **chord onset of the follow scope** — the exact cadence
+  wait-mode already arms barriers on. Reuse that machinery verbatim.
+- On a confident match, **snap** the clock to that anchor's song-time, then
+  **extrapolate forward** at an estimated tempo until the next anchor, snapping
+  again at each match. (Pure step-hold would freeze the washes; a filtered
+  continuous estimate is overkill for the MCU.)
+- **Tempo = hybrid:** seed from the show's authored tempo, blend toward the
+  performer's measured recent inter-anchor tempo, **clamped to a sane band**
+  (≈25–300%). The score tempo is always the safe anchor/fallback.
+
+**What is "the score" (Q6, Q7).** A **designated follow track/hand**, chosen in
+the editor (default = right-hand/melody), reusing the existing track-mask —
+NOT the full MIDI (accompaniment is noise). A chord advances on an **"enough"
+match**: its core notes land within a generous timing window; extra/missing
+inner voices are tolerated (reuse per-key chord clearing). Never a bare
+single-note trigger (ornaments would false-advance).
+
+**Robustness (Q8–Q12).**
+- **Wrong / extra notes → ignored for the clock.** Only forward evidence moves
+  it; a fumble never makes the lights lurch.
+- **Performer ahead → bounded look-ahead:** match against the next few anchors
+  within a window, snap to the furthest confident match. (Not unbounded — a
+  coincidental far-away pitch must not teleport the clock.)
+- **Performer goes back → forward-only in v1:** a large backward run triggers a
+  **resync/re-arm** at the new position (treated like a seek), not a smooth
+  reverse clock. (Backward seek already hard-resets effects, so smooth reverse
+  would look jarring — deferred.)
+- **Rests / fermatas → coast then hold:** the clock keeps moving at the last
+  tempo up to the next scored onset, then holds; washes keep breathing but the
+  clock never runs past unplayed music.
+- **Lost / low confidence → fall back to free-run** at the last known tempo and
+  **auto-re-acquire** when confident matches resume. The show never freezes or
+  dies; it silently snaps back when the performer is found again. **This is the
+  safety net that makes the flagship feel robust even when following is
+  imperfect.**
+
+**Lifecycle & authoring (Q13, Q14).** The **first matched anchor starts the
+clock** (show pre-rolled at position 0; an authored intro segment covers
+"autonomous wash before the first note"). No count-in, no downbeat ceremony.
+Editor adds exactly **one control: a "follow track" selector** + auto-extracts
+anchors from that track — **no per-note anchor editing in v1**.
+
+**Format impact (Q15).** `clockSource = 2` (already reserved + typed-refused in
+v1 firmware) **plus one optional META field: the follow-track index.** All
+matching params (timing windows, tempo band, look-ahead depth) stay **firmware
+constants**, tunable later — **no new TLV section for v1.** The reserved value
++ the unknown-section-skip rule already cover a richer per-show follow config
+(windows/weights/tolerances) as a clean later extension with no migration.
+
+**How it hangs together:** reuse the barrier matcher → snap-and-extrapolate
+with a clamped hybrid tempo → forgiving, forward-biased robustness that never
+lurches → free-run safety net whenever confidence drops. One editor selector
+and one format field are the entire authoring/format surface.
+
+**Impl notes for the builder (design-level, not prescriptive):** the natural
+seam is a `ScoreFollower` in core that wraps a `WaitMode`-style matcher over
+the follow-track mask and, instead of holding the scheduler at the barrier,
+drives `Scheduler::seek`/tempo to the estimated position each tick; the
+follower is pure and native-testable (feed it a scripted onset stream, assert
+the emitted clock trajectory); the director selects it as the Presentation
+feeder when `clockSource==2`; the effect backward-seek reset already handles
+the re-arm case. Tune the windows/band/look-ahead as native-test constants.
+
+**Explicitly still open after VL6 (later waves, NOT P4 v1):** smooth backward
+tracking; ornament/trill/repeat modelling; per-note anchor weighting + per-
+section tolerance authoring; a confidence-metric-driven pause. The format
+reserves room for all of them.
+
 ---
 
 ## 5. Calibration — per-key geometry for *any* keyboard
@@ -246,7 +334,10 @@ These were surfaced but deliberately left for later design passes, not build:
   format (fits the open-source ethos); possible xLights sequence import.
 - **AFK starter catalog + crossfades** — the initial curated effect set and transition
   polish.
-- **Score-following robustness** — handling wrong notes, jumps, ornaments, repeats. The
-  genuinely hard part of the flagship clock source.
+- ~~**Score-following robustness**~~ — **DESIGNED 2026-07-10 (VL6, §4a) as the P4
+  spec.** The v1 slice (step-anchored follow + hybrid tempo + free-run fallback,
+  performance mode) is fully specified. Deferred to later waves: smooth backward
+  tracking, ornament/trill/repeat modelling, per-note anchor authoring, a
+  confidence-driven pause.
 - **BOM scaling specifics** — concrete strip length/density guidance per keyboard size for
   the build guide.

@@ -233,10 +233,12 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 - **VL5 — AFK arms into a stub effect at M-wave** (the existing rainbow pattern as
   placeholder content) so the mode state machine is fully buildable and testable
   before the effect library exists. E-wave replaces the content, not the machine.
-- **VL6 — score-follow gets its own design session before it is built** (P4). The
-  brief lists its robustness (wrong notes, jumps, repeats) as an open item; building
-  the flagship clock from an undesigned spec is how flagships die. P1–P3 ship with
-  Demo + Free-run clocks only.
+- **VL6 — RESOLVED 2026-07-10** (grilled with Christian; A53; full spec in
+  DESIGN-lightshow.md §4a). Score-follow no longer builds from an undesigned brief:
+  reuse the wait-mode barrier matcher over an editor-selected follow track, snap-and-
+  extrapolate the clock with a clamped hybrid tempo, performance mode (no wrong-note
+  flash), forward-biased robustness, free-run safety-net when lost. P1–P3 shipped with
+  Demo + Free-run; **P4 is now unblocked to build against §4a.**
 - **VL7 — effects are ported deterministic:** injectable RNG + fixed timestep on the
   Effect seam, so every classic gets native tests (determinism, brightness/power
   bounds, zero steady-state alloc). FastLED classics only (MIT, attribution header
@@ -451,14 +453,16 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       re-editable authoring. Cue sort = startMs, ties broken by descending
       lane so the lower lane renders on top (SHOW-FORMAT §1 z-order — settled
       in the P-wave closing review, A52).)*
-- [ ] P4 — score-follow clock: **gated on its own grilled design session (VL6)** —
-      advances on match via wait-mode's machinery, tolerant of wrong/extra/skipped.
-      Do not start from the current brief alone.
-      *(2026-07-10 build run: deliberately NOT built — the gate is the plan's
-      own. Everything it needs is staged: clockSource 2 is reserved in the
-      format and refused with a typed error, the editor shows it disabled,
-      and TLV sections extend v1 streams without migration. Next step is the
-      /grilling session with Christian, then P4 builds against its output.)*
+- [ ] P4 — score-follow clock: **VL6 RESOLVED 2026-07-10 (spec = DESIGN-lightshow.md
+      §4a, A53) — now UNBLOCKED to build.** Advances on match via wait-mode's matcher
+      over an editor-selected follow track; snap-and-extrapolate clock with a clamped
+      hybrid tempo; performance mode (no wrong-note flash); forward-biased robustness;
+      free-run safety-net when confidence drops. v1 defers smooth backward tracking,
+      ornament/repeat modelling, per-note anchor authoring, confidence-driven pause.
+      *(Staged and ready: clockSource 2 reserved + typed-refused, editor shows it
+      disabled, TLV/META extend without migration. Build surface: a native-testable
+      `ScoreFollower` in core driving the Scheduler as the Presentation feeder + one
+      "follow track" editor selector + one optional META follow-track-index field.)*
 - [x] closing /code-review over the wave diff — 8 angles (4 paired agents).
       Applied: show.cpp overflow/DoS/name-length guards; show_player reworked
       to bounded per-frame work (per-cue 88-key bitmaps, sorted BindEvent
