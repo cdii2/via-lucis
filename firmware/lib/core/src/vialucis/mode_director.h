@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "vialucis/calibration_probe.h"
+#include "vialucis/fx/afk_player.h"
 #include "vialucis/fx/note_driven.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
@@ -38,9 +39,30 @@ public:
     ModeDirector(const ModeDirector&) = delete;
     ModeDirector& operator=(const ModeDirector&) = delete;
 
-    // Geometry for the note-driven layers (VL1: everything reads the one
-    // per-key table). App calls this alongside engine setTable.
-    void setTable(const KeyLedTable& t) { reactive_.setTable(t); }
+    // Geometry for the note-driven layers and the AFK range mask (VL1:
+    // everything reads the one per-key table). App calls this alongside
+    // engine setTable.
+    void setTable(const KeyLedTable& t) {
+        reactive_.setTable(t);
+        afk_.setTable(t);
+    }
+
+    // --- AFK playlist (E3) --------------------------------------------
+    void setAfkConfig(const fx::AfkConfig& c, uint32_t seed) {
+        afk_.setConfig(c, seed);
+        engine_.markFrameDirty();
+    }
+    std::string afkConfigJson() const {
+        return fx::afkConfigToJson(afk_.config());
+    }
+    void afkNext() {
+        afk_.next();
+        engine_.markFrameDirty();
+    }
+    void afkPrevious() {
+        afk_.previous();
+        engine_.markFrameDirty();
+    }
 
     // --- activity (the idle clock's only writers) -----------------------
     void onMidiActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }
@@ -96,8 +118,9 @@ private:
     CalibrationProbe probe_;
     uint16_t ledCount_;
     std::vector<Rgb> frame_;  // director-produced sources paint here
-    fx::NoteDriven reactive_;  // E2: the live note-driven layer
-    uint32_t fxFrame_ = 0;     // fixed-timestep counter for fx renders
+    fx::NoteDriven reactive_;      // E2: the live note-driven layer
+    fx::AfkPlayer afk_{ledCount_};  // E3: replaces the M2 rainbow stub
+    uint32_t fxFrame_ = 0;          // fixed-timestep counter for fx renders
 
     enum class Test : uint8_t { None, Strip, Rainbow };
     Test test_ = Test::None;

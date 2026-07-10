@@ -39,6 +39,14 @@ void App::begin() {
     engine_.setTable(calib_.table);
     director_.setTable(calib_.table);  // note-driven layers read it too
     director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
+    // AFK playlist (E3): stored config or defaults; the shuffle seed is
+    // boot-time entropy (native tests seed explicitly instead).
+    std::string afkJson;
+    fx::AfkConfig afkCfg;
+    if (store_.loadAfk(afkJson))
+        fx::afkConfigFromJson(afkJson.c_str(), afkCfg, nullptr);
+    director_.setAfkConfig(
+        afkCfg, static_cast<uint32_t>(esp_timer_get_time()));
     leds_.begin(settings_.brightness);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
@@ -98,6 +106,35 @@ bool App::setPresentation(bool on) {
     FenceGuard g(lock_);
     touchWriteActivity();
     return director_.setPresentation(on);
+}
+
+std::string App::afkJson() {
+    FenceGuard g(lock_);
+    return director_.afkConfigJson();
+}
+
+bool App::applyAfk(const char* json, std::string* err) {
+    // Parse UNFENCED (locals); fence only the swap. Save after.
+    fx::AfkConfig cfg;
+    if (!fx::afkConfigFromJson(json, cfg, err)) return false;
+    std::string doc = fx::afkConfigToJson(cfg);
+    {
+        FenceGuard g(lock_);
+        touchWriteActivity();
+        director_.setAfkConfig(
+            cfg, static_cast<uint32_t>(esp_timer_get_time()));
+    }
+    store_.saveAfk(doc);
+    return true;
+}
+
+bool App::afkControl(const std::string& action) {
+    FenceGuard g(lock_);
+    touchWriteActivity();
+    if (action == "next") director_.afkNext();
+    else if (action == "previous") director_.afkPrevious();
+    else return false;
+    return true;
 }
 
 // Shared engine-pause/transport body; caller must hold the fence.

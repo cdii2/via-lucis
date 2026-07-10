@@ -328,6 +328,33 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    sendJson(req, 200, app.statusJson());
                });
 
+    // --- AFK playlist (E3) ---------------------------------------------
+    gServer.on("/api/afk", HTTP_GET, [&app](AsyncWebServerRequest* req) {
+        sendJson(req, 200, app.afkJson());
+    });
+
+    onJsonBody("/api/afk",
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   std::string raw;
+                   serializeJson(doc, raw);
+                   std::string err;
+                   if (!app.applyAfk(raw.c_str(), &err)) {
+                       sendError(req, 400, err.c_str());
+                       return;
+                   }
+                   sendJson(req, 200, app.afkJson());
+               });
+
+    onJsonBody("/api/afk/control",
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   std::string action = doc["action"] | "";
+                   if (!app.afkControl(action)) {
+                       sendError(req, 400, "bad action");
+                       return;
+                   }
+                   sendJson(req, 200, app.afkJson());
+               });
+
     // --- calibration (C3) --------------------------------------------------
     gServer.on("/api/calibration", HTTP_GET,
                [&app](AsyncWebServerRequest* req) {

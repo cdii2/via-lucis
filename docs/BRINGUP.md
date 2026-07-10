@@ -255,6 +255,27 @@ Walk the whole wizard once on the real strip.
   your strip runs left→right; if you mounted it right→left, the wizard must
   still finish and lights must land on the correct keys.
 
+## Step 11c — Ambient lights walk ⚠ VERIFY-ON-HARDWARE
+
+Action: unload any song (⏏ next to the song name), set **Start after idle**
+to 30 seconds in Settings → Ambient lights, and wait without touching
+anything.
+
+**Expected:**
+
+1. After ~30s the strip drifts into the ambient show (the playlist's first
+   effect, or a gentle rainbow with no playlist).
+2. Press any piano key → the ambient show stops instantly and the strip
+   follows your playing (reactive free-play glow, velocity-sensitive; the
+   sustain pedal holds glows).
+3. Load a song → ambient can no longer start, no matter how long you idle
+   (read music as long as you like).
+4. Watch a full effect change (dwell) — the crossfade should be a gentle
+   morph, never a hard cut. If ambient is too bright for the room, lower
+   the **Ambient brightness cap**.
+
+Afterwards set the idle timeout back (default 180s).
+
 ## Step 12 — Done
 
 That's the whole trainer proven end to end. From here, everything is playtime:

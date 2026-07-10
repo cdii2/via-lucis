@@ -8,6 +8,7 @@ namespace vialucis {
 namespace {
 constexpr const char* kSettingsPath = "/settings.json";
 constexpr const char* kCalibrationPath = "/calibration.json";
+constexpr const char* kAfkPath = "/afk.json";
 constexpr const char* kSongDir = "/songs";
 }  // namespace
 
@@ -130,6 +131,14 @@ bool SongStore::saveCalibration(const std::string& json) {
 
 bool SongStore::saveSettings(const Settings& s) {
     return writeTextFile(kSettingsPath, s.toJson());
+}
+
+bool SongStore::loadAfk(std::string& json) {
+    return readTextFile(kAfkPath, json);
+}
+
+bool SongStore::saveAfk(const std::string& json) {
+    return writeTextFile(kAfkPath, json);
 }
 
 }  // namespace vialucis

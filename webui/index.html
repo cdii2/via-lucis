@@ -435,6 +435,24 @@ input[type=color] {
     <h2>Ambient lights</h2>
     <div class="row"><label for="s_afkTimeoutSec">Start after idle (seconds)</label><input type="number" id="s_afkTimeoutSec" data-key="afkTimeoutSec" step="30" min="0" max="86400"></div>
     <div class="note-txt">With no song loaded, the strip drifts into an ambient show after this long. 0 = never. A key press or any control wakes it instantly — and it can never start while a song is loaded.</div>
+    <div class="subrow"><div class="lbl">Playlist</div></div>
+    <div id="afkTracks"></div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="btn small" id="afkAdd">Add effect</button>
+      <button class="btn small" id="afkPrev">‹ Prev</button>
+      <button class="btn small" id="afkNext">Next ›</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <label class="name" for="afkShuffle">Shuffle</label>
+      <span class="tog"><input type="checkbox" id="afkShuffle" aria-label="Shuffle"><span class="tr"></span></span>
+    </div>
+    <div class="row">
+      <label class="name" for="afkAboveKeys">Only above the keys</label>
+      <span class="tog"><input type="checkbox" id="afkAboveKeys" aria-label="Only above keys"><span class="tr"></span></span>
+    </div>
+    <div class="row"><label for="afkDwell">Minutes per effect</label><input type="number" id="afkDwell" step="1" min="1" max="120"></div>
+    <div class="row"><label for="afkCap">Ambient brightness cap</label><span class="valout" id="v_afkCap">96</span></div>
+    <input type="range" id="afkCap" min="8" max="255" step="1">
   </div>
 
   <div class="card set-grid">
@@ -1059,6 +1077,7 @@ function loadSettings() {
     .then(function (s) { applySettings(s, false); })
     .catch(function (e) { toast(e.message, true); });
   loadCalStatus();
+  loadAfk();
 }
 
 // color pickers + plain inputs (data-key)
@@ -1083,6 +1102,68 @@ $("s_brightness").addEventListener("input", function () {
   $("v_brightness").textContent = $("s_brightness").value;
   queueSetting("brightness", +$("s_brightness").value);
 });
+/* ---------- ambient (AFK) playlist ---------- */
+var AFK_EFFECTS = ["rainbow","confetti","sinelon","juggle","bpm","fire2012","pacifica","twinklefox","colorwaves","pride2015"];
+var AFK_PALETTES = ["","rainbow","ocean","forest","lava","party","cloud","heat"];
+var afkCfg = null, afkTimer = null;
+
+function afkSave() {
+  clearTimeout(afkTimer);
+  afkTimer = setTimeout(function () {
+    api("PUT", "/api/afk", afkCfg)
+      .then(function (c) { if (c) { afkCfg = c; renderAfk(); } })
+      .catch(function (e) { toast(e.message, true); });
+  }, 500);
+}
+function opts(list, sel) {
+  return list.map(function (v) {
+    return '<option value="' + v + '"' + (v === sel ? " selected" : "") + ">" +
+           (v || "default colors") + "</option>";
+  }).join("");
+}
+function renderAfk() {
+  if (!afkCfg) return;
+  var host = $("afkTracks");
+  host.innerHTML = "";
+  (afkCfg.tracks || []).forEach(function (t, i) {
+    var row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML =
+      '<select data-afk="effect" data-i="' + i + '">' + opts(AFK_EFFECTS, t.effect) + "</select>" +
+      '<select data-afk="palette" data-i="' + i + '" class="grow">' + opts(AFK_PALETTES, t.palette) + "</select>" +
+      '<button data-afk="del" data-i="' + i + '" aria-label="Remove" style="min-width:44px;min-height:44px;color:var(--dim)">✕</button>';
+    host.appendChild(row);
+  });
+  if (!(afkCfg.tracks || []).length)
+    host.innerHTML = '<div class="note-txt">No playlist — a gentle rainbow plays by default.</div>';
+  host.querySelectorAll("[data-afk]").forEach(function (el) {
+    var i = +el.dataset.i;
+    if (el.dataset.afk === "del")
+      el.addEventListener("click", function () { afkCfg.tracks.splice(i, 1); renderAfk(); afkSave(); });
+    else
+      el.addEventListener("change", function () { afkCfg.tracks[i][el.dataset.afk] = el.value; afkSave(); });
+  });
+  if (document.activeElement !== $("afkShuffle")) $("afkShuffle").checked = !!afkCfg.shuffle;
+  if (document.activeElement !== $("afkAboveKeys")) $("afkAboveKeys").checked = !!afkCfg.aboveKeysOnly;
+  if (document.activeElement !== $("afkDwell")) $("afkDwell").value = Math.max(1, Math.round((afkCfg.dwellSec || 60) / 60));
+  if (document.activeElement !== $("afkCap")) { $("afkCap").value = afkCfg.brightnessCap; $("v_afkCap").textContent = afkCfg.brightnessCap; }
+}
+function loadAfk() {
+  api("GET", "/api/afk").then(function (c) { afkCfg = c; renderAfk(); })
+    .catch(function () { /* device without E3 yet */ });
+}
+$("afkAdd").addEventListener("click", function () {
+  if (!afkCfg) return;
+  (afkCfg.tracks = afkCfg.tracks || []).push({ effect: "rainbow", palette: "" });
+  renderAfk(); afkSave();
+});
+$("afkShuffle").addEventListener("change", function () { if (afkCfg) { afkCfg.shuffle = $("afkShuffle").checked; afkSave(); } });
+$("afkAboveKeys").addEventListener("change", function () { if (afkCfg) { afkCfg.aboveKeysOnly = $("afkAboveKeys").checked; afkSave(); } });
+$("afkDwell").addEventListener("change", function () { if (afkCfg) { afkCfg.dwellSec = Math.max(60, (+$("afkDwell").value || 1) * 60); afkSave(); } });
+$("afkCap").addEventListener("input", function () { if (afkCfg) { afkCfg.brightnessCap = +$("afkCap").value; $("v_afkCap").textContent = $("afkCap").value; afkSave(); } });
+$("afkNext").addEventListener("click", function () { api("POST", "/api/afk/control", { action: "next" }).catch(function (e) { toast(e.message, true); }); });
+$("afkPrev").addEventListener("click", function () { api("POST", "/api/afk/control", { action: "previous" }).catch(function (e) { toast(e.message, true); }); });
+
 $("presToggle").addEventListener("change", function () {
   var mode = $("presToggle").checked ? "presentation" : "practice";
   api("POST", "/api/topmode", { mode: mode })

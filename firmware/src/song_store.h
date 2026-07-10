@@ -36,6 +36,10 @@ public:
     bool loadCalibration(std::string& json);
     bool saveCalibration(const std::string& json);
 
+    // AFK playlist document at /afk.json (E3). Absent ⇒ defaults.
+    bool loadAfk(std::string& json);
+    bool saveAfk(const std::string& json);
+
     // Keep names boring: alnum, dash, underscore, dot; must end ".mid".
     static bool validName(const std::string& name);
 

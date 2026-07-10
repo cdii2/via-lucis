@@ -196,7 +196,7 @@ const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {
         case TopMode::Practice:
             return engine_.renderFrame(nowUs);
         case TopMode::Afk:
-            paintRainbow(nowMs);  // VL5 stub — E3's playlist replaces it
+            afk_.render(frame_);  // E3: the playlist sequencer
             return frame_;
         case TopMode::Reactive: {  // E2: the live note-driven layer
             fx::FxFrame f{frame_, fxFrame_, fxFrame_ * fx::kFxStepMs};

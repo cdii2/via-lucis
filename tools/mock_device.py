@@ -53,6 +53,16 @@ settings = {
     "afkTimeoutSec": 180,
 }
 top = {"presentation": False, "last_activity": time.time()}
+afk = {
+    "tracks": [{"effect": "pacifica", "palette": ""},
+               {"effect": "fire2012", "palette": "heat"}],
+    "shuffle": False, "repeatCurrent": False, "dwellSec": 60,
+    "crossfadeMs": 2000, "brightnessCap": 96, "masterSpeed": 1.0,
+    "aboveKeysOnly": False,
+}
+AFK_EFFECTS = {"rainbow", "confetti", "sinelon", "juggle", "bpm",
+               "fire2012", "pacifica", "twinklefox", "colorwaves",
+               "pride2015"}
 songs = [
     {"name": "clair-de-lune.mid", "size": 4321},
     {"name": "ode-to-joy.mid", "size": 1290},
@@ -197,6 +207,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"connected": True, "device": "FP-30X BLE-MIDI"})
         elif self.path == "/api/calibration":
             self._json(200, calibration)
+        elif self.path == "/api/afk":
+            self._json(200, afk)
         elif self.path == "/api/calibration/probe":
             probe_tick()
             self._json(200, {"armed": probe["armed"], "led": probe["led"],
@@ -220,6 +232,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": "bad mode"})
                 return
             self._json(200, self._status())
+            return
+        if self.path == "/api/afk/control":
+            b = self._body()
+            if b.get("action") not in ("next", "previous"):
+                self._json(400, {"error": "bad action"})
+                return
+            self._json(200, afk)
             return
         if self.path == "/api/songs/unload":
             state.update(song="", positionMs=0, state="idle",
@@ -293,6 +312,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_PUT(self):
+        top["last_activity"] = time.time()
+        if self.path == "/api/afk":
+            b = self._body()
+            for t in b.get("tracks", []):
+                if t.get("effect") not in AFK_EFFECTS:
+                    self._json(400, {"error": "unknown effect: %s"
+                                     % t.get("effect")})
+                    return
+            afk.update(b)
+            self._json(200, afk)
+            return
         if self.path == "/api/settings":
             settings.update(self._body())
             self._json(200, settings)

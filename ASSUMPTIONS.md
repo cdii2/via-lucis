@@ -3,6 +3,28 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A49 (2026-07-10, E1+E3): effect provenance — every port from the VENDORED
+  FastLED 3.10.3 tree (identical to the repo tag; the pinned commit is the
+  3.10.3 release), examples/ for the algorithms; the small math/color kernel
+  (lib8tion subset, hsv2rgb_rainbow, HeatColor, ColorFromPalette) ported
+  from src/ of the SAME MIT release — OV3's target was gists/forums, not
+  the library's own source; every file's header names its exact source
+  paths. beat*/beatsin* take explicit ms (VL7 determinism). ColorWaves is
+  not in examples/ ⇒ shipped as a palette-driven derivation of the ported
+  Pride2015 wave math (idea reimplementation, no gist code). TwinkleFox's
+  palette rotation dropped in favor of the ONE setPalette primitive.
+  E3 player: dwell counts fixed frames (render cadence ≈ wall time only
+  while AFK is actually rendering — dwell pauses with the mode, which is
+  the right behavior for an ambient show); crossfade renders the incoming
+  effect into a second buffer and nblends 0→255 (continuity test measures
+  intrinsic effect motion first and bounds the fade against it — a sparky
+  fire frame legitimately out-jumps any fade); brightness cap applied
+  player-side BEFORE the global FastLED power cap; aboveKeysOnly masks to
+  the table's key span; unknown effect/palette names are typed 400s at the
+  REST boundary and render the fallback if they somehow land; empty
+  playlist = gentle rainbow (VL5's stub promoted to the documented
+  fallback). Reactive E2 layer + AFK player both copy the table (VL1 read
+  surface). 271 native tests.
 - A48 (2026-07-10, E2): NoteDriven = the expressive base (velocity gamma
   0.25–4, releaseMs decay stepped per fixed frame, CC64 latch; pedal-up
   releases every latched glow). Pitch maps linearly across the shared

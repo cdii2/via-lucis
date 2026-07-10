@@ -372,7 +372,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 ### E-wave — one effect engine, AFK + Reactive sequencers (brief §3)
 
-- [ ] E1 — Effect seam (fixed timestep, injectable RNG, palette + params in, frame
+- [x] E1 — Effect seam (fixed timestep, injectable RNG, palette + params in, frame
       buffer out — VL7) + shared palette system + the classic ports, one commit each:
       DemoReel100 set, Fire2012, Pacifica, TwinkleFox, ColorWaves, Pride2015. Each
       lands with determinism/bounds/zero-alloc native tests + MIT attribution header.
@@ -384,7 +384,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       wiring (live MIDI → single note-driven layer, no timeline). Named tests:
       velocity 0 and 127 curve endpoints; pedal-up releases every latched glow;
       note-off during latch holds the glow until release.
-- [ ] E3 — AFK playlist sequencer: ordered effect-config tracks, play/loop with
+- [x] E3 — AFK playlist sequencer: ordered effect-config tracks, play/loop with
       shuffle / next / previous / repeat-current, per-effect dwell, crossfade (second
       frame buffer), global brightness cap + master speed + LED range (whole strip vs
       above-keys — reads the C-wave table). `/afk.json` + `/api/afk` + webui panel.

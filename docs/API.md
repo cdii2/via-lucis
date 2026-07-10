@@ -94,6 +94,33 @@ follow from song state and activity.
   every state-changing call it resets the idle clock, so the AFK drift
   restarts from the unload.
 
+## Ambient (AFK) playlist (v2 E-wave)
+
+The document behind the AFK top mode (VL2 — its own file `/afk.json`, its
+own route). Tracks are effect configs played top→bottom→loop.
+
+- `GET /api/afk` →
+  ```json
+  {
+    "tracks": [{"effect": "pacifica", "palette": ""},
+               {"effect": "fire2012", "palette": "heat"}],
+    "shuffle": false, "repeatCurrent": false,
+    "dwellSec": 60, "crossfadeMs": 2000,
+    "brightnessCap": 96, "masterSpeed": 1.0,
+    "aboveKeysOnly": false
+  }
+  ```
+  Effects: `rainbow confetti sinelon juggle bpm fire2012 pacifica
+  twinklefox colorwaves pride2015`. Palettes: `rainbow ocean forest lava
+  party cloud heat` (`""` = the effect's default). An empty playlist falls
+  back to a gentle rainbow.
+- `PUT /api/afk` — same shape → `200` + the stored config, or
+  `400 {"error": "unknown effect: X" | "unknown palette: X" | "bad json"}`.
+  `dwellSec` clamps to ≥5, `masterSpeed` to 0.25–4, `crossfadeMs` to ≤10s.
+  `brightnessCap` ships conservative (96) — ambient runs unattended and
+  still passes the global power cap downstream.
+- `POST /api/afk/control` body `{"action": "next"}` or `"previous"` → `200`.
+
 ## Tempo / loop
 
 - `POST /api/tempo` body `{"percent": 85}` (1–500, clamped) → `200`.

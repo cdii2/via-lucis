@@ -62,6 +62,11 @@ public:
     // --- top mode (M2; the REST/status surface lands at M3) -----------
     bool setPresentation(bool on);
 
+    // --- AFK playlist (E3) ---------------------------------------------
+    std::string afkJson();
+    bool applyAfk(const char* json, std::string* err);  // PUT: apply+save
+    bool afkControl(const std::string& action);  // next | previous
+
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and
