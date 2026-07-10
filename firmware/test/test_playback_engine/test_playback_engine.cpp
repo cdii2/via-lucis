@@ -650,6 +650,46 @@ void test_set_table_overrides_configure_geometry() {
     assertRgb(kBlack, frame2[v1.first]);
 }
 
+// --- M1: unloadSong -------------------------------------------------------
+
+void test_unload_while_playing_flushes_and_clears() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "demo");  // demo: notes go to the piano
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(100000, gOut);  // C4 sounding on the piano and the strip
+    gOut.clear();
+    e.unloadSong(gOut);
+    int offs = 0;
+    for (const MidiOutMsg& m : gOut)
+        if (m.type == MidiOutType::NoteOff) ++offs;
+    TEST_ASSERT_TRUE_MESSAGE(offs >= 1, "sounding notes get note-offs");
+    TEST_ASSERT_FALSE(e.songLoaded());
+    TEST_ASSERT_TRUE(e.state() == PlayState::Idle);
+    // The very next frame is dark (dirty flag set by the unload).
+    TEST_ASSERT_TRUE(e.frameDue(110000));
+    const std::vector<Rgb>& frame = e.renderFrame(110000);
+    for (const Rgb& c : frame)
+        TEST_ASSERT_TRUE(!c.r && !c.g && !c.b);
+    // Status reads exactly like the natural boot state.
+    std::string status = e.statusJson();
+    TEST_ASSERT_TRUE(status.find("\"song\":\"\"") != std::string::npos);
+    TEST_ASSERT_TRUE(status.find("\"state\":\"idle\"") != std::string::npos);
+    TEST_ASSERT_TRUE(status.find("\"positionMs\":0") != std::string::npos);
+    TEST_ASSERT_TRUE(
+        status.find("\"loop\":{\"enabled\":false,\"startMs\":0,\"endMs\":0}") !=
+        std::string::npos);
+    // REST calls behave like no-song-yet (v1 contract).
+    TEST_ASSERT_FALSE(e.transport("play", 0, gOut));
+    TEST_ASSERT_FALSE(e.setTempo(120.0f));
+    // And a fresh load works normally afterwards.
+    gOut.clear();
+    e.loadSong(chordSong(), "again.mid", gOut);
+    TEST_ASSERT_TRUE(e.songLoaded());
+    TEST_ASSERT_TRUE(e.transport("play", 0, gOut));
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -685,5 +725,6 @@ int main(int, char**) {
     RUN_TEST(test_probe_cancel_clears_arm_and_capture);
     RUN_TEST(test_play_while_probe_armed_cancels_probe);
     RUN_TEST(test_set_table_overrides_configure_geometry);
+    RUN_TEST(test_unload_while_playing_flushes_and_clears);
     return UNITY_END();
 }

@@ -32,6 +32,7 @@ public:
 
     // REST surface — all return false on invalid requests.
     bool loadSong(const std::string& name);
+    bool unloadSong();  // M1: back to the no-song state
     bool transport(const std::string& action, uint32_t positionMs);
     bool setMode(const std::string& mode, const std::string& practice);
     bool setTempo(float percent);

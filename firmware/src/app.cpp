@@ -63,6 +63,14 @@ bool App::loadSong(const std::string& name) {
     return true;
 }
 
+bool App::unloadSong() {
+    std::vector<MidiOutMsg> out;
+    FenceGuard g(lock_);
+    engine_.unloadSong(out);
+    sendAll(out);
+    return true;
+}
+
 // Shared engine-pause/transport body; caller must hold the fence.
 bool App::transportLocked(const std::string& action, uint32_t positionMs) {
     std::vector<MidiOutMsg> out;

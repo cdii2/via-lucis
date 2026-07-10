@@ -321,7 +321,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 ### M-wave — mode model + unloadSong (brief §1)
 
-- [ ] M1 — core `unloadSong` (clears song/scheduler back to the natural boot state;
+- [x] M1 — core `unloadSong` (clears song/scheduler back to the natural boot state;
       note-offs appended to `out`) + `POST /api/songs/unload` + webui unload control.
       Reset surface, exact (OV4): clears song/scheduler/wait/loop/lights/emitter;
       settings, calibration, BLE connection, and the idle clock are UNTOUCHED.

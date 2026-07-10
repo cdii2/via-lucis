@@ -196,6 +196,21 @@ void PlaybackEngine::loadSong(MidiSong&& song, const std::string& name,
     rebuildAfterLoad();
 }
 
+void PlaybackEngine::unloadSong(std::vector<MidiOutMsg>& out) {
+    stopAllSound(out);  // note-offs for anything sounding + dark next frame
+    song_ = MidiSong{};
+    songName_.clear();
+    sched_.reset();     // loop/barrier die with it — statusJson derives
+    wait_.reset();
+    trackCfg_ = TrackConfig{};
+    emitter_.setEmitMask(0);
+    state_ = PlayState::Idle;
+    prevPosUs_ = 0;
+    lastTickUs_ = 0;
+    buildRepeatGaps();  // empty song ⇒ empty windows
+    resetWaitPulse();
+}
+
 bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
                                std::vector<MidiOutMsg>& out) {
     if (!sched_) return false;

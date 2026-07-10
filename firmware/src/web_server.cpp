@@ -198,6 +198,14 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
             }
         });
 
+    // Exact route BEFORE the regex ones so "unload" can never be taken
+    // for a song name.
+    gServer.on("/api/songs/unload", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   app.unloadSong();
+                   sendJson(req, 200, app.statusJson());
+               });
+
     gServer.on("^\\/api\\/songs\\/([^\\/]+)\\/load$", HTTP_POST,
                [&app](AsyncWebServerRequest* req) {
                    std::string name = req->pathArg(0).c_str();

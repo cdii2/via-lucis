@@ -93,6 +93,14 @@ public:
     void loadSong(MidiSong&& song, const std::string& name,
                   std::vector<MidiOutMsg>& out);
 
+    // Back to the natural boot state (M1). Reset surface, exact (OV4):
+    // song/scheduler/wait/loop/lights/emitter — note-offs appended to
+    // `out`. Settings, calibration table, and everything device-side
+    // (BLE, idle clock) are untouched.
+    void unloadSong(std::vector<MidiOutMsg>& out);
+
+    bool songLoaded() const { return sched_ != nullptr; }
+
     // REST surface — all return false on invalid requests. Methods that can
     // silence the piano append the needed note-offs to `out`; the caller
     // sends them on its own task, exactly like the pre-R2 device code did.

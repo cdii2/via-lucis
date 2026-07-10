@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A43 (2026-07-10, M1): unloadSong resets song/scheduler/wait/loop/lights/
+  emitter (emit mask forced 0 — applyMasks can't run without a scheduler) +
+  repeat-cue windows and chord history; settings/calibration/BLE/idle clock
+  untouched per the OV4 reset surface. Route = POST /api/songs/unload,
+  registered BEFORE the /api/songs regex routes so "unload" can never parse
+  as a song name. Engine grew songLoaded() (the M2 gate predicate). Webui:
+  eject button in the song line, visible only with a song loaded. Post-unload
+  REST behaves exactly like never-loaded (transport/tempo return false — the
+  v1 contract for no-song). 176 → 177 native tests.
 - A42 (2026-07-10, C-wave closing review): 8 finder angles (3 correctness +
   reuse/simplification/efficiency/altitude/conventions) + Codex-informed
   verify; 13 findings applied in one commit (935b09c), 4 accepted-as-is with

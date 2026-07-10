@@ -320,6 +320,7 @@ input[type=color] {
     <div class="songline">
       <div id="songName" class="grow">No song loaded</div>
       <span class="badge" id="stateBadge">idle</span>
+      <button id="btnUnload" title="Unload song" aria-label="Unload song" style="display:none;color:var(--dim);font-size:1.1rem;min-width:44px;min-height:44px">⏏</button>
     </div>
     <input type="range" id="seek" class="strip" min="0" max="1000" value="0" step="1" disabled>
     <div class="timerow"><span id="posTxt">0:00</span><span id="durTxt">0:00</span></div>
@@ -654,6 +655,7 @@ function renderStatus(s) {
 
   // song + state
   $("songName").textContent = hasSong ? s.song : "No song loaded";
+  $("btnUnload").style.display = hasSong ? "" : "none";
   var badge = $("stateBadge");
   badge.textContent = s.state;
   badge.className = "badge " + s.state;
@@ -1058,6 +1060,11 @@ $("s_leadMs").addEventListener("input", function () {
 $("s_brightness").addEventListener("input", function () {
   $("v_brightness").textContent = $("s_brightness").value;
   queueSetting("brightness", +$("s_brightness").value);
+});
+$("btnUnload").addEventListener("click", function () {
+  api("POST", "/api/songs/unload")
+    .then(function (s) { if (s) renderStatus(s); toast("Song unloaded"); })
+    .catch(function (e) { toast(e.message, true); });
 });
 $("s_repeatCueEnabled").addEventListener("change", function () {
   queueSetting("repeatCueEnabled", $("s_repeatCueEnabled").checked);
