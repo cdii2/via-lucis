@@ -13,6 +13,9 @@ dist/
 Thumbs.db
 .DS_Store
 
+# Agent worktrees / harness scratch
+.claude/
+
 # Local scratch
 *.local.*
 

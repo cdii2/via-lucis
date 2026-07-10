@@ -185,10 +185,14 @@ def parse_vls(buf):
                 "durationMs": durationMs,
                 "showName": showName,
             }
-            # Optional trailing byte (P4): the score-follow track index.
-            # Emitted only for clockSource==2; absent means 0xFF = auto.
-            if sr.p < len(sr.buf):
-                meta["followTrackIndex"] = sr.u8()
+            # Optional trailing byte (P4): the score-follow track index —
+            # mirror the editor's jsonTwin exactly (keys present ONLY for
+            # clockSource==2; absent byte ⇒ 0xFF = auto), so the Python twin
+            # stays diffable against editor.html's .vls.json (A52 parity).
+            if clockSource == 2:
+                ft = sr.u8() if sr.p < len(sr.buf) else 0xFF
+                meta["followTrack"] = ft
+                meta["followTrackName"] = "auto" if ft == 0xFF else "track %d" % ft
             twin["sections"].append(meta)
         elif stype == 2:  # EFFECTS
             sr = Reader(r.buf[r.p:body_end])
