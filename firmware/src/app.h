@@ -15,12 +15,11 @@
 #include "led_output.h"
 #include "song_store.h"
 #include "vialucis/calibration.h"
+#include "vialucis/mode_director.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
 
 namespace vialucis {
-
-enum class TestPattern : uint8_t { None, Strip, Rainbow };
 
 class App {
 public:
@@ -56,9 +55,12 @@ public:
     // fence the engine swap and keep flash IO outside the critical section.
     std::string calibrationJson() const { return calib_.toJson(); }
     CalibResult applyCalibration(const char* json);  // PUT: parse+apply+save
-    PlaybackEngine::ProbeArm armProbe(uint16_t led, uint32_t timeoutMs);
+    ModeDirector::ProbeArm armProbe(uint16_t led, uint32_t timeoutMs);
     void cancelProbe();
     std::string probeJson();
+
+    // --- top mode (M2; the REST/status surface lands at M3) -----------
+    bool setPresentation(bool on);
 
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
@@ -71,6 +73,7 @@ public:
 
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
+    void touchWriteActivity();  // fenced callers only
     // transport() body without the fence; caller must already hold lock_
     // (used by setTestPattern's auto-pause under its own guard).
     bool transportLocked(const std::string& action, uint32_t positionMs);
@@ -81,6 +84,9 @@ private:
     LedOutput leds_;
     BleMidiIo ble_;
     PlaybackEngine engine_;
+    // The single frame-source dispatch + top-mode machine (M2). Declared
+    // after engine_ — it holds a reference to it.
+    ModeDirector director_{engine_, LedOutput::kLedCount};
 
     // Cross-task fence (F1, A33). One plain (non-recursive) FreeRTOS mutex
     // serializes every HTTP-task entry point against the whole of tick().
@@ -95,7 +101,6 @@ private:
     // GET /api/ble's connected() read stays outside (lone volatile bool).
     SemaphoreHandle_t lock_ = nullptr;
 
-    TestPattern test_ = TestPattern::None;
     // Loop-task tick buffer, reused every iteration (REST calls use locals —
     // they run on the HTTP task).
     std::vector<MidiOutMsg> tickOut_;

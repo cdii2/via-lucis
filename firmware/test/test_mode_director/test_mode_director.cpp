@@ -1,0 +1,273 @@
+// M2 — ModeDirector: the top-mode gate matrix (brief §1) + the forced
+// sources (test pattern, calibration probe) + the single frame dispatch.
+
+#include <unity.h>
+
+#include <string>
+#include <vector>
+
+#include "../helpers/smf_builder.h"
+#include "../helpers/test_songs.h"
+#include "vialucis/mode_director.h"
+#include "vialucis/playback_engine.h"
+#include "vialucis/settings.h"
+
+using namespace vialucis;
+using testsongs::chordSong;
+
+void setUp() {}
+void tearDown() {}
+
+namespace {
+
+std::vector<MidiOutMsg> gOut;
+constexpr uint64_t kSec = 1000000ull;
+
+struct Rig {
+    PlaybackEngine engine;
+    ModeDirector director{engine, 360};
+    Rig() { engine.configure(Settings{}); }
+    void load() {
+        gOut.clear();
+        engine.loadSong(chordSong(), "t.mid", gOut);
+    }
+    void unload() {
+        gOut.clear();
+        engine.unloadSong(gOut);
+    }
+    void tick(uint64_t nowUs) {
+        gOut.clear();
+        director.tick(nowUs, gOut);
+    }
+};
+
+int litCount(const std::vector<Rgb>& f) {
+    int n = 0;
+    for (const Rgb& c : f)
+        if (c.r || c.g || c.b) ++n;
+    return n;
+}
+
+}  // namespace
+
+// --- the gate matrix -------------------------------------------------------
+
+void test_boot_state_is_reactive() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(1 * kSec) == TopMode::Reactive);
+}
+
+void test_idle_timeout_arms_afk_with_no_song() {
+    Rig r;
+    r.tick(1 * kSec);  // baseline the idle clock
+    // 180s of NOTHING but time (status GETs never touch the clock —
+    // structurally: there is no director call for a GET).
+    r.tick(182 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(182 * kSec) == TopMode::Afk);
+    // AFK content: the rainbow stub paints, strip is NOT dark (VL5).
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(182 * kSec)) > 0);
+}
+
+void test_song_loaded_makes_afk_unreachable() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    // An hour of dead-idle with a song loaded: NEVER AFK (hard requirement).
+    for (int m = 1; m <= 60; ++m) {
+        uint64_t t = (1 + 60ull * m) * kSec;
+        r.tick(t);
+        TEST_ASSERT_TRUE(r.director.topMode(t) == TopMode::Practice);
+    }
+}
+
+void test_any_activity_wakes_afk_within_one_frame() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.tick(200 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
+    // A key press wakes it instantly (no song ⇒ Reactive).
+    r.director.onKeyDown(60, 200 * kSec + 1000);
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec + 2000) ==
+                     TopMode::Reactive);
+    // Pedal/CC (any midi) would arrive via onMidiActivity — same effect.
+    r.tick(400 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(400 * kSec) == TopMode::Afk);
+    r.director.onMidiActivity(400 * kSec + 1000);
+    TEST_ASSERT_TRUE(r.director.topMode(400 * kSec + 2000) ==
+                     TopMode::Reactive);
+    // A state-CHANGING route wakes it too.
+    r.tick(600 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(600 * kSec) == TopMode::Afk);
+    r.director.onWriteActivity(600 * kSec + 1000);
+    TEST_ASSERT_TRUE(r.director.topMode(600 * kSec + 2000) ==
+                     TopMode::Reactive);
+}
+
+void test_load_defaults_to_practice_presentation_is_explicit() {
+    Rig r;
+    r.tick(1 * kSec);
+    // Presentation without a song is refused.
+    TEST_ASSERT_FALSE(r.director.setPresentation(true));
+    r.load();
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Practice);
+    TEST_ASSERT_TRUE(r.director.setPresentation(true));
+    TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Presentation);
+    TEST_ASSERT_TRUE(r.director.setPresentation(false));
+    TEST_ASSERT_TRUE(r.director.topMode(4 * kSec) == TopMode::Practice);
+}
+
+void test_timeout_zero_never_arms() {
+    Rig r;
+    r.director.setIdleTimeoutSec(0);
+    r.tick(1 * kSec);
+    r.tick(100000 * kSec);  // ~27 hours idle
+    TEST_ASSERT_TRUE(r.director.topMode(100000 * kSec) == TopMode::Reactive);
+}
+
+void test_unload_returns_to_no_song_states() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    r.director.setPresentation(true);
+    r.unload();
+    r.director.setPresentation(false);  // App wiring clears it on unload
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Reactive);
+    // ...and drifts to AFK on schedule afterwards.
+    r.director.onWriteActivity(2 * kSec);  // the unload route itself
+    r.tick(190 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(190 * kSec) == TopMode::Afk);
+}
+
+// --- frame dispatch --------------------------------------------------------
+
+void test_reactive_renders_dark_practice_renders_engine() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_EQUAL_INT(0, litCount(r.director.renderFrame(1 * kSec)));
+    r.load();
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 100000);  // C4 sounding via the engine
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(2 * kSec + 100000)) > 0);
+}
+
+void test_test_pattern_is_a_forced_source_over_any_mode() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip"));
+    const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
+    TEST_ASSERT_EQUAL_INT(1, litCount(f));  // the walking white dot
+    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow"));
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec)) > 300);
+    TEST_ASSERT_FALSE(r.director.setTestPattern("nope"));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off"));
+    TEST_ASSERT_EQUAL_INT(0, litCount(r.director.renderFrame(1 * kSec)));
+}
+
+// --- the probe as a director-owned forced source (moved from C3) -----------
+
+void test_probe_dot_outranks_test_pattern_and_modes() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.director.setTestPattern("rainbow");
+    TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
+                      r.director.armProbe(123, 1 * kSec, 30000));
+    const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
+    TEST_ASSERT_EQUAL_INT(1, litCount(f));
+    TEST_ASSERT_EQUAL_UINT8(255, f[123].r);
+    // Probe cleared ⇒ the pattern resumes.
+    r.director.cancelProbe();
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec)) > 300);
+}
+
+void test_probe_capture_consumes_before_practice() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("wait", "both", gOut);
+    TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
+                      r.director.armProbe(50, 1 * kSec, 30000));
+    r.director.onKeyDown(60, 2 * kSec);  // the due key — probe eats it
+    TEST_ASSERT_FALSE(r.director.probeArmed());
+    std::string p = r.director.probeJson();
+    TEST_ASSERT_TRUE(p.find("\"note\":60") != std::string::npos);
+    // Practice never saw it: play still waits for the chord.
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(3 * kSec);
+    r.tick(3 * kSec + 200000);
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+}
+
+void test_probe_refused_while_playing_and_cancelled_by_play() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Playing,
+                      r.director.armProbe(50, 1 * kSec, 30000));
+    gOut.clear();
+    r.engine.transport("pause", 0, gOut);
+    TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
+                      r.director.armProbe(50, 2 * kSec, 30000));
+    // Playback starting cancels the armed probe on the next tick.
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(3 * kSec);
+    TEST_ASSERT_FALSE(r.director.probeArmed());
+    TEST_ASSERT_TRUE(r.director.probeJson().find("\"note\":null") !=
+                     std::string::npos);
+}
+
+void test_probe_bad_led_timeout_and_cancel() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::BadLed,
+                      r.director.armProbe(360, 1 * kSec, 30000));
+    r.director.armProbe(123, 1 * kSec, 30000);
+    r.tick(1 * kSec + 31 * kSec);  // 31s later: expired
+    TEST_ASSERT_FALSE(r.director.probeArmed());
+    TEST_ASSERT_TRUE(r.director.probeJson().find("\"note\":null") !=
+                     std::string::npos);
+    r.director.armProbe(123, 40 * kSec, 30000);
+    r.director.onKeyDown(60, 41 * kSec);
+    r.director.cancelProbe();
+    TEST_ASSERT_TRUE(r.director.probeJson().find("\"note\":null") !=
+                     std::string::npos);
+}
+
+void test_probe_arm_counts_as_activity_but_capture_wakes_too() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.tick(200 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
+    // A key press (even one the probe consumes) is activity.
+    r.director.armProbe(123, 200 * kSec, 30000);
+    r.director.onKeyDown(60, 200 * kSec + 1000);
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec + 2000) ==
+                     TopMode::Reactive);
+}
+
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_boot_state_is_reactive);
+    RUN_TEST(test_idle_timeout_arms_afk_with_no_song);
+    RUN_TEST(test_song_loaded_makes_afk_unreachable);
+    RUN_TEST(test_any_activity_wakes_afk_within_one_frame);
+    RUN_TEST(test_load_defaults_to_practice_presentation_is_explicit);
+    RUN_TEST(test_timeout_zero_never_arms);
+    RUN_TEST(test_unload_returns_to_no_song_states);
+    RUN_TEST(test_reactive_renders_dark_practice_renders_engine);
+    RUN_TEST(test_test_pattern_is_a_forced_source_over_any_mode);
+    RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
+    RUN_TEST(test_probe_capture_consumes_before_practice);
+    RUN_TEST(test_probe_refused_while_playing_and_cancelled_by_play);
+    RUN_TEST(test_probe_bad_led_timeout_and_cancel);
+    RUN_TEST(test_probe_arm_counts_as_activity_but_capture_wakes_too);
+    return UNITY_END();
+}

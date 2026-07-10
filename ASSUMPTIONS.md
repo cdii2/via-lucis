@@ -3,6 +3,24 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A45 (2026-07-10, M2): ModeDirector = core class holding a PlaybackEngine&
+  (App owns both; declared after engine_). Song-loaded truth is READ LIVE
+  from engine_.songLoaded() — no mirrored flag. The probe moved from the
+  engine to the director (3A, closing the A38 interim); the engine gained
+  ONE public hook, markFrameDirty(), so director events share the one frame
+  clock (frameDue stays engine-owned). Play-cancels-probe became a
+  director-tick rule — holds for ANY path into Playing, not one REST route.
+  Test pattern + rainbow render CORE-SIDE now (plain hsv spectrum — not
+  FastLED's exact hue table; visually equivalent, natively testable);
+  LedOutput is pure output. AFK stub = the rainbow producer (VL5); Reactive
+  and Presentation render dark until E2/P1 fill them. Activity: BleMidiIo
+  grew a device-only onActivity hook (note-on/off + CC → onMidiActivity);
+  every fenced write REST entry calls touchWriteActivity() FIRST inside the
+  fence (u64 store is lock-protected on the 32-bit MCU); GETs structurally
+  can't touch the clock (no director call exists on those paths). Idle
+  baseline = first tick. Unload clears presentation (App wiring) and the
+  route's own write-activity restarts the drift. 7 engine probe tests moved
+  into test_mode_director + the 7-case gate matrix. 180 → 187 native tests.
 - A44 (2026-07-10, Q-wave closing review): 8 angles in 4 paired finder agents
   over 227c1da..HEAD. Fixes: fillStart clamps to 0 when the visibility floor
   exceeds the onset's own timestamp (uint64 wrap silently killed early

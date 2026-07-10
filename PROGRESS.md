@@ -333,7 +333,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       Reset surface, exact (OV4): clears song/scheduler/wait/loop/lights/emitter;
       settings, calibration, BLE connection, and the idle clock are UNTOUCHED.
       Named test: unload while Playing flushes note-offs and clears the lights.
-- [ ] M2 — **core `ModeDirector`** (eng review 1A: lives in lib/core, NOT App) above
+- [x] M2 — **core `ModeDirector`** (eng review 1A: lives in lib/core, NOT App) above
       the existing `Mode` enum (which becomes Practice's sub-modes): NoSong-Reactive /
       NoSong-AFK / Practice / Presentation (placeholder). It owns the idle clock AND
       the **single frame-source dispatch** — exactly ONE producer paints the strip

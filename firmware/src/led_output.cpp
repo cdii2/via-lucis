@@ -28,18 +28,4 @@ void LedOutput::allOff() {
     FastLED.clear(true);
 }
 
-void LedOutput::testPattern(uint32_t nowMs) {
-    FastLED.clear();
-    uint16_t pos = (nowMs / 20) % kLedCount;  // full sweep ≈ 7s
-    gLeds[pos] = CRGB::White;
-    FastLED.show();
-}
-
-void LedOutput::rainbow(uint32_t nowMs) {
-    uint8_t base = static_cast<uint8_t>(nowMs / 10);
-    for (uint16_t i = 0; i < kLedCount; ++i)
-        gLeds[i] = CHSV(base + i, 255, 255);
-    FastLED.show();
-}
-
 }  // namespace vialucis

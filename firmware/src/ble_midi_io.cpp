@@ -12,14 +12,25 @@ namespace {
 
 BleMidiIo::NoteHandler gOnNoteOn;
 BleMidiIo::NoteHandler gOnNoteOff;
+std::function<void()> gOnActivity;
 volatile bool gConnected = false;
 
+void noteActivity() {
+    if (gOnActivity) gOnActivity();
+}
+
 void handleNoteOn(byte /*channel*/, byte note, byte velocity) {
+    noteActivity();
     dispatchNote(gOnNoteOn, gOnNoteOff, /*isOff=*/false, note, velocity);
 }
 
 void handleNoteOff(byte /*channel*/, byte note, byte velocity) {
+    noteActivity();
     dispatchNote(gOnNoteOn, gOnNoteOff, /*isOff=*/true, note, velocity);
+}
+
+void handleControlChange(byte /*channel*/, byte /*number*/, byte /*value*/) {
+    noteActivity();  // pedal/CC count as activity too (M2 charter)
 }
 
 }  // namespace
@@ -30,12 +41,16 @@ void BleMidiIo::begin() {
     BLEMIDI.setHandleDisconnected([]() { gConnected = false; });
     MIDI.setHandleNoteOn(handleNoteOn);
     MIDI.setHandleNoteOff(handleNoteOff);
+    MIDI.setHandleControlChange(handleControlChange);
 }
 
 void BleMidiIo::poll() { MIDI.read(); }
 
 void BleMidiIo::onNoteOn(NoteHandler h) { gOnNoteOn = std::move(h); }
 void BleMidiIo::onNoteOff(NoteHandler h) { gOnNoteOff = std::move(h); }
+void BleMidiIo::onActivity(std::function<void()> h) {
+    gOnActivity = std::move(h);
+}
 
 void BleMidiIo::send(const MidiOutMsg& msg) {
     if (!gConnected) return;

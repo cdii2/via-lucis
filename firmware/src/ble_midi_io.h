@@ -8,6 +8,7 @@
 // the seam costs nothing on the latency path.
 
 #include <cstdint>
+#include <functional>
 
 #include "vialucis/midi_io.h"
 
@@ -21,6 +22,10 @@ public:
 
     void onNoteOn(NoteHandler h) override;   // user pressed a key (velocity > 0)
     void onNoteOff(NoteHandler h) override;  // key released
+
+    // ANY incoming MIDI message (notes, pedal, CC) — the ModeDirector's
+    // AFK-wake signal (M2). Device-side only; not part of the core seam.
+    void onActivity(std::function<void()> h);
 
     void send(const MidiOutMsg& msg) override;
     bool connected() const override;

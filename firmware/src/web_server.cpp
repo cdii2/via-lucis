@@ -349,12 +349,12 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    }
                    uint16_t led = doc["led"].as<uint16_t>();
                    uint32_t timeoutMs = doc["timeoutMs"] | 30000u;
-                   PlaybackEngine::ProbeArm r = app.armProbe(led, timeoutMs);
-                   if (r == PlaybackEngine::ProbeArm::Playing) {
+                   ModeDirector::ProbeArm r = app.armProbe(led, timeoutMs);
+                   if (r == ModeDirector::ProbeArm::Playing) {
                        sendError(req, 409, "playing");
                        return;
                    }
-                   if (r == PlaybackEngine::ProbeArm::BadLed) {
+                   if (r == ModeDirector::ProbeArm::BadLed) {
                        sendError(req, 400, "bad led");
                        return;
                    }

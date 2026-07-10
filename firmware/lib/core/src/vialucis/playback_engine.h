@@ -17,7 +17,6 @@
 #include <string>
 #include <vector>
 
-#include "vialucis/calibration_probe.h"
 #include "vialucis/echo_guard.h"
 #include "vialucis/frame_renderer.h"
 #include "vialucis/midi_io.h"
@@ -85,15 +84,11 @@ public:
     void setRepeatCue(const RepeatCueConfig& c);
     const RepeatCueConfig& repeatCue() const { return repeatCue_; }
 
-    // --- calibration probe (C3; folds into the M-wave ModeDirector, 3A) ---
-    // Ownership rules (OV4): arms only when NOT Playing; while armed the
-    // next note-on is consumed BEFORE wait mode sees it; the dot is a
-    // forced frame source above everything; auto-timeout clears it.
-    enum class ProbeArm : uint8_t { Ok, Playing, BadLed };
-    ProbeArm armProbe(uint16_t led, uint64_t nowUs, uint32_t timeoutMs);
-    void cancelProbe();
-    bool probeArmed() const { return probe_.armed(); }
-    std::string probeJson() const;
+    // The probe moved to ModeDirector at M2 (3A) — the engine renders
+    // practice, the director owns forced sources. External events (probe
+    // arm/capture/expiry, mode flips) mark the shared frame clock dirty
+    // through this — same semantics as an internal key verdict.
+    void markFrameDirty() { frameDirty_ = true; }
 
     // Take ownership of a parsed song (the device layer does the file IO).
     // Note-offs for anything still sounding are appended to `out`.
@@ -161,7 +156,6 @@ private:
     NoteEmitter emitter_{0};
     FrameRenderer renderer_{TableBuilder::fromTwoPoint(LedMapConfig{}),
                             RampConfig{}};
-    CalibrationProbe probe_;
     TrackConfig trackCfg_;
     Rgb leftColor_, rightColor_, wrongColor_;
 

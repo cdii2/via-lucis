@@ -21,10 +21,8 @@ public:
     void setBrightness(uint8_t b);
     void show(const std::vector<Rgb>& frame);
     void allOff();
-
-    // BRINGUP.md patterns.
-    void testPattern(uint32_t nowMs);  // white dot walking the strip
-    void rainbow(uint32_t nowMs);      // the easter egg
+    // The BRINGUP patterns render in core now (ModeDirector, M2) — this
+    // class is pure output.
 };
 
 }  // namespace vialucis
