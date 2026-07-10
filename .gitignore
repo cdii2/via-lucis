@@ -19,3 +19,5 @@ Thumbs.db
 # Downloaded MIDIs (copyright-unclear) — NEVER commit; see PROGRESS.md
 songs/local/
 .gstack/
+
+__pycache__/

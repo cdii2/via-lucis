@@ -3,6 +3,25 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A40 (2026-07-10, Q1): repeat-cue mechanics — per-key windows precomputed at
+  load (7A): fillStart = onset − max(gap, floor), so tail-borrowing falls out
+  of the formula; windows sorted per key, render advances an 88-entry cursor
+  array lazily (O(1) amortized, zero allocation, no event scans on the frame
+  path); seeks/wraps re-derive cursors by binary search off the frame path.
+  Off-gaps under 10ms get NO window (the brief's 3ms pathology): sub-
+  perception gaps are MIDI artifacts and cueing them would flicker. A key
+  whose fill window has opened suppresses its own sounding note's Due paint
+  (that IS the borrowed tail — layer order still lets the onset's Due
+  overwrite the fill, so jump-vs-glide stays emergent per VL4). Cross-track
+  same-key overlap (key never goes dark) ⇒ no cue. The crescendo is gated
+  OFF in Wait mode (brief §2 heading: all non-wait modes; Q2's fixed pulse
+  owns the halted case). Fill paints only when the INCOMING note's track is
+  lights-masked in (checked at render — masks are runtime state). Post-seek
+  landing inside a real gap shows the fill immediately — that's position-
+  derived truth, not phantom state (the charter's no-phantom test pins the
+  stale-cursor case). floorMs is baked into windows; setRepeatCue rebuilds
+  them. RepeatCueConfig holds 0..1 fractions; the JSON fields (Q3) carry the
+  brief's 0–100 percents. 163 → 173 native tests.
 - A39 (2026-07-10, C4): wizard shipped per the hardened /plan-design-review
   spec (autonomous run + Codex outside voice, 18 findings; full pins recorded
   in PROGRESS C4). Key build decisions: the wizard NEVER PUTs twoPoint — its

@@ -38,6 +38,11 @@ public:
     // Due / sounding note: full brightness ("now" is unmistakable).
     void addDue(uint8_t note, Rgb color);
 
+    // Repeat cue (Q1, brief §2): fills the off-gap before a same-key
+    // re-press; sits between Ramp and Due so the onset's addDue overwrites
+    // it — jump vs glide is emergent from the peak setting, never a mode.
+    void addRepeatFill(uint8_t note, Rgb color);
+
     // Wrong press: full-strength flash, wins over everything at that key.
     void addWrong(uint8_t note, Rgb color);
 
@@ -51,7 +56,7 @@ public:
 
 private:
     enum class Layer : uint8_t {
-        None = 0, Ramp = 1, Due = 2, Wrong = 3, Forced = 4
+        None = 0, Ramp = 1, RepeatFill = 2, Due = 3, Wrong = 4, Forced = 5
     };
 
     void paint(uint8_t note, Rgb color, Layer layer);

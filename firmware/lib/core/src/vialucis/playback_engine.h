@@ -11,6 +11,7 @@
 // frameDirty_ semantics are exactly App's: key verdicts bypass the ~60fps
 // limiter so the very next tick renders.
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -32,6 +33,19 @@ namespace vialucis {
 
 enum class Mode : uint8_t { Wait, Follow, Demo, Accompaniment };
 enum class PlayState : uint8_t { Idle, Playing, Finished };
+
+// Repeat cue (Q-wave, brief §2): the off-gap before a same-key re-press
+// fills with this color, lerping startPct → peakPct across the gap. The
+// pair is authoritative (VL4) — parameters of the RepeatFill layer, never
+// a second global cap. Fractions 0..1 here; the JSON fields carry 0–100.
+struct RepeatCueConfig {
+    bool enabled = true;
+    Rgb color{255, 255, 255};
+    float startPct = 0.0f;
+    float peakPct = 0.45f;   // 1.0 ⇒ pure hue-snap glide at onset
+    uint32_t floorMs = 35;   // visibility floor, borrowed from the tail
+    uint32_t waitPulseMs = 60;  // Q2: fixed wait-mode re-due pulse width
+};
 
 // The two wifi facts /api/status reports (docs/API.md). The device layer
 // fills this in; the engine authors the status document once — no
@@ -56,6 +70,11 @@ public:
 
     // Calibration override (C3): swap the geometry table, keep ramp/colors.
     void setTable(const KeyLedTable& t);
+
+    // Repeat-cue parameters (Q1; wired to Settings at Q3). Rebuilds the
+    // precomputed windows — floorMs is baked into them at build time.
+    void setRepeatCue(const RepeatCueConfig& c);
+    const RepeatCueConfig& repeatCue() const { return repeatCue_; }
 
     // --- calibration probe (C3; folds into the M-wave ModeDirector, 3A) ---
     // Ownership rules (OV4): arms only when NOT Playing; while armed the
@@ -111,6 +130,8 @@ private:
 
     void rebuildAfterLoad();   // after song load
     void applyMasks();         // after mode/practice/track changes
+    void buildRepeatGaps();    // Q1: one load pass, O(1) render lookups
+    void resyncRepeatCursors(uint64_t posUs);  // after seek / loop wrap
     void stopAllSound(std::vector<MidiOutMsg>& out);
     Rgb colorForTrack(uint8_t track) const;
 
@@ -158,6 +179,21 @@ private:
         uint8_t track;
     };
     SoundingSet<SoundingLight> soundingLights_;
+
+    // Q1 repeat cue. Gap lookups are PRECOMPUTED at load (7A): per key, the
+    // time-ordered re-press windows [fillStartUs, onsetUs) with the incoming
+    // note's track. Render advances a per-key cursor forward lazily (O(1)
+    // amortized); seeks/wraps re-derive cursors by binary search — never on
+    // the frame path. fillStart = onset - max(gap, floor): borrowing falls
+    // out of the formula. Sub-collapse gaps get no entry at all.
+    struct RepeatWindow {
+        uint64_t fillStartUs;
+        uint64_t onsetUs;
+        uint8_t track;  // incoming note's track (lights-mask check at render)
+    };
+    RepeatCueConfig repeatCue_;
+    std::array<std::vector<RepeatWindow>, 88> repeatByKey_;
+    std::array<size_t, 88> repeatCursor_{};
 };
 
 }  // namespace vialucis

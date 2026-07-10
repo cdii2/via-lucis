@@ -9,6 +9,16 @@ namespace vialucis {
 namespace {
 constexpr uint64_t kWrongFlashUs = 300000;   // red flash duration
 constexpr uint64_t kFramePeriodUs = 16667;   // ~60 fps LED refresh
+// Off-gaps below this collapse to one visual event (brief §2's 3ms
+// pathology): no human re-press has a sub-10ms silent gap — that's a MIDI
+// artifact, and cueing it would flicker.
+constexpr uint64_t kRepeatCollapseUs = 10000;
+
+vialucis::Rgb scalePct(vialucis::Rgb c, float k) {
+    return {static_cast<uint8_t>(c.r * k + 0.5f),
+            static_cast<uint8_t>(c.g * k + 0.5f),
+            static_cast<uint8_t>(c.b * k + 0.5f)};
+}
 }  // namespace
 
 PlaybackEngine::PlaybackEngine() {
@@ -32,6 +42,13 @@ void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
 
 void PlaybackEngine::setTable(const KeyLedTable& t) {
     renderer_ = FrameRenderer(t, renderer_.ramp());
+    frameDirty_ = true;
+}
+
+void PlaybackEngine::setRepeatCue(const RepeatCueConfig& c) {
+    repeatCue_ = c;
+    buildRepeatGaps();  // floorMs is baked into the windows
+    resyncRepeatCursors(sched_ ? sched_->positionUs() : 0);
     frameDirty_ = true;
 }
 
@@ -71,9 +88,53 @@ Rgb PlaybackEngine::colorForTrack(uint8_t track) const {
     return rightColor_;  // Right and Both use the right-hand color
 }
 
+void PlaybackEngine::buildRepeatGaps() {
+    for (auto& v : repeatByKey_) v.clear();
+    repeatCursor_.fill(0);
+    if (song_.notes.empty()) return;
+    // The parser keeps notes sorted by onTick; walk once per key tracking
+    // the latest off so far. A re-press while the key still sounds (cross-
+    // track overlap) never went dark — no cue. The cue is per KEY, not per
+    // track (cross-hand re-presses cue too).
+    std::array<uint64_t, 88> lastOff;  // kNoOnset = key never sounded yet
+    lastOff.fill(kNoOnset);
+    const uint64_t floorUs =
+        static_cast<uint64_t>(repeatCue_.floorMs) * 1000;
+    for (const MidiNote& n : song_.notes) {
+        if (n.note < 21 || n.note > 108) continue;
+        size_t k = n.note - 21;
+        uint64_t onUs = tickToMicros(song_, n.onTick);
+        uint64_t offUs = tickToMicros(song_, n.offTick);
+        if (lastOff[k] != kNoOnset && lastOff[k] <= onUs) {
+            uint64_t gap = onUs - lastOff[k];
+            if (gap >= kRepeatCollapseUs) {
+                uint64_t span = gap > floorUs ? gap : floorUs;
+                repeatByKey_[k].push_back(
+                    {onUs - span, onUs, n.track});
+            }
+        }
+        if (lastOff[k] == kNoOnset || offUs > lastOff[k])
+            lastOff[k] = offUs;
+    }
+}
+
+void PlaybackEngine::resyncRepeatCursors(uint64_t posUs) {
+    for (size_t k = 0; k < 88; ++k) {
+        const auto& v = repeatByKey_[k];
+        size_t lo = 0, hi = v.size();
+        while (lo < hi) {  // first window whose onset is still ahead
+            size_t mid = (lo + hi) / 2;
+            if (v[mid].onsetUs <= posUs) lo = mid + 1;
+            else hi = mid;
+        }
+        repeatCursor_[k] = lo;
+    }
+}
+
 void PlaybackEngine::rebuildAfterLoad() {
     sched_ = std::make_unique<Scheduler>(song_);
     trackCfg_ = TrackConfig::defaultsFor(song_);
+    buildRepeatGaps();
     wait_ = std::make_unique<WaitMode>(*sched_, kTrackMaskAll);
     wait_->setEchoGuard(&guard_);
     soundingLights_.clear();
@@ -129,6 +190,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         if (state_ == PlayState::Finished) {
             sched_->seek(0);  // flushed note-offs are moot: nothing sounding
             prevPosUs_ = 0;
+            resyncRepeatCursors(0);
         }
         if (barrierMode()) wait_->resync();
         state_ = PlayState::Playing;
@@ -145,6 +207,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         stopAllSound(out);
         sched_->seek(0);
         prevPosUs_ = 0;
+        resyncRepeatCursors(0);
         if (barrierMode()) wait_->resync();
         return true;
     }
@@ -152,6 +215,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         stopAllSound(out);
         sched_->seek(static_cast<uint64_t>(positionMs) * 1000);
         prevPosUs_ = sched_->positionUs();
+        resyncRepeatCursors(prevPosUs_);
         if (barrierMode()) wait_->resync();
         if (state_ == PlayState::Finished) state_ = PlayState::Idle;
         return true;
@@ -242,6 +306,7 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     if (newPos < prevPosUs_) {  // loop wrapped
         if (barrierMode()) wait_->resync();
         soundingLights_.clear();
+        resyncRepeatCursors(newPos);  // no phantom fill from the old pass
     }
     prevPosUs_ = newPos;
 
@@ -295,9 +360,39 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
             renderer_.addUpcoming(e.note, colorForTrack(e.track), e.timeUs,
                                   pos);
 
+        // Repeat cue (Q1): active per-key fill windows. Cursor advance is
+        // lazy and monotone — O(1) amortized, no event scans (7A/R5).
+        // Wait mode has no timing to protect: it gets Q2's fixed pulse,
+        // not the crescendo (brief §2 heading: all non-wait modes).
+        std::array<bool, 88> fillActive{};
+        if (repeatCue_.enabled && mode_ != Mode::Wait) {
+            for (size_t k = 0; k < 88; ++k) {
+                const std::vector<RepeatWindow>& v = repeatByKey_[k];
+                size_t& cur = repeatCursor_[k];
+                while (cur < v.size() && v[cur].onsetUs <= pos) ++cur;
+                if (cur >= v.size()) continue;
+                const RepeatWindow& w = v[cur];
+                if (pos < w.fillStartUs) continue;
+                if (!trackInMask(lightsMask, w.track)) continue;
+                float frac = static_cast<float>(pos - w.fillStartUs) /
+                             static_cast<float>(w.onsetUs - w.fillStartUs);
+                float pct = repeatCue_.startPct +
+                            (repeatCue_.peakPct - repeatCue_.startPct) * frac;
+                renderer_.addRepeatFill(static_cast<uint8_t>(21 + k),
+                                        scalePct(repeatCue_.color, pct));
+                fillActive[k] = true;
+            }
+        }
+
         // Sounding notes (follow/demo, and the un-practiced hand elsewhere).
-        for (const SoundingLight& s : soundingLights_.items())
+        // A key whose fill window has begun is in its borrowed tail: the
+        // outgoing note's Due paint yields so the cue shows — the onset
+        // itself is never delayed (iron rule).
+        for (const SoundingLight& s : soundingLights_.items()) {
+            if (s.note >= 21 && s.note <= 108 && fillActive[s.note - 21])
+                continue;
             renderer_.addDue(s.note, colorForTrack(s.track));
+        }
 
         // Wait mode: the due chord at 100%.
         if (barrierMode() && wait_->chordPending()) {

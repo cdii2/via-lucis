@@ -51,6 +51,10 @@ void FrameRenderer::addDue(uint8_t note, Rgb color) {
     paint(note, color, Layer::Due);
 }
 
+void FrameRenderer::addRepeatFill(uint8_t note, Rgb color) {
+    paint(note, color, Layer::RepeatFill);
+}
+
 void FrameRenderer::addWrong(uint8_t note, Rgb color) {
     paint(note, color, Layer::Wrong);
 }

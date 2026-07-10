@@ -295,7 +295,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 ### Q-wave — repeat cue (brief §2; the one sanctioned practice-visual delta)
 
-- [ ] Q1 — `RepeatFill` layer in FrameRenderer (`None < Ramp < RepeatFill < Due <
+- [x] Q1 — `RepeatFill` layer in FrameRenderer (`None < Ramp < RepeatFill < Due <
       Wrong`) + per-key gap tracking in PlaybackEngine: fill = lerp(start,peak) across
       the off-gap in `repeatColor`; sub-floor gaps borrow backward from the outgoing
       tail (onset NEVER delayed — iron rule); `Due` overwrites at onset so jump vs
