@@ -181,12 +181,19 @@ per-key table), then the small practice-value win, then the mode skeleton, then 
 effect engine that fills it, then the heavyweight. Presentation is deliberately last —
 the brief itself sequences it after AFK + Reactive prove the shared engine.
 
+Eng-reviewed 2026-07-09 (`/plan-eng-review`): 7 findings folded into the charters
+below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked OV1–OV4).
+
 ### Shared gates — every v2 item, no exceptions
 
 - `pio test -e native` ALL PASS (grep output for FAIL/ERROR); native test count
   STRICTLY grows per item.
-- `pio run -e esp32dev` clean; watch flash/RAM % in the build report (budget note:
-  45.7%/19.6% at v1 close).
+- `pio run -e esp32dev` clean **with size budgets (OV2): flash >70% or static RAM
+  >35% in the build report FAILS the gate** (thresholds adjustable only by explicit
+  A-entry; v1 close = 45.7%/19.6%).
+- **Zero-alloc, defined (OV2):** no heap allocation on BLE-in→match→LED-out at
+  steady state; no allocation inside any effect `render()`; reserved buffers may
+  grow only at load/configure time. Tests assert this definition, not vibes.
 - v1 contract tests stay green: REST shapes and `Settings` key set byte-stable except
   where a wave's charter sanctions growth (new keys/routes append; nothing existing
   changes).
@@ -199,59 +206,77 @@ the brief itself sequences it after AFK + Reactive prove the shared engine.
 - TDD, one item per commit, A`<n>` entries in ASSUMPTIONS.md for every decision made
   while building, closing 8-angle `/code-review` per wave before it lands on main.
 
-### Planning rulings (V-ledger — design calls made 2026-07-09 while planning)
+### Planning rulings (VL-ledger — design calls made 2026-07-09 while planning)
 
-- **V1 — the per-key LED table is THE geometry primitive.** `ledsForNote()`'s formula
+- **VL1 — the per-key LED table is THE geometry primitive.** `ledsForNote()`'s formula
   survives only as the builder that fills the table for the 2-point tier. Renderer,
   emitter, effects, presentation note-binding: all read the table, none re-derive
   geometry. (Direct from brief §5; recorded here because it dictates C-before-E order.)
-- **V2 — documents get resources, scalars get settings.** `/api/settings` keeps its
+- **VL2 — documents get resources, scalars get settings.** `/api/settings` keeps its
   locked key set plus only the Q-wave repeat-cue scalars. Structured config — the
   calibration table, the AFK playlist, shows — each gets its own file on LittleFS and
   its own route (`/api/calibration`, `/api/afk`, `/api/shows`). Keeps the v1 contract
   test intact and the settings file from becoming a junk drawer.
-- **V3 — the show editor lives OFF-device** (`editor/` in the repo: a static app you
+- **VL3 — the show editor lives OFF-device** (`editor/` in the repo: a static app you
   open locally or host on Pages, talking to the device API; device gains CORS headers
   + `/api/shows`). Rationale: the brief's own outsource inventory (@tonejs/midi,
   Tone.js, timeline UI) can never fit the one-file/no-CDN rule of the embedded UI, and
   "the editor is not the player" already says the device only needs the baked stream.
   The embedded webui stays the remote control. **Needs Christian's nod at P0 —**
   it's the one v2 call with user-visible workflow consequences.
-- **V4 — repeat-cue cap semantics** (brief has a latent tension: a
+- **VL4 — repeat-cue cap semantics** (brief has a latent tension: a
   `repeatFillPeakPct` setting AND "do not add a second cap variable"): resolve as —
   the `Incoming Re-press` settings own `startPct/peakPct` as the authoritative pair
   (defaults 0/45, peak=100 ⇒ hue-snap glide, exactly the brief's table); the renderer
   keeps ONE capping concept by treating them as parameters of the RepeatFill layer,
   not by introducing a second global cap. Confirm against the brief at Q1.
-- **V5 — AFK arms into a stub effect at M-wave** (the existing rainbow pattern as
+- **VL5 — AFK arms into a stub effect at M-wave** (the existing rainbow pattern as
   placeholder content) so the mode state machine is fully buildable and testable
   before the effect library exists. E-wave replaces the content, not the machine.
-- **V6 — score-follow gets its own design session before it is built** (P4). The
+- **VL6 — score-follow gets its own design session before it is built** (P4). The
   brief lists its robustness (wrong notes, jumps, repeats) as an open item; building
   the flagship clock from an undesigned spec is how flagships die. P1–P3 ship with
   Demo + Free-run clocks only.
-- **V7 — effects are ported deterministic:** injectable RNG + fixed timestep on the
+- **VL7 — effects are ported deterministic:** injectable RNG + fixed timestep on the
   Effect seam, so every classic gets native tests (determinism, brightness/power
   bounds, zero steady-state alloc). FastLED classics only (MIT, attribution header
   per file); WLED is EUPL — ideas may be reimplemented, code never copied.
+  FastLED's own newer fx engine (`fl::`, Blend2d — it ships these very effects as
+  library components) was evaluated and REJECTED (eng review, Step 0): it lives
+  inside FastLED, so adopting it moves effect logic device-side and kills native
+  testability. Port the algorithms, not the engine.
 
 ### C-wave — calibration: per-key LED table (the reopened LOCK)
 
 - [ ] C1 — core `KeyLedTable` (88 per-key `LedRange` entries) replaces the formula at
       every read site; `TableBuilder::fromTwoPoint(offsetMm, ledsPerMeter)` = the old
       math filling the table. Characterization FIRST: table-built frames byte-identical
-      to v1 across default + fuzzed settings.
-- [ ] C2 — remaining builders + validation: multi-point (piecewise-linear between
+      to v1 across default + fuzzed settings. "Byte-identical" defined (OV4): integer
+      equality of all 88 `LedRange` values (and resulting frames) — no float
+      tolerance, no rounding slack.
+- [ ] C2 — remaining builders + validation, plus a global strip-direction
+      (reversed-mount) flag so right-to-left installations work (OV4; dead/shared
+      LEDs stay out of scope — brief §5's hardware precondition): multi-point
+      (piecewise-linear between
       landmark pairs), per-key hand-edit; invariants enforced (in-strip, monotonic,
       adjacent keys never overlap; off-strip keys valid=false ⇒ dark, as today).
 - [ ] C3 — persistence + REST: `/calibration.json` (table + tier metadata),
-      `GET/PUT /api/calibration`, `POST /api/calibration/probe` (light one dot; a
-      fenced capture flag routes the next key press to the wizard instead of practice;
-      auto-timeout). `offsetMm`/`ledsPerMeter` stay in settings as 2-point inputs.
+      `GET/PUT /api/calibration`, `POST /api/calibration/probe` (light one dot via the
+      ModeDirector forced-source slot (3A); a fenced capture flag routes the next key
+      press to the wizard instead of practice; auto-timeout). `offsetMm`/`ledsPerMeter`
+      stay in settings as 2-point inputs. **CRITICAL regression test (mandatory): boot
+      with no `/calibration.json` ⇒ table seeded from the settings' 2-point values,
+      frames byte-identical to v1** — the upgrade path for every existing device.
+      Probe ownership rules, exact (OV4): probe arms only when NOT Playing; while
+      armed, capture consumes BLE note-ons BEFORE wait-mode sees them; pedal/CC
+      ignored; explicit cancel route + auto-timeout. Named tests: garbage/partial/
+      overlapping table PUTs ⇒ typed 400s; probe timeout; probe cancel; probe
+      refused while Playing.
 - [ ] C4 — webui wizard (three tiers, one flow: coarse→fine) + docs: API.md routes,
       TROUBLESHOOTING "wrong key alignment" rewritten around the wizard, BRINGUP
-      hardware-verify items appended. Extend `tools/` mock server so the wizard is
-      demoable with no hardware.
+      hardware-verify items appended (wizard walk on the real strip). Extend `tools/`
+      mock server so the wizard is demoable with no hardware; wizard-abort mid-flow
+      exercised against it.
 - [ ] closing /code-review over the wave diff.
 
 ### Q-wave — repeat cue (brief §2; the one sanctioned practice-visual delta)
@@ -260,63 +285,119 @@ the brief itself sequences it after AFK + Reactive prove the shared engine.
       Wrong`) + per-key gap tracking in PlaybackEngine: fill = lerp(start,peak) across
       the off-gap in `repeatColor`; sub-floor gaps borrow backward from the outgoing
       tail (onset NEVER delayed — iron rule); `Due` overwrites at onset so jump vs
-      glide is emergent from `peakPct` (V4). Native tests pin: gap fill values, floor
-      borrowing, onset punctuality, 3ms-pathology collapse.
+      glide is emergent from `peakPct` (VL4). Gap lookups are PRECOMPUTED (7A): one
+      load/seek pass annotates every note-on with its gap-to-previous-same-key-off
+      (song-time is static), so render stays O(1) per key — no event scans on the
+      frame path (the R5 invariant). Native tests pin: gap fill values, floor
+      borrowing, onset punctuality, 3ms-pathology collapse, seek/loop-wrap clears
+      per-key repeat state (no phantom fill), first-onset-on-a-key has no fill,
+      cross-hand same-key re-press still cues (the cue is per KEY, not per track).
 - [ ] Q2 — wait-mode re-due pulse (`repeatWaitPulseMs`, fixed width — no timing to
       protect when the song is halted).
 - [ ] Q3 — settings growth (the 6 "Incoming Re-press" fields; `repeatColor` validated
       ≠ wrong-red like hand colors) + API.md + contract-test update + webui panel.
+      Named tests: `repeatCueEnabled=false` ⇒ frames byte-identical to v1 (the OFF
+      pin); wrong-red `repeatColor` rejected. BRINGUP item: cue legibility on the
+      real strip at tempo.
 - [ ] closing /code-review over the wave diff.
 
 ### M-wave — mode model + unloadSong (brief §1)
 
 - [ ] M1 — core `unloadSong` (clears song/scheduler back to the natural boot state;
       note-offs appended to `out`) + `POST /api/songs/unload` + webui unload control.
-- [ ] M2 — top-mode state machine above the existing `Mode` enum (which becomes
-      Practice's sub-modes): NoSong-Reactive / NoSong-AFK / Practice / Presentation
-      (placeholder). Idle clock derived from `nowUs` in tick (activity = MIDI in OR
-      any REST write; timeout default 180s, 0=never). Native gate-matrix tests pin the
-      hard requirement: **song loaded ⇒ AFK unreachable**, any activity ⇒ instant wake
-      to Reactive, load ⇒ Practice default, Presentation only by explicit request.
-      AFK content = rainbow stub (V5).
+      Reset surface, exact (OV4): clears song/scheduler/wait/loop/lights/emitter;
+      settings, calibration, BLE connection, and the idle clock are UNTOUCHED.
+      Named test: unload while Playing flushes note-offs and clears the lights.
+- [ ] M2 — **core `ModeDirector`** (eng review 1A: lives in lib/core, NOT App) above
+      the existing `Mode` enum (which becomes Practice's sub-modes): NoSong-Reactive /
+      NoSong-AFK / Practice / Presentation (placeholder). It owns the idle clock AND
+      the **single frame-source dispatch** — exactly ONE producer paints the strip
+      each tick. TestPattern and the C3 probe dot fold in as forced top-priority
+      content sources (3A); `App`'s `test_` enum dies. Activity = ANY incoming MIDI
+      message (notes AND pedal/CC — OV4) OR any state-CHANGING route (POST/PUT/
+      DELETE); **status/settings GETs never reset the idle clock** (5A) — else the
+      2×/s-polling web remote makes AFK unreachable.
+      Timeout default 180s, 0=never. Native gate-matrix tests pin: **song loaded ⇒
+      AFK unreachable**, any activity ⇒ wake to Reactive within one frame, load ⇒
+      Practice default, Presentation only by explicit request, timeout=0 never arms,
+      and 180s of pure status polling with no song ⇒ AFK arms. AFK content = rainbow
+      stub (VL5).
+
+      ```
+                          song loaded?
+               no                          yes
+        ┌───────────────┐          ┌────────────────────┐
+        │ REACTIVE ⇄ AFK │  load──▶ │ PRACTICE ⇄ PRESENT │
+        │ (idle≥timeout │ ◀──unload│ (wait/follow/demo/ │
+        │  arms; any key│          │  accomp = Practice │
+        │  /write wakes)│          │  sub-modes)        │
+        └───────────────┘          └────────────────────┘
+        AFK NEVER fires while a song is loaded (hard req).
+        Forced sources above ALL modes: test pattern · probe dot.
+      ```
 - [ ] M3 — status/API surface: `topMode` (+ idle fields) added to `/api/status`;
-      mode-entry routes per V2; webui mode surface. Existing `mode` field semantics
+      mode-entry routes per VL2; webui mode surface. Existing `mode` field semantics
       untouched.
 - [ ] closing /code-review over the wave diff.
 
 ### E-wave — one effect engine, AFK + Reactive sequencers (brief §3)
 
 - [ ] E1 — Effect seam (fixed timestep, injectable RNG, palette + params in, frame
-      buffer out — V7) + shared palette system + the classic ports, one commit each:
+      buffer out — VL7) + shared palette system + the classic ports, one commit each:
       DemoReel100 set, Fire2012, Pacifica, TwinkleFox, ColorWaves, Pride2015. Each
       lands with determinism/bounds/zero-alloc native tests + MIT attribution header.
+      Provenance rule (OV3): port ONLY from the FastLED repo `examples/` tree at a
+      pinned commit (that tree is MIT) — never gists/forums; each port's header and
+      A-entry name the exact source path + commit.
 - [ ] E2 — expressive note-driven base (velocity curve, release-decay ms, CC64 latch —
       CC64 is already in the event stream; honoring it is a read) + Reactive free-play
-      wiring (live MIDI → single note-driven layer, no timeline).
+      wiring (live MIDI → single note-driven layer, no timeline). Named tests:
+      velocity 0 and 127 curve endpoints; pedal-up releases every latched glow;
+      note-off during latch holds the glow until release.
 - [ ] E3 — AFK playlist sequencer: ordered effect-config tracks, play/loop with
       shuffle / next / previous / repeat-current, per-effect dwell, crossfade (second
       frame buffer), global brightness cap + master speed + LED range (whole strip vs
       above-keys — reads the C-wave table). `/afk.json` + `/api/afk` + webui panel.
       Replaces the M-wave stub. AFK default brightness cap ships conservative — it
-      runs unattended.
+      runs unattended. Named tests: crossfade continuity (no snap frame), empty
+      playlist falls back to the stub, dwell=0 clamped, shuffle with a single track.
+      BRINGUP item: AFK arm → wake walk on the real device.
 - [ ] closing /code-review over the wave diff.
 
 ### P-wave — presentation: the light-show DAW (brief §4; heaviest, last)
 
-- [ ] P0 — design pass, no code: baked cue-stream binary format spec, minimum blend
-      set (opacity + additive), show storage layout (`/shows/`), editor↔device
-      protocol, **editor-hosting ruling from Christian (V3)**. Written into docs
-      before P1 starts.
+- [ ] P-POC — browser↔device connectivity proof (OV1; runnable any time after C4
+      exists, MUST pass before P0 closes): a static page opened three ways —
+      HTTPS-hosted, `file://`, and on the device's AP — exercising GET/POST against
+      the mock server and (once hardware exists) the real device. Proves the
+      CORS / Private-Network-Access / mixed-content / `Origin: null` assumptions
+      behind VL3 before months of momentum are behind them. An afternoon.
+- [ ] P0 — design pass, no code (hardened per eng review 2A): baked cue-stream binary
+      format spec **with a version field + compatibility rule** (device refuses
+      newer-major streams with a typed error, never garbage rendering), minimum blend
+      set (opacity + additive), show storage layout (`/shows/`) **with a storage
+      quota + typed upload refusal**, **show RAM budget + streaming decision**
+      (chunked from LittleFS vs whole-load; flash reads stay off the practice path),
+      editor↔device protocol, **editor distribution** (how a stranger gets a
+      version-matched editor: Pages / release artifact), **upload semantics
+      (chunking/abort + which modes permit uploads — OV1)**, and the **editor-hosting
+      ruling from Christian (VL3)**. Format shape (OV4): chunked/TLV sections so P4
+      score-follow additions extend v1 streams without breaking them, plus a
+      canonical JSON debug representation alongside the binary (editor exports both;
+      failures stay inspectable). Written into docs before P1 starts.
 - [ ] P1 — device cue-stream player + presentation-only compositor (alpha/additive,
       composited top-to-bottom) — a separate render path; the practice priority stack
-      is not touched.
+      is not touched. Named tests: malformed/truncated stream ⇒ typed error (never
+      garbage rendering); version-mismatch refused (2A); stream notes beyond the
+      table render dark, not crash.
 - [ ] P2 — clock sources: Demo (device playback owns sound + light) and Free-run
-      (tempo-scaled scheduler). `clockSource` is per-show data.
-- [ ] P3 — editor MVP in `editor/` (off-device, V3): piano-roll over the loaded MIDI
+      (tempo-scaled scheduler). `clockSource` is per-show data. Named test: tempo
+      change mid-show keeps the Free-run clock continuous.
+- [ ] P3 — editor MVP in `editor/` (off-device, VL3): piano-roll over the loaded MIDI
       (@tonejs/midi + canvas), effect clips with the three dimensions (beat span /
       key scope incl. note-binding / autonomous-vs-note-driven drive), grouping +
       nesting, compile→flatten→upload via `/api/shows` (+CORS on device).
-- [ ] P4 — score-follow clock: **gated on its own grilled design session (V6)** —
+- [ ] P4 — score-follow clock: **gated on its own grilled design session (VL6)** —
       advances on match via wait-mode's machinery, tolerant of wrong/extra/skipped.
       Do not start from the current brief alone.
 - [ ] closing /code-review over the wave diff.
@@ -326,7 +407,7 @@ view, extended blend modes, show export/share format + xLights import, AFK start
 catalog curation, BOM scaling guidance.
 
 ## Needs Christian (never blocks the loop)
-- v2 P0: editor-hosting ruling (V3 — recommendation: off-device `editor/` static app,
+- v2 P0: editor-hosting ruling (VL3 — recommendation: off-device `editor/` static app,
   device gains only `/api/shows` + CORS). Only blocks the P-wave, nothing earlier.
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
 - ~~GitHub publish decision~~ **PUBLISHED 2026-07-07** (his call, in-session):
@@ -338,6 +419,8 @@ catalog curation, BOM scaling guidance.
 ## Needs Hardware (code-complete + documented only)
 - BLE pairing behavior of the real FP-30X (incl. echo test)
 - Strip calibration values; actual wait-mode latency; PSU headroom check
+- v2 (OV1/OV2): P-POC against the real device; per-effect frame-budget benchmark;
+  heap watermark check under AFK + presentation playback
 
 ## Iteration log
 
