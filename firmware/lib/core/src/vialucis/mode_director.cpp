@@ -20,6 +20,16 @@ void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
     // lookup + array writes — no allocation, no transcendental math
     // (velocity curve precomputed in setParams; iron-rule scrutiny, A50).
     if (engine_.songLoaded()) {
+        if (scoreFollowActive()) {
+            // P4: the performer IS the Presentation clock. Echo-guarded
+            // inside the follower; a wrong note is ignored for the clock
+            // and can never red-flash (the transport is stopped, so the
+            // practice verdict path below is inert by construction). The
+            // snap lands on the very next frame.
+            follower_.onNote(note, nowUs);
+            engine_.driveShowClock(follower_.positionUs(nowUs));
+            engine_.markFrameDirty();
+        }
         engine_.onKeyDown(note, nowUs);
         reactive_.noteOn(note, velocity);
     } else {
@@ -142,6 +152,11 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         showPlaying_ = false;
     }
     engine_.tick(nowUs, out);
+    // P4: between key events the score-follow clock still moves (coast /
+    // hold / free-run are functions of real time) — drive song time from
+    // the follower's estimate every tick so the show breathes continuously.
+    if (scoreFollowActive())
+        engine_.driveShowClock(follower_.positionUs(nowUs));
     TopMode m = topMode(nowUs);
     if (m != lastMode_) {
         engine_.markFrameDirty();  // mode flips repaint within one frame

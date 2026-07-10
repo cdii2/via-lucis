@@ -321,6 +321,113 @@ void test_leaving_presentation_midshow_clears_show_playing() {
     TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
+// --- P4: score-follow — the performer IS the Presentation clock -------------
+
+namespace {
+
+// A minimal one-cue show with the given clock source (chordSong is the
+// loaded song: anchors 60@0 · 64@500ms · {67,71}@1000ms on the follow mask).
+Show scoreFollowShow(uint8_t clock) {
+    Show s;
+    s.meta.clockSource = clock;
+    s.meta.durationMs = 5000;
+    s.meta.name = "sf";
+    s.effects.push_back("rainbow");
+    ShowCue cue;
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    return s;
+}
+
+}  // namespace
+
+void test_score_follow_show_slaves_the_clock_to_the_performer() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
+    TEST_ASSERT_TRUE(r.director.scoreFollowActive());
+    // The transport is NOT started — the performer is the only clock.
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+    // Pre-rolled at 0 until the first anchor is matched (§4a Q13).
+    r.tick(2 * kSec);
+    TEST_ASSERT_EQUAL_UINT64(0, r.engine.positionUs());
+    // First anchor (60 at song 0) starts the clock; the second snaps the
+    // song position on the key event itself, before any tick.
+    r.director.onKeyDown(60, 100, 2 * kSec);
+    TEST_ASSERT_EQUAL_UINT64(0, r.engine.positionUs());
+    r.director.onKeyDown(64, 100, 2 * kSec + 500000);
+    TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
+    // Between events the tick coasts the clock, held at the next onset.
+    r.tick(2 * kSec + 900000);
+    uint64_t coasted = r.engine.positionUs();
+    TEST_ASSERT_TRUE(coasted > 500000 && coasted <= 1000000);
+    // The chord anchor {67,71} needs both core notes (per-key clearing).
+    r.director.onKeyDown(67, 100, 3 * kSec);
+    TEST_ASSERT_EQUAL_size_t(2, r.director.scoreFollower().nextAnchor());
+    r.director.onKeyDown(71, 100, 3 * kSec + 100000);
+    TEST_ASSERT_EQUAL_size_t(3, r.director.scoreFollower().nextAnchor());
+    TEST_ASSERT_EQUAL_UINT64(1000000, r.engine.positionUs());
+    // Past the final anchor the show tail keeps breathing on ticks.
+    r.tick(4 * kSec);
+    TEST_ASSERT_TRUE(r.engine.positionUs() > 1000000);
+    // The show paints the strip from the follower-driven song clock.
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(4 * kSec)) > 300);
+}
+
+void test_score_follow_wrong_note_never_flashes_or_moves_the_clock() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    r.director.onKeyDown(60, 100, 2 * kSec);
+    r.director.onKeyDown(64, 100, 2 * kSec + 500000);
+    TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
+    // A wrong note at the SAME instant: the clock must not move, rewind,
+    // or stall (§4a Q8) — and it can never red-flash: the engine verdict
+    // path is inert by construction (transport stopped, state Idle).
+    r.director.onKeyDown(100, 100, 2 * kSec + 500000);
+    TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+    TEST_ASSERT_TRUE(r.director.scoreFollower().state() ==
+                     ScoreFollower::FollowState::Following);
+}
+
+void test_score_follow_deactivates_on_every_show_exit_path() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    // stopShow.
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    TEST_ASSERT_TRUE(r.director.scoreFollowActive());
+    r.director.stopShow();
+    TEST_ASSERT_FALSE(r.director.scoreFollowActive());
+    // Leaving Presentation mid-show.
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    TEST_ASSERT_TRUE(r.director.setPresentation(false));
+    TEST_ASSERT_FALSE(r.director.scoreFollowActive());
+    // Unload (the tick cleanup path).
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    r.unload();
+    r.tick(2 * kSec);
+    TEST_ASSERT_FALSE(r.director.scoreFollowActive());
+    // A demo-clock show never activates it.
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(0), 7, gOut);
+    TEST_ASSERT_TRUE(r.director.showPlaying());
+    TEST_ASSERT_FALSE(r.director.scoreFollowActive());
+}
+
 // --- the probe as a director-owned forced source (moved from C3) -----------
 
 void test_probe_dot_outranks_test_pattern_and_modes() {
@@ -425,6 +532,9 @@ int main(int, char**) {
     RUN_TEST(test_presentation_plays_a_show_on_the_song_clock);
     RUN_TEST(test_show_dies_with_the_song);
     RUN_TEST(test_leaving_presentation_midshow_clears_show_playing);
+    RUN_TEST(test_score_follow_show_slaves_the_clock_to_the_performer);
+    RUN_TEST(test_score_follow_wrong_note_never_flashes_or_moves_the_clock);
+    RUN_TEST(test_score_follow_deactivates_on_every_show_exit_path);
     RUN_TEST(test_reactive_free_play_glows_and_decays);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);

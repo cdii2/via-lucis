@@ -24,6 +24,7 @@
 #include "vialucis/fx/afk_player.h"
 #include "vialucis/fx/note_driven.h"
 #include "vialucis/playback_engine.h"
+#include "vialucis/score_follower.h"
 #include "vialucis/settings.h"
 #include "vialucis/show_player.h"
 
@@ -49,26 +50,43 @@ public:
         afk_.setTable(t);
     }
 
-    // --- presentation playback (P2) -------------------------------------
+    // --- presentation playback (P2, P4) ----------------------------------
     // The clock is the Scheduler's song-time axis: Demo = the engine plays
-    // the song (mode demo), Free-run = tempo-scaled follow. The caller
+    // the song (mode demo), Free-run = tempo-scaled follow, Score-follow =
+    // the performer drives it through the ScoreFollower (P4). The caller
     // (App) sets the practice sub-mode + transport; this starts the show
     // frame source and flips Presentation on.
     // Owns the WHOLE start policy (closing review): the clock source picks
     // the practice sub-mode (Demo = the device plays; Free-run = tempo-
-    // scaled follow), a leftover practice loop is cleared (a loop wrap
-    // would hard-reset every effect mid-performance), and playback starts
-    // from the top. Note-offs the transport emits land in `out`.
+    // scaled follow; Score-follow = follow sub-mode with the transport
+    // STOPPED — the follower is the only clock, so practice's verdict path
+    // is inert by construction and a wrong note can never red-flash), a
+    // leftover practice loop is cleared (a loop wrap would hard-reset every
+    // effect mid-performance), and playback starts from the top. Note-offs
+    // the transport emits land in `out`.
     void startShow(Show&& show, uint32_t seed,
                    std::vector<MidiOutMsg>& out) {
         uint8_t clock = show.meta.clockSource;
+        uint8_t followTrack = show.meta.followTrack;
         showPlayer_.load(std::move(show), table_, seed);
         showPlaying_ = true;
         presentation_ = true;
         engine_.setMode(clock == 0 ? "demo" : "follow", "both", out);
         engine_.setLoop(false, 0, 0);
         engine_.transport("stop", 0, out);
-        engine_.transport("play", 0, out);
+        if (clock == 2) {
+            // P4: extract the anchors of the follow scope (the barrier
+            // cadence over the resolved track mask) and pre-roll at 0 —
+            // the first matched anchor starts the clock (§4a Q13).
+            std::vector<FollowAnchor> anchors;
+            if (const Scheduler* sched = engine_.scheduler())
+                ScoreFollower::extractAnchors(
+                    *sched, engine_.followTrackMask(followTrack), anchors);
+            follower_.arm(std::move(anchors));
+            follower_.setEchoGuard(engine_.echoGuard());
+        } else {
+            engine_.transport("play", 0, out);
+        }
         engine_.markFrameDirty();
     }
     void stopShow() {
@@ -78,6 +96,14 @@ public:
     }
     bool showPlaying() const { return showPlaying_; }
     const ShowPlayer& showPlayer() const { return showPlayer_; }
+    // P4: score-follow is DERIVED, never mirrored — it is exactly "a show
+    // is playing and its clock source is 2", so every path that ends a
+    // show (stopShow, setPresentation(false), unload cleanup in tick)
+    // deactivates it for free.
+    bool scoreFollowActive() const {
+        return showPlaying_ && showPlayer_.clockSource() == 2;
+    }
+    const ScoreFollower& scoreFollower() const { return follower_; }
 
     // --- AFK playlist (E3) --------------------------------------------
     // Boot/tests: prepare+apply in one call (allocates — see applyAfk's
@@ -165,6 +191,7 @@ private:
     KeyLedTable table_;             // the geometry truth (VL1)
     ShowPlayer showPlayer_;         // P2: the Presentation frame source
     bool showPlaying_ = false;
+    ScoreFollower follower_;        // P4: the score-follow clock source
 
     enum class Test : uint8_t { None, Strip, Rainbow };
     Test test_ = Test::None;

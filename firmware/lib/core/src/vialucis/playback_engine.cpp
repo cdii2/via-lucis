@@ -274,6 +274,32 @@ bool PlaybackEngine::setTrack(size_t index, const std::string& hand,
     return true;
 }
 
+uint32_t PlaybackEngine::followTrackMask(uint8_t followTrack) const {
+    if (!sched_) return kTrackMaskAll;
+    // Explicit editor-chosen track (the META byte), when it is usable.
+    if (followTrack != 0xFF &&
+        followTrack < trackCfg_.tracks.size()) {
+        uint32_t m = trackBit(followTrack);
+        if (m != 0 && sched_->nextOnsetAfter(0, m) != kNoOnset) return m;
+    }
+    // Auto (0xFF, A54): the melody by default — the right-hand practiced
+    // mask (§4a Q6), falling back to whatever actually has onsets.
+    uint32_t rh = trackCfg_.practicedMask(Hand::Right);
+    if (rh != 0 && sched_->nextOnsetAfter(0, rh) != kNoOnset) return rh;
+    uint32_t lights = trackCfg_.lightsMask();
+    if (lights != 0 && sched_->nextOnsetAfter(0, lights) != kNoOnset)
+        return lights;
+    return kTrackMaskAll;
+}
+
+void PlaybackEngine::driveShowClock(uint64_t songUs) {
+    if (!sched_ || state_ == PlayState::Playing) return;
+    // Direct song-time write. Nothing is sounding (score-follow keeps the
+    // transport stopped and the follow-mode emit mask is 0), so the seek's
+    // note-off flush into the reused buffer stays empty.
+    sched_->seek(songUs, queryBuf_);
+}
+
 void PlaybackEngine::onKeyDown(uint8_t note, uint64_t nowUs) {
     if (!wait_ || state_ != PlayState::Playing) return;
     if (!barrierMode()) return;

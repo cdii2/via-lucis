@@ -620,6 +620,41 @@ void test_unload_while_playing_flushes_and_clears() {
     TEST_ASSERT_TRUE(e.transport("play", 0, gOut));
 }
 
+// --- P4 score-follow hooks ---------------------------------------------------
+
+void test_follow_track_mask_resolution() {
+    PlaybackEngine e;
+    // No song: the hook degrades to all-tracks, never crashes.
+    TEST_ASSERT_EQUAL_UINT32(kTrackMaskAll, e.followTrackMask(0xFF));
+    // twoTrackSong: piano convention t0=Right, t1=Left.
+    setupEngine(e, twoTrackSong());
+    // Auto (0xFF, A54) = the right-hand practiced mask — the melody.
+    TEST_ASSERT_EQUAL_UINT32(trackBit(0), e.followTrackMask(0xFF));
+    // An explicit editor-chosen track wins.
+    TEST_ASSERT_EQUAL_UINT32(trackBit(1), e.followTrackMask(1));
+    TEST_ASSERT_EQUAL_UINT32(trackBit(0), e.followTrackMask(0));
+    // An unusable index (out of the track space) falls back to auto.
+    TEST_ASSERT_EQUAL_UINT32(trackBit(0), e.followTrackMask(7));
+}
+
+void test_drive_show_clock_sets_song_time_only_while_stopped() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong());
+    // Stopped: the director-driven clock writes song time directly.
+    e.driveShowClock(500000);
+    TEST_ASSERT_EQUAL_UINT64(500000, e.positionUs());
+    // Backward drives too (re-arm / re-acquire are seeks by design).
+    e.driveShowClock(100000);
+    TEST_ASSERT_EQUAL_UINT64(100000, e.positionUs());
+    // While Playing the transport owns the clock: the hook is refused.
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    uint64_t owned = e.positionUs();
+    e.driveShowClock(2000000);
+    TEST_ASSERT_EQUAL_UINT64(owned, e.positionUs());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -650,5 +685,7 @@ int main(int, char**) {
     RUN_TEST(test_set_table_overrides_configure_geometry);
     RUN_TEST(test_unload_while_playing_flushes_and_clears);
     RUN_TEST(test_status_top_fields_before_wifi_which_stays_last);
+    RUN_TEST(test_follow_track_mask_resolution);
+    RUN_TEST(test_drive_show_clock_sets_song_time_only_while_stopped);
     return UNITY_END();
 }

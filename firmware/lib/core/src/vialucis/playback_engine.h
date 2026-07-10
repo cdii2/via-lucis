@@ -126,6 +126,23 @@ public:
     // frame dirty flag) happens here.
     void onKeyDown(uint8_t note, uint64_t nowUs);
 
+    // --- score-follow hooks (P4) ----------------------------------------
+    // Const view for anchor extraction at show start (the follower reads
+    // onsets via the barrier-cadence queries; it never mutates).
+    const Scheduler* scheduler() const { return sched_.get(); }
+    // The one MIDI-echo truth (iron rule): the director's follower must
+    // never treat our own emitted notes as the performer.
+    EchoGuard* echoGuard() { return &guard_; }
+    // Resolve a META followTrack byte to a scheduler track mask. 0xFF
+    // (auto, A54) or an unusable index falls back: right-hand practiced
+    // mask if it has onsets, else the lights mask, else all tracks.
+    uint32_t followTrackMask(uint8_t followTrack) const;
+    // The director drives the Presentation clock from the ScoreFollower's
+    // estimate. Song time is set directly while the transport is stopped —
+    // nothing sounds (follow-mode emit mask is 0), so the underlying seek
+    // flushes nothing. Refused while Playing: the transport owns the clock.
+    void driveShowClock(uint64_t songUs);
+
     // Loop-task tick: advance playback, append MIDI-out to `out`.
     void tick(uint64_t nowUs, std::vector<MidiOutMsg>& out);
 
