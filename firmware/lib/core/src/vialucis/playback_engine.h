@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "vialucis/calibration_probe.h"
 #include "vialucis/echo_guard.h"
 #include "vialucis/frame_renderer.h"
 #include "vialucis/midi_io.h"
@@ -48,8 +49,23 @@ public:
     PlaybackEngine& operator=(const PlaybackEngine&) = delete;
 
     // Re-derive renderer/guard/colors after settings changed (brightness and
-    // wifi stay device-side).
+    // wifi stay device-side). Derives the two-point table from the settings
+    // scalars — a device with explicit calibration calls setTable AFTER this
+    // (the App owns that ordering; see C3).
     void configure(const Settings& s, uint16_t ledCount);
+
+    // Calibration override (C3): swap the geometry table, keep ramp/colors.
+    void setTable(const KeyLedTable& t);
+
+    // --- calibration probe (C3; folds into the M-wave ModeDirector, 3A) ---
+    // Ownership rules (OV4): arms only when NOT Playing; while armed the
+    // next note-on is consumed BEFORE wait mode sees it; the dot is a
+    // forced frame source above everything; auto-timeout clears it.
+    enum class ProbeArm : uint8_t { Ok, Playing, BadLed };
+    ProbeArm armProbe(uint16_t led, uint64_t nowUs, uint32_t timeoutMs);
+    void cancelProbe();
+    bool probeArmed() const { return probe_.armed(); }
+    std::string probeJson() const;
 
     // Take ownership of a parsed song (the device layer does the file IO).
     // Note-offs for anything still sounding are appended to `out`.
@@ -106,6 +122,7 @@ private:
     NoteEmitter emitter_{0};
     FrameRenderer renderer_{TableBuilder::fromTwoPoint(LedMapConfig{}),
                             RampConfig{}};
+    CalibrationProbe probe_;
     TrackConfig trackCfg_;
     Rgb leftColor_, rightColor_, wrongColor_;
 

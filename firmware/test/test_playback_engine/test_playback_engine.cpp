@@ -530,6 +530,124 @@ void test_pause_gap_play_re_baselines_no_burst() {
     TEST_ASSERT_TRUE(advanced >= 90000 && advanced <= 110000);
 }
 
+// --- C3: calibration probe + table override ------------------------------
+// The probe's ownership rules (OV4): arms only when NOT Playing; while
+// armed the next note-on is consumed BEFORE wait mode sees it; the dot is a
+// forced source above everything; auto-timeout; explicit cancel.
+
+static int litCount(const std::vector<Rgb>& frame) {
+    int n = 0;
+    for (const Rgb& c : frame)
+        if (c.r || c.g || c.b) ++n;
+    return n;
+}
+
+void test_probe_dot_is_the_whole_frame() {
+    PlaybackEngine e;
+    e.configure(Settings{}, 360);
+    TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::Ok,
+                      e.armProbe(123, 1000, 30000));
+    TEST_ASSERT_TRUE(e.probeArmed());
+    const std::vector<Rgb>& frame = e.renderFrame(2000);
+    TEST_ASSERT_EQUAL_INT(1, litCount(frame));
+    assertRgb(Rgb{255, 255, 255}, frame[123]);
+}
+
+void test_probe_capture_consumes_the_press_before_practice() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");  // song loaded, Idle
+    TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::Ok,
+                      e.armProbe(50, 1000, 30000));
+    e.onKeyDown(60, 2000);  // would be the due chord's key — probe eats it
+    TEST_ASSERT_FALSE(e.probeArmed());
+    std::string p = e.probeJson();
+    TEST_ASSERT_TRUE(p.find("\"armed\":false") != std::string::npos);
+    TEST_ASSERT_TRUE(p.find("\"led\":50") != std::string::npos);
+    TEST_ASSERT_TRUE(p.find("\"note\":60") != std::string::npos);
+    // Practice never saw the press: play still waits for the full chord.
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);
+    TEST_ASSERT_TRUE(e.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+}
+
+void test_probe_refused_while_playing() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::Playing,
+                      e.armProbe(50, 1000, 30000));
+    TEST_ASSERT_FALSE(e.probeArmed());
+}
+
+void test_probe_bad_led_refused() {
+    PlaybackEngine e;
+    e.configure(Settings{}, 360);
+    TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::BadLed,
+                      e.armProbe(360, 1000, 30000));
+}
+
+void test_probe_times_out_and_clears_the_dot() {
+    PlaybackEngine e;
+    e.configure(Settings{}, 360);
+    e.armProbe(123, 1000, 30000);
+    gOut.clear();
+    e.tick(1000 + 31000000ULL, gOut);  // 31s later — window expired
+    TEST_ASSERT_FALSE(e.probeArmed());
+    TEST_ASSERT_TRUE(e.probeJson().find("\"note\":null") != std::string::npos);
+    TEST_ASSERT_TRUE(e.frameDue(1000 + 31000000ULL));  // expiry marks dirty
+    TEST_ASSERT_EQUAL_INT(0, litCount(e.renderFrame(1000 + 31000000ULL)));
+}
+
+void test_probe_cancel_clears_arm_and_capture() {
+    PlaybackEngine e;
+    e.configure(Settings{}, 360);
+    e.armProbe(123, 1000, 30000);
+    e.onKeyDown(60, 2000);  // captured
+    e.cancelProbe();
+    std::string p = e.probeJson();
+    TEST_ASSERT_TRUE(p.find("\"armed\":false") != std::string::npos);
+    TEST_ASSERT_TRUE(p.find("\"note\":null") != std::string::npos);
+}
+
+void test_play_while_probe_armed_cancels_probe() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    e.armProbe(50, 1000, 30000);
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    TEST_ASSERT_FALSE(e.probeArmed());
+    TEST_ASSERT_TRUE(e.probeJson().find("\"note\":null") != std::string::npos);
+}
+
+void test_set_table_overrides_configure_geometry() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    // A per-key table that puts C4 somewhere the formula never would.
+    KeyLedTable t;
+    t.setLedCount(360);
+    t.set(60, LedRange{5, 6, true});
+    e.setTable(t);
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(100000, gOut);  // C4 sounding
+    const std::vector<Rgb>& frame = e.renderFrame(100000);
+    assertRgb(kRight, frame[5]);
+    assertRgb(kRight, frame[6]);
+    // The formula's location for C4 stays dark — the table is the truth.
+    LedRange v1 = ledsForNote(60, LedMapConfig{});
+    assertRgb(kBlack, frame[v1.first]);
+    // configure() re-derives two-point geometry (the App restores explicit
+    // calibration afterwards — C3 ordering).
+    e.configure(Settings{}, 360);
+    const std::vector<Rgb>& frame2 = e.renderFrame(100000);
+    assertRgb(kRight, frame2[v1.first]);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -557,5 +675,13 @@ int main(int, char**) {
     RUN_TEST(test_statusjson_between_ticks_is_internally_consistent);
     RUN_TEST(test_load_song_clears_reported_loop);
     RUN_TEST(test_pause_gap_play_re_baselines_no_burst);
+    RUN_TEST(test_probe_dot_is_the_whole_frame);
+    RUN_TEST(test_probe_capture_consumes_the_press_before_practice);
+    RUN_TEST(test_probe_refused_while_playing);
+    RUN_TEST(test_probe_bad_led_refused);
+    RUN_TEST(test_probe_times_out_and_clears_the_dot);
+    RUN_TEST(test_probe_cancel_clears_arm_and_capture);
+    RUN_TEST(test_play_while_probe_armed_cancels_probe);
+    RUN_TEST(test_set_table_overrides_configure_geometry);
     return UNITY_END();
 }

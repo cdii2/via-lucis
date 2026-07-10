@@ -7,6 +7,7 @@ namespace vialucis {
 
 namespace {
 constexpr const char* kSettingsPath = "/settings.json";
+constexpr const char* kCalibrationPath = "/calibration.json";
 constexpr const char* kSongDir = "/songs";
 }  // namespace
 
@@ -93,6 +94,24 @@ bool SongStore::loadSettings(Settings& s) {
     String json = f.readString();
     f.close();
     return Settings::fromJson(json.c_str(), s);
+}
+
+bool SongStore::loadCalibration(std::string& json) {
+    File f = LittleFS.open(kCalibrationPath, "r");
+    if (!f) return false;
+    String s = f.readString();
+    f.close();
+    json = s.c_str();
+    return !json.empty();
+}
+
+bool SongStore::saveCalibration(const std::string& json) {
+    File f = LittleFS.open(kCalibrationPath, "w");
+    if (!f) return false;
+    size_t written = f.write(reinterpret_cast<const uint8_t*>(json.data()),
+                             json.size());
+    f.close();
+    return written == json.size();
 }
 
 bool SongStore::saveSettings(const Settings& s) {

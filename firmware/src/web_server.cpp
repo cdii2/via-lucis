@@ -36,6 +36,9 @@ void sendError(AsyncWebServerRequest* req, int code, const char* msg) {
 // (vialucis/body_intake.h); the two sinks below act on its decisions.
 
 constexpr size_t kJsonBodyCap = 4096;
+// A full per-key calibration PUT (88 keys) runs ~3.5KB; give the document
+// route real headroom instead of sailing 15% under the generic cap.
+constexpr size_t kCalibrationBodyCap = 12288;
 
 struct BodyIntake {
     String buf;            // buffer sink accumulates here
@@ -67,7 +70,8 @@ void intakeFail(AsyncWebServerRequest* req, int code, const char* msg) {
 using JsonHandler =
     std::function<void(AsyncWebServerRequest*, JsonDocument&)>;
 
-void onJsonBody(const char* path, JsonHandler handle) {
+void onJsonBody(const char* path, JsonHandler handle,
+                size_t bodyCap = kJsonBodyCap) {
     gServer.on(
         path, HTTP_POST | HTTP_PUT,
         [](AsyncWebServerRequest* req) {
@@ -77,11 +81,11 @@ void onJsonBody(const char* path, JsonHandler handle) {
             if (!req->_tempObject) sendError(req, 400, "empty body");
         },
         nullptr,
-        [handle](AsyncWebServerRequest* req, uint8_t* data, size_t len,
-                 size_t index, size_t total) {
+        [handle, bodyCap](AsyncWebServerRequest* req, uint8_t* data,
+                          size_t len, size_t index, size_t total) {
             BodyIntake& in = intakeFor(req);
             if (in.failed) return;  // rejected earlier; drain silently
-            ChunkPlan plan = planChunk(index, len, total, kJsonBodyCap);
+            ChunkPlan plan = planChunk(index, len, total, bodyCap);
             if (plan.tooLarge) {
                 intakeFail(req, 413, "body too large");
                 return;
@@ -288,6 +292,57 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    }
                    app.applySettings();
                    sendJson(req, 200, app.settings().toJson());
+               });
+
+    // --- calibration (C3) --------------------------------------------------
+    gServer.on("/api/calibration", HTTP_GET,
+               [&app](AsyncWebServerRequest* req) {
+                   sendJson(req, 200, app.calibrationJson());
+               });
+
+    onJsonBody(
+        "/api/calibration",
+        [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+            std::string raw;
+            serializeJson(doc, raw);
+            CalibResult r = app.applyCalibration(raw.c_str());
+            if (!r.ok()) {
+                sendError(req, 400, r.message());
+                return;
+            }
+            sendJson(req, 200, app.calibrationJson());
+        },
+        kCalibrationBodyCap);
+
+    gServer.on("/api/calibration/probe", HTTP_GET,
+               [&app](AsyncWebServerRequest* req) {
+                   sendJson(req, 200, app.probeJson());
+               });
+
+    gServer.on("/api/calibration/probe", HTTP_DELETE,
+               [&app](AsyncWebServerRequest* req) {
+                   app.cancelProbe();
+                   sendJson(req, 200, app.probeJson());
+               });
+
+    onJsonBody("/api/calibration/probe",
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   if (!doc["led"].is<uint16_t>()) {
+                       sendError(req, 400, "missing led");
+                       return;
+                   }
+                   uint16_t led = doc["led"].as<uint16_t>();
+                   uint32_t timeoutMs = doc["timeoutMs"] | 30000u;
+                   PlaybackEngine::ProbeArm r = app.armProbe(led, timeoutMs);
+                   if (r == PlaybackEngine::ProbeArm::Playing) {
+                       sendError(req, 409, "playing");
+                       return;
+                   }
+                   if (r == PlaybackEngine::ProbeArm::BadLed) {
+                       sendError(req, 400, "bad led");
+                       return;
+                   }
+                   sendJson(req, 200, app.probeJson());
                });
 
     // --- utility -----------------------------------------------------------

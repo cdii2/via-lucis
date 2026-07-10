@@ -260,7 +260,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       (piecewise-linear between
       landmark pairs), per-key hand-edit; invariants enforced (in-strip, monotonic,
       adjacent keys never overlap; off-strip keys valid=false ⇒ dark, as today).
-- [ ] C3 — persistence + REST: `/calibration.json` (table + tier metadata),
+- [x] C3 — persistence + REST: `/calibration.json` (table + tier metadata),
       `GET/PUT /api/calibration`, `POST /api/calibration/probe` (light one dot via the
       ModeDirector forced-source slot (3A); a fenced capture flag routes the next key
       press to the wizard instead of practice; auto-timeout). `offsetMm`/`ledsPerMeter`

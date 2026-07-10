@@ -27,6 +27,16 @@ void App::begin() {
     store_.begin();
     store_.loadSettings(settings_);  // keeps defaults if absent
     engine_.configure(settings_, LedOutput::kLedCount);
+    // Calibration (C3): a stored /calibration.json wins; anything else —
+    // absent file, unreadable, garbage — falls back to the settings'
+    // 2-point values, which is byte-identical to v1 (the CRITICAL upgrade
+    // path for every existing device).
+    std::string calibJson;
+    if (!store_.loadCalibration(calibJson) ||
+        !Calibration::fromJson(calibJson.c_str(), LedOutput::kLedCount,
+                               calib_).ok())
+        calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount);
+    engine_.setTable(calib_.table);
     leds_.begin(settings_.brightness);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
@@ -118,15 +128,60 @@ std::string App::statusJson(const WifiStatus* wifi) {
 }
 
 void App::applySettings() {
+    // The settings scalars ARE the 2-point tier's inputs: on that tier the
+    // calibration follows them (preserving the reversed flag). Other tiers
+    // own their geometry — settings changes must not clobber the table.
+    if (calib_.tier == "twoPoint")
+        calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount,
+                                           calib_.reversed);
     {
         FenceGuard g(lock_);
         engine_.configure(settings_, LedOutput::kLedCount);
+        engine_.setTable(calib_.table);  // configure derived 2-point; restore
         leds_.setBrightness(settings_.brightness);
     }
     // Flash write UNFENCED (F-wave review R1): settings_ is HTTP-task-owned —
     // the loop task never reads it (the engine holds copies from configure) —
     // so a concurrent tick never stalls behind LittleFS IO.
     store_.saveSettings(settings_);
+    if (calib_.tier == "twoPoint") store_.saveCalibration(calib_.toJson());
+}
+
+CalibResult App::applyCalibration(const char* json) {
+    // Parse UNFENCED (locals only); fence just the engine table swap.
+    Calibration next;
+    CalibResult r =
+        Calibration::fromJson(json, LedOutput::kLedCount, next);
+    if (!r.ok()) return r;
+    {
+        FenceGuard g(lock_);
+        engine_.setTable(next.table);
+    }
+    calib_ = std::move(next);
+    if (calib_.tier == "twoPoint") {
+        settings_.offsetMm = calib_.offsetMm;
+        settings_.ledsPerMeter = calib_.ledsPerMeter;
+        store_.saveSettings(settings_);
+    }
+    store_.saveCalibration(calib_.toJson());
+    return r;
+}
+
+PlaybackEngine::ProbeArm App::armProbe(uint16_t led, uint32_t timeoutMs) {
+    FenceGuard g(lock_);
+    return engine_.armProbe(
+        led, static_cast<uint64_t>(esp_timer_get_time()), timeoutMs);
+}
+
+void App::cancelProbe() {
+    FenceGuard g(lock_);
+    engine_.cancelProbe();
+}
+
+std::string App::probeJson() {
+    // Fenced: the loop task mutates probe state (capture/expiry).
+    FenceGuard g(lock_);
+    return engine_.probeJson();
 }
 
 void App::onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs) {
@@ -145,7 +200,10 @@ void App::tick(uint64_t nowUs) {
     FenceGuard g(lock_);
     ble_.poll();
 
-    if (test_ != TestPattern::None) {
+    // An armed probe outranks a test pattern: fall through to the engine,
+    // whose renderFrame paints the forced dot (the engine is idle — a probe
+    // never arms while Playing). The pattern resumes when the probe clears.
+    if (test_ != TestPattern::None && !engine_.probeArmed()) {
         uint32_t ms = static_cast<uint32_t>(nowUs / 1000);
         if (test_ == TestPattern::Strip) leds_.testPattern(ms);
         else leds_.rainbow(ms);

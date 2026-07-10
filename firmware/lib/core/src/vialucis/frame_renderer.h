@@ -41,12 +41,18 @@ public:
     // Wrong press: full-strength flash, wins over everything at that key.
     void addWrong(uint8_t note, Rgb color);
 
+    // Forced single-LED dot (calibration probe) — addressed by LED index,
+    // not note; sits above every note layer.
+    void addDot(uint16_t led, Rgb color);
+
     const std::vector<Rgb>& frame() const { return frame_; }
     const RampConfig& ramp() const { return ramp_; }
     void setRamp(const RampConfig& r) { ramp_ = r; }
 
 private:
-    enum class Layer : uint8_t { None = 0, Ramp = 1, Due = 2, Wrong = 3 };
+    enum class Layer : uint8_t {
+        None = 0, Ramp = 1, Due = 2, Wrong = 3, Forced = 4
+    };
 
     void paint(uint8_t note, Rgb color, Layer layer);
 

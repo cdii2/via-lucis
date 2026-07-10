@@ -30,6 +30,40 @@ void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
     wrongColor_ = s.wrongColor;
 }
 
+void PlaybackEngine::setTable(const KeyLedTable& t) {
+    renderer_ = FrameRenderer(t, renderer_.ramp());
+    frameDirty_ = true;
+}
+
+PlaybackEngine::ProbeArm PlaybackEngine::armProbe(uint16_t led,
+                                                  uint64_t nowUs,
+                                                  uint32_t timeoutMs) {
+    if (state_ == PlayState::Playing) return ProbeArm::Playing;
+    if (led >= renderer_.frame().size()) return ProbeArm::BadLed;
+    if (timeoutMs < 1000) timeoutMs = 1000;
+    if (timeoutMs > 300000) timeoutMs = 300000;
+    probe_.arm(led, nowUs, static_cast<uint64_t>(timeoutMs) * 1000);
+    frameDirty_ = true;
+    return ProbeArm::Ok;
+}
+
+void PlaybackEngine::cancelProbe() {
+    if (probe_.armed()) frameDirty_ = true;
+    probe_.cancel();
+}
+
+std::string PlaybackEngine::probeJson() const {
+    std::string out = "{\"armed\":";
+    out += probe_.armed() ? "true" : "false";
+    out += ",\"led\":";
+    out += std::to_string(probe_.led());
+    out += ",\"note\":";
+    out += probe_.hasCapture() ? std::to_string(probe_.capturedNote())
+                               : std::string("null");
+    out += "}";
+    return out;
+}
+
 Rgb PlaybackEngine::colorForTrack(uint8_t track) const {
     Hand h = track < trackCfg_.tracks.size() ? trackCfg_.tracks[track].hand
                                              : Hand::Both;
@@ -89,6 +123,9 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
                                std::vector<MidiOutMsg>& out) {
     if (!sched_) return false;
     if (action == "play") {
+        // Play while a probe is armed: the user's intent wins — the wizard
+        // sees armed:false, note:null and offers a retry (A38).
+        cancelProbe();
         if (state_ == PlayState::Finished) {
             sched_->seek(0);  // flushed note-offs are moot: nothing sounding
             prevPosUs_ = 0;
@@ -173,6 +210,12 @@ bool PlaybackEngine::setTrack(size_t index, const std::string& hand,
 }
 
 void PlaybackEngine::onKeyDown(uint8_t note, uint64_t nowUs) {
+    // Probe capture eats the press BEFORE practice sees it (C3 ownership
+    // rule). One bool check when idle — nothing new on the latency path.
+    if (probe_.onNoteOn(note)) {
+        frameDirty_ = true;
+        return;
+    }
     if (!wait_ || state_ != PlayState::Playing) return;
     if (!barrierMode()) return;
     KeyFeedback fb = wait_->onKeyDown(note, nowUs);
@@ -185,6 +228,9 @@ void PlaybackEngine::onKeyDown(uint8_t note, uint64_t nowUs) {
 }
 
 void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
+    // Probe auto-timeout runs regardless of play state (it only arms when
+    // idle); the dirty mark clears the dot on the next frame.
+    if (probe_.tickExpire(nowUs)) frameDirty_ = true;
     if (!sched_ || state_ != PlayState::Playing) return;
 
     if (lastTickUs_ == 0) lastTickUs_ = nowUs;
@@ -232,6 +278,12 @@ bool PlaybackEngine::frameDue(uint64_t nowUs) {
 
 const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
     renderer_.clear();
+    // Forced source: an armed probe owns the whole strip — one white dot,
+    // nothing else (wrong flashes included).
+    if (probe_.armed()) {
+        renderer_.addDot(probe_.led(), Rgb{255, 255, 255});
+        return renderer_.frame();
+    }
     if (sched_ && state_ == PlayState::Playing) {
         uint64_t pos = sched_->positionUs();
         uint32_t lightsMask = trackCfg_.lightsMask();

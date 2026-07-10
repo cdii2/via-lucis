@@ -30,6 +30,12 @@ public:
     bool loadSettings(Settings& s);
     bool saveSettings(const Settings& s);
 
+    // Calibration document, stored as raw JSON at /calibration.json (C3).
+    // Absent file ⇒ false: the caller seeds from the settings' 2-point
+    // values (the v1 upgrade path).
+    bool loadCalibration(std::string& json);
+    bool saveCalibration(const std::string& json);
+
     // Keep names boring: alnum, dash, underscore, dot; must end ".mid".
     static bool validName(const std::string& name);
 

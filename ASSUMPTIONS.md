@@ -3,6 +3,28 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A38 (2026-07-10, C3): calibration wiring — the document (tier + reversed +
+  tier inputs + the finished table) lives in core `Calibration` with typed
+  CalibResult (BadJson/BadTier/MissingField/BadTable{TableError,badKey}) whose
+  message() strings are the 400 bodies; stored as raw JSON at
+  /calibration.json; ANY unreadable/invalid stored doc falls back to
+  fromSettings (v1-identical) at boot, not just an absent file. The probe
+  state machine lives in core CalibrationProbe HOSTED BY PlaybackEngine until
+  M2's ModeDirector takes the forced-source slot (chosen so every charter
+  rule — refusal while Playing, capture-before-wait-mode, timeout, cancel,
+  forced dot — is natively tested); onKeyDown gains ONE bool check when idle
+  (nothing new allocates/blocks on the latency path). Probe details: timeout
+  default 30s clamped 1–300s; transport("play") while armed cancels the probe
+  (user intent wins; wizard sees note:null and retries); armed probe outranks
+  an active test pattern, which resumes when the probe clears; dot = pure
+  white at Layer::Forced (new top layer). PUT /api/calibration on tier
+  twoPoint writes offsetMm/ledsPerMeter through to settings (they stay the
+  2-point tier's inputs); PUT /api/settings on tier twoPoint rebuilds the
+  table from the new scalars (preserving reversed) — other tiers ignore the
+  scalars entirely. perKey PUTs: unlisted keys are valid=false (dark); the
+  body's ledCount is ignored (the device knows its strip). Calibration route
+  body cap 12KB (88-key doc ≈ 3.5KB sails too close to the generic 4KB).
+  onJsonBody grew an optional per-route cap param. 144 → 163 native tests.
 - A37 (2026-07-10, C2): multi-point builder maps in mm-space — piecewise-linear
   (note→keyCenterMm, led) knots with the standard cluster model as the shape
   prior, end segments extrapolating; key slot edges (± the shared 1mm margin,

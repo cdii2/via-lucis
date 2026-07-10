@@ -14,6 +14,7 @@
 #include "ble_midi_io.h"
 #include "led_output.h"
 #include "song_store.h"
+#include "vialucis/calibration.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
 
@@ -44,6 +45,16 @@ public:
     std::string statusJson(const WifiStatus* wifi = nullptr);
     void applySettings();  // after PUT /api/settings: re-derive configs + save
 
+    // --- calibration (C3) -------------------------------------------------
+    // calib_ is HTTP-task-owned like settings_ (the engine holds a table
+    // copy from setTable), so the JSON getters stay unfenced; mutations
+    // fence the engine swap and keep flash IO outside the critical section.
+    std::string calibrationJson() const { return calib_.toJson(); }
+    CalibResult applyCalibration(const char* json);  // PUT: parse+apply+save
+    PlaybackEngine::ProbeArm armProbe(uint16_t led, uint32_t timeoutMs);
+    void cancelProbe();
+    std::string probeJson();
+
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and
@@ -60,6 +71,7 @@ private:
     bool transportLocked(const std::string& action, uint32_t positionMs);
 
     Settings settings_;
+    Calibration calib_;
     SongStore store_;
     LedOutput leds_;
     BleMidiIo ble_;
