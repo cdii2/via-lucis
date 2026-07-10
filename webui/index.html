@@ -1175,7 +1175,6 @@ function openCalWizard() {
     cal.ledB = Math.round(0.88 * data.ledCount);
     cal.putMade = false;
     cal.points = [null, null];
-    cal.landmarks = [];
     cal.quiet = false;
     cal.lastFocus = document.activeElement;
     var ov = $("calWizard");
@@ -1243,6 +1242,7 @@ function calRender() {
 
 /* ---- preflight ---- */
 function calPreflightTick() {
+  if (document.hidden) return;  // backgrounded tab: pause the checks
   api("GET", "/api/ble").then(function (b) {
     cal.bleOk = !!b.connected;
     if (cal.step === "preflight") calRenderPreflight();
@@ -1298,17 +1298,27 @@ function goToStep1(idx) {
 function calArm(led, timeoutMs) {
   cal.armedLed = led;
   cal.quiet = false;
+  // Generation counter: rapid move-dot taps can race two in-flight arms;
+  // only the newest arm may own the poller (closing review).
+  cal.armGen = (cal.armGen || 0) + 1;
+  var gen = cal.armGen;
   clearInterval(cal.pollTimer);
   calProbePost(led, timeoutMs).then(function () {
-    cal.pollTimer = setInterval(function () { calPollProbe(led); }, 500);
+    if (gen !== cal.armGen) return;  // superseded while in flight
+    clearInterval(cal.pollTimer);
+    cal.pollTimer = setInterval(function () { calPollProbe(led, gen); }, 500);
     if (cal.step === "step1" || cal.step === "step3") calRender();
   }).catch(function (e) {
+    if (gen !== cal.armGen) return;
     if (e.status === 409) { goToPreflight(); return; }
     toast(e.message || "Couldn't reach the device", true);
   });
 }
-function calPollProbe(led) {
+function calPollProbe(led, gen) {
+  if (document.hidden) return;  // backgrounded tab: stop hammering the ESP32
+  if (gen !== cal.armGen) return;  // stale poller
   api("GET", "/api/calibration/probe").then(function (p) {
+    if (gen !== cal.armGen) return;
     if (p.note != null) {
       clearInterval(cal.pollTimer);
       calOnCapture(led, p.note);
@@ -1395,8 +1405,7 @@ function calSaveCoarse() {
   api("PUT", "/api/calibration", { tier: "multiPoint", landmarks: landmarks })
     .then(function (data) {
       cal.putMade = true;
-      cal.landmarks = data.landmarks || landmarks;
-      cal.lastCalData = data;
+      cal.lastCalData = data;  // server truth owns landmarks (E3 dedupe)
       calStartVerify(data);
     })
     .catch(function (e) {
@@ -1414,20 +1423,41 @@ function calVerifyNoteFor(loNote, hiNote, toggle) {
   var target = toggle === 0 ? (lo + (hi - lo) * 0.25) : (lo + (hi - lo) * 0.75);
   return nearestWhiteNote(Math.round(target));
 }
+function calLandmarks() {
+  return (cal.lastCalData && cal.lastCalData.landmarks) || [];
+}
 function calStartVerify(data) {
-  cal.spanLo = cal.landmarks[0].note;
-  cal.spanHi = cal.landmarks[cal.landmarks.length - 1].note;
+  var lms = calLandmarks();
+  cal.spanLo = lms[0].note;
+  cal.spanHi = lms[lms.length - 1].note;
   cal.verifyToggle = 0;
   calRunVerify(data);
 }
 function calRunVerify(data) {
   var verifyNote = calVerifyNoteFor(cal.spanLo, cal.spanHi, cal.verifyToggle);
-  cal.verifyNote = verifyNote;
-  var entry = (data.keys || []).filter(function (k) { return k.note === verifyNote; })[0];
+  var keys = data.keys || [];
+  function entryFor(n) {
+    return keys.filter(function (k) { return k.note === n; })[0];
+  }
+  var entry = entryFor(verifyNote);
   if (!entry) {
+    // The preferred check key has no lights (rounding-shrunk or off-strip):
+    // walk outward for the nearest white key that DOES — never silently
+    // skip verification (closing review).
+    for (var d = 1; d <= 44 && !entry; d++) {
+      if (isWhiteNote(verifyNote + d) && entryFor(verifyNote + d)) {
+        verifyNote += d; entry = entryFor(verifyNote);
+      } else if (isWhiteNote(verifyNote - d) && entryFor(verifyNote - d)) {
+        verifyNote -= d; entry = entryFor(verifyNote);
+      }
+    }
+  }
+  if (!entry) {  // an empty table can't be checked at all
+    toast("Couldn't find a key to check", true);
     calGoToDone(data);
     return;
   }
+  cal.verifyNote = verifyNote;
   cal.verifyLed = Math.round((entry.first + entry.last) / 2);
   cal.step = "step3";
   cal.quiet = false;
@@ -1451,14 +1481,13 @@ function calRenderMismatch() {
   $("calMismatchContinue").addEventListener("click", calApplyMismatchFix);
 }
 function calApplyMismatchFix() {
-  var newLandmarks = cal.landmarks.concat([{ note: cal.mismatch.note, led: cal.mismatch.led }])
+  var newLandmarks = calLandmarks().concat([{ note: cal.mismatch.note, led: cal.mismatch.led }])
     .sort(function (a, b) { return a.note - b.note; });
   cal.step = "saving2";
   calRender();
   api("PUT", "/api/calibration", { tier: "multiPoint", landmarks: newLandmarks })
     .then(function (data) {
       cal.putMade = true;
-      cal.landmarks = data.landmarks || newLandmarks;
       cal.lastCalData = data;
       cal.verifyToggle = cal.verifyToggle === 0 ? 1 : 0;
       calRunVerify(data);
@@ -1478,7 +1507,7 @@ function calGoToDone(data) {
 }
 function calRenderDone() {
   var data = cal.lastCalData || {};
-  var n = (data.landmarks || cal.landmarks || []).length;
+  var n = (data.landmarks || []).length;
   var dir = data.reversed ? "reversed" : "normal";
   var html = '<div class="card"><div class="calprompt">Lights aligned</div>';
   html += '<div class="calquiet">' + n + " guide point" + (n === 1 ? "" : "s") + " · direction: " + dir + "</div></div>";
@@ -1548,7 +1577,10 @@ function calFtNudge(delta) {
   calRender();
 }
 function calFtSave() {
-  api("PUT", "/api/calibration", { tier: "perKey", keys: cal.ftKeys })
+  // Carry the reversed flag through — a per-key save must not silently
+  // clear a reversed-mount marker (closing review).
+  var rev = !!(cal.lastCalData && cal.lastCalData.reversed);
+  api("PUT", "/api/calibration", { tier: "perKey", reversed: rev, keys: cal.ftKeys })
     .then(function (data) {
       cal.putMade = true;
       cal.lastCalData = data;

@@ -87,7 +87,7 @@ MidiSong twoKeySong() {
 }
 
 void setupEngine(PlaybackEngine& e, MidiSong song, const char* mode) {
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     gOut.clear();
     e.loadSong(std::move(song), "q.mid", gOut);
     e.setMode(mode, "both", gOut);

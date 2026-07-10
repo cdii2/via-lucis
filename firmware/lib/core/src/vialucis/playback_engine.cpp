@@ -31,10 +31,9 @@ PlaybackEngine::PlaybackEngine() {
     queryBuf_.reserve(64);
 }
 
-void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
+void PlaybackEngine::configure(const Settings& s) {
     guard_.setWindowUs(static_cast<uint64_t>(s.echoWindowMs) * 1000);
-    renderer_ = FrameRenderer(TableBuilder::fromTwoPoint(s.ledMapConfig(ledCount)),
-                              s.rampConfig());
+    renderer_ = FrameRenderer(renderer_.table(), s.rampConfig());
     leftColor_ = s.leftColor;
     rightColor_ = s.rightColor;
     wrongColor_ = s.wrongColor;
@@ -78,14 +77,13 @@ void PlaybackEngine::cancelProbe() {
 }
 
 std::string PlaybackEngine::probeJson() const {
-    std::string out = "{\"armed\":";
-    out += probe_.armed() ? "true" : "false";
-    out += ",\"led\":";
-    out += std::to_string(probe_.led());
-    out += ",\"note\":";
-    out += probe_.hasCapture() ? std::to_string(probe_.capturedNote())
-                               : std::string("null");
-    out += "}";
+    JsonDocument doc;  // same serializer every other reply uses
+    doc["armed"] = probe_.armed();
+    doc["led"] = probe_.led();
+    if (probe_.hasCapture()) doc["note"] = probe_.capturedNote();
+    else doc["note"] = nullptr;
+    std::string out;
+    serializeJson(doc, out);
     return out;
 }
 

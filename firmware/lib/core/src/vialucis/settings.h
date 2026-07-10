@@ -12,6 +12,13 @@
 
 namespace vialucis {
 
+// Clamp bounds for the 2-point scalars — ONE definition shared by
+// PUT /api/settings (settings.cpp) and PUT /api/calibration
+// (calibration.cpp), so the two routes can never drift apart.
+constexpr float kOffsetMmLimit = 2000.0f;
+constexpr float kLedsPerMeterMin = 10.0f;
+constexpr float kLedsPerMeterMax = 1000.0f;
+
 struct Settings {
     // Colors (SPEC: defaults left=blue right=green wrong=red, customizable,
     // defaults must never collide with wrong).

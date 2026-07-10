@@ -115,10 +115,11 @@ CalibResult Calibration::fromJson(const char* json, uint16_t ledCount,
     if (t == "twoPoint") {
         if (!o["offsetMm"].is<float>() || !o["ledsPerMeter"].is<float>())
             return fail(CalibResult::Kind::MissingField);
-        c.offsetMm = clampf(o["offsetMm"].as<float>(), -2000.0f, 2000.0f);
+        c.offsetMm = clampf(o["offsetMm"].as<float>(), -kOffsetMmLimit,
+                            kOffsetMmLimit);
         float lpm = o["ledsPerMeter"].as<float>();
         if (lpm <= 0.0f) return fail(CalibResult::Kind::MissingField);
-        c.ledsPerMeter = clampf(lpm, 10.0f, 1000.0f);
+        c.ledsPerMeter = clampf(lpm, kLedsPerMeterMin, kLedsPerMeterMax);
         LedMapConfig cfg;
         cfg.offsetMm = c.offsetMm;
         cfg.ledsPerMeter = c.ledsPerMeter;

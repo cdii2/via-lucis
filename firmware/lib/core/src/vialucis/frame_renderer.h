@@ -53,6 +53,7 @@ public:
     const std::vector<Rgb>& frame() const { return frame_; }
     const RampConfig& ramp() const { return ramp_; }
     void setRamp(const RampConfig& r) { ramp_ = r; }
+    const KeyLedTable& table() const { return table_; }
 
 private:
     enum class Layer : uint8_t {

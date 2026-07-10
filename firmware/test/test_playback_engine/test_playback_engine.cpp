@@ -32,7 +32,7 @@ std::vector<MidiOutMsg> gOut;
 void setupEngine(PlaybackEngine& e, MidiSong song,
                  const char* mode = "follow",
                  const char* practice = "both") {
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     gOut.clear();
     e.loadSong(std::move(song), "test.mid", gOut);
     e.setMode(mode, practice, gOut);
@@ -323,7 +323,7 @@ void test_finished_state_after_song_end() {
 
 void test_rest_calls_without_song_return_false() {
     PlaybackEngine e;
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     gOut.clear();
     TEST_ASSERT_FALSE(e.transport("play", 0, gOut));
     TEST_ASSERT_FALSE(e.setTempo(120.0f));
@@ -452,7 +452,7 @@ void test_configure_between_tick_and_frame_uses_new_config() {
     // right-hand color. The very next frame must reflect it — no stale state.
     Settings s;
     s.rightColor = Rgb{123, 45, 67};
-    e.configure(s, 360);
+    e.configure(s);
     const std::vector<Rgb>& frame = e.renderFrame(100000);
     assertRgb(Rgb{123, 45, 67}, ledAt(frame, 60));
 }
@@ -544,7 +544,7 @@ static int litCount(const std::vector<Rgb>& frame) {
 
 void test_probe_dot_is_the_whole_frame() {
     PlaybackEngine e;
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::Ok,
                       e.armProbe(123, 1000, 30000));
     TEST_ASSERT_TRUE(e.probeArmed());
@@ -585,14 +585,14 @@ void test_probe_refused_while_playing() {
 
 void test_probe_bad_led_refused() {
     PlaybackEngine e;
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     TEST_ASSERT_EQUAL(PlaybackEngine::ProbeArm::BadLed,
                       e.armProbe(360, 1000, 30000));
 }
 
 void test_probe_times_out_and_clears_the_dot() {
     PlaybackEngine e;
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     e.armProbe(123, 1000, 30000);
     gOut.clear();
     e.tick(1000 + 31000000ULL, gOut);  // 31s later — window expired
@@ -604,7 +604,7 @@ void test_probe_times_out_and_clears_the_dot() {
 
 void test_probe_cancel_clears_arm_and_capture() {
     PlaybackEngine e;
-    e.configure(Settings{}, 360);
+    e.configure(Settings{});
     e.armProbe(123, 1000, 30000);
     e.onKeyDown(60, 2000);  // captured
     e.cancelProbe();
@@ -641,11 +641,13 @@ void test_set_table_overrides_configure_geometry() {
     // The formula's location for C4 stays dark — the table is the truth.
     LedRange v1 = ledsForNote(60, LedMapConfig{});
     assertRgb(kBlack, frame[v1.first]);
-    // configure() re-derives two-point geometry (the App restores explicit
-    // calibration afterwards — C3 ordering).
-    e.configure(Settings{}, 360);
+    // configure() NEVER touches geometry (C-wave closing review): after a
+    // settings change the explicit table survives — setTable is the one
+    // geometry writer.
+    e.configure(Settings{});
     const std::vector<Rgb>& frame2 = e.renderFrame(100000);
-    assertRgb(kRight, frame2[v1.first]);
+    assertRgb(kRight, frame2[5]);
+    assertRgb(kBlack, frame2[v1.first]);
 }
 
 int main(int, char**) {

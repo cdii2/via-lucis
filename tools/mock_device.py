@@ -68,13 +68,17 @@ REVERSED = False
 NO_KEY_BELOW = 2
 CAPTURE_DELAY_S = 1.2
 
+def default_two_point_keys():
+    return [{"note": 21 + k,
+             "first": int(FIRST_KEY_LED + k * LEDS_PER_KEY),
+             "last": int(FIRST_KEY_LED + k * LEDS_PER_KEY) + 2}
+            for k in range(88)]
+
+
 calibration = {
     "tier": "twoPoint", "reversed": False, "ledCount": LED_COUNT,
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
-    "keys": [{"note": 21 + k,
-              "first": int(FIRST_KEY_LED + k * LEDS_PER_KEY),
-              "last": int(FIRST_KEY_LED + k * LEDS_PER_KEY) + 2}
-             for k in range(88)],
+    "keys": default_two_point_keys(),
 }
 probe = {"armed": False, "led": 0, "note": None, "armed_at": 0.0,
          "timeout_s": 30.0}
@@ -289,11 +293,7 @@ class Handler(BaseHTTPRequestHandler):
                     offsetMm=b.get("offsetMm", 0.0),
                     ledsPerMeter=b.get("ledsPerMeter", 180.0))
                 calibration.pop("landmarks", None)
-                calibration["keys"] = [  # rebuild like the firmware does
-                    {"note": 21 + k,
-                     "first": int(FIRST_KEY_LED + k * LEDS_PER_KEY),
-                     "last": int(FIRST_KEY_LED + k * LEDS_PER_KEY) + 2}
-                    for k in range(88)]
+                calibration["keys"] = default_two_point_keys()
                 settings["offsetMm"] = calibration["offsetMm"]
                 settings["ledsPerMeter"] = calibration["ledsPerMeter"]
             self._json(200, calibration)

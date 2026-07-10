@@ -62,13 +62,15 @@ public:
     PlaybackEngine(const PlaybackEngine&) = delete;
     PlaybackEngine& operator=(const PlaybackEngine&) = delete;
 
-    // Re-derive renderer/guard/colors after settings changed (brightness and
-    // wifi stay device-side). Derives the two-point table from the settings
-    // scalars — a device with explicit calibration calls setTable AFTER this
-    // (the App owns that ordering; see C3).
-    void configure(const Settings& s, uint16_t ledCount);
+    // Re-derive ramp/colors/guard/repeat-cue after settings changed
+    // (brightness and wifi stay device-side). NEVER touches geometry —
+    // setTable is the ONE table writer (C-wave closing review: a configure
+    // that re-derived two-point geometry was itself the re-derivation site
+    // VL1 forbids, and every caller had to remember to setTable after it).
+    void configure(const Settings& s);
 
-    // Calibration override (C3): swap the geometry table, keep ramp/colors.
+    // THE geometry writer (C3): swap the per-key table, keep ramp/colors.
+    // The engine constructs with the default two-point table (v1 defaults).
     void setTable(const KeyLedTable& t);
 
     // Repeat-cue parameters (Q1; wired to Settings at Q3). Rebuilds the

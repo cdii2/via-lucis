@@ -43,7 +43,11 @@ public:
     // the loop task mutates. web_server holds App& non-const, so dropping
     // const is the clean option (vs a mutable handle).
     std::string statusJson(const WifiStatus* wifi = nullptr);
-    void applySettings();  // after PUT /api/settings: re-derive configs + save
+    // After PUT /api/settings: re-derive configs + save. When the caller saw
+    // the 2-point scalars change, geometry deliberately reverts to the
+    // 2-point tier (TROUBLESHOOTING documents this) — an untouched scalar
+    // never clobbers wizard calibration.
+    void applySettings(bool calibScalarsChanged = false);
 
     // --- calibration (C3) -------------------------------------------------
     // calib_ is HTTP-task-owned like settings_ (the engine holds a table

@@ -96,32 +96,40 @@ bool SongStore::loadSettings(Settings& s) {
     return Settings::fromJson(json.c_str(), s);
 }
 
-bool SongStore::loadCalibration(std::string& json) {
-    File f = LittleFS.open(kCalibrationPath, "r");
+namespace {
+
+// One read/write discipline for every stored text document (settings,
+// calibration, whatever comes next) — closing-review dedupe.
+bool readTextFile(const char* path, std::string& out) {
+    File f = LittleFS.open(path, "r");
     if (!f) return false;
     String s = f.readString();
     f.close();
-    json = s.c_str();
-    return !json.empty();
+    out = s.c_str();
+    return !out.empty();
+}
+
+bool writeTextFile(const char* path, const std::string& body) {
+    File f = LittleFS.open(path, "w");
+    if (!f) return false;
+    size_t written = f.write(reinterpret_cast<const uint8_t*>(body.data()),
+                             body.size());
+    f.close();
+    return written == body.size();
+}
+
+}  // namespace
+
+bool SongStore::loadCalibration(std::string& json) {
+    return readTextFile(kCalibrationPath, json);
 }
 
 bool SongStore::saveCalibration(const std::string& json) {
-    File f = LittleFS.open(kCalibrationPath, "w");
-    if (!f) return false;
-    size_t written = f.write(reinterpret_cast<const uint8_t*>(json.data()),
-                             json.size());
-    f.close();
-    return written == json.size();
+    return writeTextFile(kCalibrationPath, json);
 }
 
 bool SongStore::saveSettings(const Settings& s) {
-    File f = LittleFS.open(kSettingsPath, "w");
-    if (!f) return false;
-    std::string json = s.toJson();
-    size_t written = f.write(reinterpret_cast<const uint8_t*>(json.data()),
-                             json.size());
-    f.close();
-    return written == json.size();
+    return writeTextFile(kSettingsPath, s.toJson());
 }
 
 }  // namespace vialucis

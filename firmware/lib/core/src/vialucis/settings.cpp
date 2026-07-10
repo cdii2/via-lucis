@@ -76,10 +76,12 @@ bool Settings::fromJson(const char* json, Settings& out) {
     if (o["leadMs"].is<uint32_t>())
         out.leadMs = std::min<uint32_t>(o["leadMs"].as<uint32_t>(), 10000);
     if (o["offsetMm"].is<float>())
-        out.offsetMm = clampf(o["offsetMm"].as<float>(), -2000.0f, 2000.0f);
+        out.offsetMm = clampf(o["offsetMm"].as<float>(), -kOffsetMmLimit,
+                              kOffsetMmLimit);
     if (o["ledsPerMeter"].is<float>()) {
         float v = o["ledsPerMeter"].as<float>();
-        if (v > 0.0f) out.ledsPerMeter = clampf(v, 10.0f, 1000.0f);
+        if (v > 0.0f)
+            out.ledsPerMeter = clampf(v, kLedsPerMeterMin, kLedsPerMeterMax);
     }
     if (o["brightness"].is<uint8_t>())
         out.brightness = o["brightness"].as<uint8_t>();

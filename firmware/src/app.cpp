@@ -26,7 +26,7 @@ void App::begin() {
     tickOut_.reserve(64);  // reused every tick — steady-state zero alloc
     store_.begin();
     store_.loadSettings(settings_);  // keeps defaults if absent
-    engine_.configure(settings_, LedOutput::kLedCount);
+    engine_.configure(settings_);
     // Calibration (C3): a stored /calibration.json wins; anything else —
     // absent file, unreadable, garbage — falls back to the settings'
     // 2-point values, which is byte-identical to v1 (the CRITICAL upgrade
@@ -127,24 +127,27 @@ std::string App::statusJson(const WifiStatus* wifi) {
     return engine_.statusJson(wifi);
 }
 
-void App::applySettings() {
+void App::applySettings(bool calibScalarsChanged) {
     // The settings scalars ARE the 2-point tier's inputs: on that tier the
-    // calibration follows them (preserving the reversed flag). Other tiers
-    // own their geometry — settings changes must not clobber the table.
-    if (calib_.tier == "twoPoint")
+    // table follows them (preserving the reversed flag). On a wizard tier,
+    // an actual scalar EDIT reverts geometry to 2-point — the documented
+    // dials-win rule — while unrelated settings PUTs leave the table alone
+    // entirely (configure never touches geometry; closing review).
+    bool rebuild = calib_.tier == "twoPoint" || calibScalarsChanged;
+    if (rebuild)
         calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount,
                                            calib_.reversed);
     {
         FenceGuard g(lock_);
-        engine_.configure(settings_, LedOutput::kLedCount);
-        engine_.setTable(calib_.table);  // configure derived 2-point; restore
+        engine_.configure(settings_);
+        if (rebuild) engine_.setTable(calib_.table);
         leds_.setBrightness(settings_.brightness);
     }
     // Flash write UNFENCED (F-wave review R1): settings_ is HTTP-task-owned —
     // the loop task never reads it (the engine holds copies from configure) —
     // so a concurrent tick never stalls behind LittleFS IO.
     store_.saveSettings(settings_);
-    if (calib_.tier == "twoPoint") store_.saveCalibration(calib_.toJson());
+    if (rebuild) store_.saveCalibration(calib_.toJson());
 }
 
 CalibResult App::applyCalibration(const char* json) {
@@ -203,6 +206,8 @@ void App::tick(uint64_t nowUs) {
     // An armed probe outranks a test pattern: fall through to the engine,
     // whose renderFrame paints the forced dot (the engine is idle — a probe
     // never arms while Playing). The pattern resumes when the probe clears.
+    // TODO(M2): this pairwise precedence folds into the ModeDirector's
+    // forced-source list (PROGRESS M2) — do NOT grow a third && clause here.
     if (test_ != TestPattern::None && !engine_.probeArmed()) {
         uint32_t ms = static_cast<uint32_t>(nowUs / 1000);
         if (test_ == TestPattern::Strip) leds_.testPattern(ms);

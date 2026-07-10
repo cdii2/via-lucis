@@ -286,11 +286,19 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
                    std::string raw;
                    serializeJson(doc, raw);
+                   // An EDIT of the 2-point scalars reverts geometry to the
+                   // 2-point tier (the documented dials-win rule); any other
+                   // settings change leaves calibration untouched.
+                   float oldOff = app.settings().offsetMm;
+                   float oldLpm = app.settings().ledsPerMeter;
                    if (!Settings::fromJson(raw.c_str(), app.settings())) {
                        sendError(req, 400, "bad settings");
                        return;
                    }
-                   app.applySettings();
+                   bool scalarsChanged =
+                       app.settings().offsetMm != oldOff ||
+                       app.settings().ledsPerMeter != oldLpm;
+                   app.applySettings(scalarsChanged);
                    sendJson(req, 200, app.settings().toJson());
                });
 

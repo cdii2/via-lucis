@@ -291,7 +291,9 @@ Notes for special cases:
   wizard afterwards wins again.
 - Alignment saves to the device and survives reboots — and if its saved
   file is ever corrupted, the device falls back to the manual dials'
-  values rather than going dark.
+  values rather than going dark. That fallback assumes a normal
+  left-to-right strip; on a reversed mount, re-run the wizard (its two
+  key presses re-detect the direction).
 
 ## Lights lag behind key presses
 
