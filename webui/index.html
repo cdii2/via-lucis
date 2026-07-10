@@ -1103,6 +1103,7 @@ $("s_brightness").addEventListener("input", function () {
   queueSetting("brightness", +$("s_brightness").value);
 });
 /* ---------- ambient (AFK) playlist ---------- */
+/* SYNC NOTE: mirrors effectNames() in fx/effect_factory.cpp (+ mock + API.md). */
 var AFK_EFFECTS = ["rainbow","confetti","sinelon","juggle","bpm","fire2012","pacifica","twinklefox","colorwaves","pride2015"];
 var AFK_PALETTES = ["","rainbow","ocean","forest","lava","party","cloud","heat"];
 var afkCfg = null, afkTimer = null;

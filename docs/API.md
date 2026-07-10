@@ -115,8 +115,11 @@ own route). Tracks are effect configs played top→bottom→loop.
   party cloud heat` (`""` = the effect's default). An empty playlist falls
   back to a gentle rainbow.
 - `PUT /api/afk` — same shape → `200` + the stored config, or
-  `400 {"error": "unknown effect: X" | "unknown palette: X" | "bad json"}`.
-  `dwellSec` clamps to ≥5, `masterSpeed` to 0.25–4, `crossfadeMs` to ≤10s.
+  `400 {"error": "unknown effect: X" | "unknown palette: X" |
+  "too many tracks (max 16)" | "bad json"}`.
+  `dwellSec` clamps to 5–86400, `masterSpeed` to 0.25–4, `crossfadeMs` to
+  ≤10s; a config PUT that only tunes dials (same track list) never restarts
+  the running show.
   `brightnessCap` ships conservative (96) — ambient runs unattended and
   still passes the global power cap downstream.
 - `POST /api/afk/control` body `{"action": "next"}` or `"previous"` → `200`.

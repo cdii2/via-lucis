@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "../helpers/fx_asserts.h"
 #include "../helpers/smf_builder.h"
 #include "../helpers/test_songs.h"
 #include "vialucis/mode_director.h"
@@ -41,12 +42,7 @@ struct Rig {
     }
 };
 
-int litCount(const std::vector<Rgb>& f) {
-    int n = 0;
-    for (const Rgb& c : f)
-        if (c.r || c.g || c.b) ++n;
-    return n;
-}
+using fxtest::litCount;
 
 }  // namespace
 
@@ -201,6 +197,31 @@ void test_stale_presentation_never_survives_unload() {
     TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
+void test_afk_plays_the_configured_playlist_not_the_fallback() {
+    // E3 end-to-end: a configured track must be what AFK renders. Pacifica
+    // is blue/green dominated; the empty-playlist rainbow fallback carries
+    // strong reds — the color balance tells them apart.
+    Rig r;
+    fx::AfkConfig c;
+    c.tracks.push_back({"pacifica", ""});
+    r.director.setAfkConfig(c, 7);
+    r.tick(1 * kSec);
+    r.tick(200 * kSec);
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
+    uint32_t rSum = 0, gSum = 0, bSum = 0;
+    for (int i = 0; i < 30; ++i) {
+        const std::vector<Rgb>& f = r.director.renderFrame(200 * kSec);
+        for (const Rgb& px : f) {
+            rSum += px.r;
+            gSum += px.g;
+            bSum += px.b;
+        }
+    }
+    TEST_ASSERT_TRUE(gSum + bSum > 0);
+    TEST_ASSERT_TRUE_MESSAGE(bSum + gSum > rSum * 3,
+                             "configured pacifica, not the rainbow stub");
+}
+
 void test_reactive_free_play_glows_and_decays() {
     // E2: with no song, a key press paints its calibrated LEDs; release
     // decays back to dark. The director must feed the layer both edges.
@@ -318,6 +339,7 @@ int main(int, char**) {
     RUN_TEST(test_test_pattern_is_a_forced_source_over_any_mode);
     RUN_TEST(test_pattern_activation_auto_pauses_playback);
     RUN_TEST(test_stale_presentation_never_survives_unload);
+    RUN_TEST(test_afk_plays_the_configured_playlist_not_the_fallback);
     RUN_TEST(test_reactive_free_play_glows_and_decays);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);

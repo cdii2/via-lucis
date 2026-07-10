@@ -3,6 +3,31 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A50 (2026-07-10, E-wave closing review): 8 angles, 4 paired agents, 18
+  findings → 14 fixed, 4 accepted/deferred with reasons. The two that
+  mattered most: (1) PUT /api/afk built every track's effect UNDER the F1
+  fence (heap work while ble_.poll waits — the aesthetic layer stalling the
+  sacred path); now AfkPlayer::prepare() allocates unfenced and apply()
+  swaps pointers, AND a dial-only config change keeps the show's position
+  (same-track-list detection) instead of restarting it. (2) The E2 wiring
+  ran std::pow per keypress BEFORE practice saw the note; the velocity
+  curve is now a 128-entry LUT built in setParams, and practice hears the
+  key first (probe → engine → reactive). Also: tracks capped at 16 (heap
+  bound the static-RAM gate can't see); dwellSec clamped ≤86400 and
+  crossfadeMs tied to ≤dwell/2 (a fade longer than the dwell crossfaded
+  forever); crossfade off-by-one (>= not >, one wasted double-render frame
+  per fade); AFK time math went 64-bit integer with speed in 1/16ths (float
+  ms lost precision after ~4.7h unattended; the ~49-day uint32 wrap is
+  documented-harmless); ONE definition each for CRGB += / |= (fx_color
+  addRgb/maxRgb) and for pick-next-track; the bring-up rainbow test pattern
+  now uses the same hsv2rgbRainbow as every effect (an eyeball check must
+  match what effects show); shared fxtest::litCount/maxChan helper; a
+  director-level test proves a CONFIGURED playlist (not the fallback)
+  renders; effect-name list mirrored in 4 places got SYNC NOTES (a runtime
+  discovery endpoint was deliberately not added). Deferred with reasons:
+  factory move out of afk_player.h + shared cap/mask for Presentation
+  (P-wave decides the shared shape); NoteDriven velocity→palette mapping
+  seam (rawVel now retained, so the seam is open). 272 native tests.
 - A49 (2026-07-10, E1+E3): effect provenance — every port from the VENDORED
   FastLED 3.10.3 tree (identical to the repo tag; the pinned commit is the
   3.10.3 release), examples/ for the algorithms; the small math/color kernel

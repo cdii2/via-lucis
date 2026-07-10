@@ -43,9 +43,7 @@ inline uint8_t gHueAt(uint32_t ms) { return static_cast<uint8_t>(ms / 20); }
 inline void addHsv(Rgb& px, const Hsv& hsv) {
     Rgb add;
     hsv2rgbRainbow(hsv, add);
-    px.r = qadd8(px.r, add.r);
-    px.g = qadd8(px.g, add.g);
-    px.b = qadd8(px.b, add.b);
+    addRgb(px, add);  // the ONE CRGB+= definition (fx_color.h)
 }
 
 // leds[i] |= CHSV(h,s,v): convert via hsv2rgbRainbow, then take the
@@ -53,9 +51,7 @@ inline void addHsv(Rgb& px, const Hsv& hsv) {
 inline void orHsv(Rgb& px, const Hsv& hsv) {
     Rgb add;
     hsv2rgbRainbow(hsv, add);
-    if (add.r > px.r) px.r = add.r;
-    if (add.g > px.g) px.g = add.g;
-    if (add.b > px.b) px.b = add.b;
+    maxRgb(px, add);  // the ONE CRGB|= definition (fx_color.h)
 }
 
 }  // namespace demo_reel_detail

@@ -4,30 +4,9 @@
 
 #include <algorithm>
 
+#include "vialucis/fx/fx_color.h"
+
 namespace vialucis {
-namespace {
-
-// Plain HSV→RGB (spectrum) — a core reimplementation for the rainbow
-// producer; FastLED stays device-side (its hue table differs slightly,
-// which is fine for an ambient stub).
-Rgb hsvToRgb(uint8_t h, uint8_t s, uint8_t v) {
-    uint8_t region = h / 43;
-    uint8_t rem = (h - region * 43) * 6;
-    uint8_t p = static_cast<uint8_t>((v * (255 - s)) >> 8);
-    uint8_t q = static_cast<uint8_t>((v * (255 - ((s * rem) >> 8))) >> 8);
-    uint8_t t =
-        static_cast<uint8_t>((v * (255 - ((s * (255 - rem)) >> 8))) >> 8);
-    switch (region) {
-        case 0: return {v, t, p};
-        case 1: return {q, v, p};
-        case 2: return {p, v, t};
-        case 3: return {p, q, v};
-        case 4: return {t, p, v};
-        default: return {v, p, q};
-    }
-}
-
-}  // namespace
 
 void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
                              uint64_t nowUs) {
@@ -36,13 +15,15 @@ void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
         engine_.markFrameDirty();
         return;  // consumed — practice never sees it
     }
-    // The Reactive layer hears every press (it only PAINTS in Reactive
-    // mode, but keeping state warm means entering the mode mid-hold shows
-    // the truth). Cost: array writes, no allocation.
-    reactive_.noteOn(note, velocity);
+    // Practice hears the press FIRST (the match is the product); the
+    // Reactive layer's state stays warm after it. Its noteOn is a LUT
+    // lookup + array writes — no allocation, no transcendental math
+    // (velocity curve precomputed in setParams; iron-rule scrutiny, A50).
     if (engine_.songLoaded()) {
         engine_.onKeyDown(note, nowUs);
+        reactive_.noteOn(note, velocity);
     } else {
+        reactive_.noteOn(note, velocity);
         engine_.markFrameDirty();  // reactive glow appears within a frame
     }
 }
@@ -169,9 +150,13 @@ void ModeDirector::paintTestStrip(uint32_t nowMs) {
 }
 
 void ModeDirector::paintRainbow(uint32_t nowMs) {
+    // Same hue mapping every real effect uses (fx_color's rainbow) — the
+    // bring-up test pattern must match what effects will show on the same
+    // strip (E-wave closing review).
     uint8_t base = static_cast<uint8_t>(nowMs / 10);
     for (size_t i = 0; i < frame_.size(); ++i)
-        frame_[i] = hsvToRgb(static_cast<uint8_t>(base + i), 255, 255);
+        fx::hsv2rgbRainbow(
+            fx::Hsv{static_cast<uint8_t>(base + i), 255, 255}, frame_[i]);
 }
 
 const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {

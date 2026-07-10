@@ -151,10 +151,7 @@ private:
                 static_cast<int32_t>(sin16(ci)) + 32768);
             uint8_t sindex8 = static_cast<uint8_t>(scale16(sindex16, 240));
             Rgb c = colorFromPalette(p, sindex8, bri, /*blend=*/true);
-            Rgb& dst = leds[i];
-            dst.r = qadd8(dst.r, c.r);
-            dst.g = qadd8(dst.g, c.g);
-            dst.b = qadd8(dst.b, c.b);
+            addRgb(leds[i], c);  // the ONE CRGB+= definition (fx_color.h)
         }
     }
 
@@ -177,9 +174,8 @@ private:
             if (l > threshold) {
                 uint8_t overage = static_cast<uint8_t>(l - threshold);
                 uint8_t overage2 = qadd8(overage, overage);
-                dst.r = qadd8(dst.r, overage);
-                dst.g = qadd8(dst.g, overage2);
-                dst.b = qadd8(dst.b, qadd8(overage2, overage2));
+                addRgb(dst,
+                       Rgb{overage, overage2, qadd8(overage2, overage2)});
             }
         }
     }

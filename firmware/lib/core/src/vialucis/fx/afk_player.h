@@ -42,7 +42,24 @@ public:
     explicit AfkPlayer(uint16_t ledCount);
 
     void setTable(const KeyLedTable& t);
-    void setConfig(const AfkConfig& c, uint32_t seed);
+
+    // Config application is split so the HEAP WORK happens off the fence
+    // (E-wave closing review): prepare() builds every track's effect
+    // (allocates — call it unfenced); apply() only swaps pointers/PODs.
+    // When the track list is unchanged, apply() keeps the playing
+    // position — a brightness tweak must not restart the show.
+    struct Prepared {
+        AfkConfig cfg;
+        std::vector<std::unique_ptr<Effect>> effects;
+        uint32_t seed = 1;
+    };
+    static Prepared prepare(const AfkConfig& c, uint32_t seed,
+                            uint16_t ledCount);
+    void apply(Prepared&& p);
+    // Convenience for tests/boot: prepare+apply in one call (allocates).
+    void setConfig(const AfkConfig& c, uint32_t seed) {
+        apply(prepare(c, seed, ledCount_));
+    }
     const AfkConfig& config() const { return cfg_; }
     size_t currentTrack() const { return current_; }
 

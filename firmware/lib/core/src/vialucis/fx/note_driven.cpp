@@ -10,6 +10,8 @@ void NoteDriven::setParams(const Params& p) {
     params_ = p;
     if (params_.velGamma < 0.25f) params_.velGamma = 0.25f;
     if (params_.velGamma > 4.0f) params_.velGamma = 4.0f;
+    for (int v = 0; v < 128; ++v)  // pow lives HERE, never per key event
+        velLut_[v] = std::pow(v / 127.0f, params_.velGamma);
 }
 
 void NoteDriven::reset(uint32_t seed, uint16_t ledCount) {
@@ -18,14 +20,15 @@ void NoteDriven::reset(uint32_t seed, uint16_t ledCount) {
     keys_.fill(Key{});
     pedal_ = false;
     palette_ = rainbowColors();
+    setParams(params_);  // (re)build the velocity LUT
 }
 
 void NoteDriven::noteOn(uint8_t note, uint8_t velocity) {
     if (note < 21 || note > 108) return;
     Key& k = keys_[note - 21];
-    float v = velocity / 127.0f;
-    k.held = std::pow(v, params_.velGamma);
-    k.level = k.held;
+    k.rawVel = velocity;
+    k.held = velLut_[velocity & 0x7F];  // table lookup — no math on the
+    k.level = k.held;                   // key-event path
     k.down = true;
     k.latched = false;
 }

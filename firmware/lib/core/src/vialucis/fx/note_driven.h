@@ -50,11 +50,17 @@ private:
     struct Key {
         float level = 0.0f;    // current glow 0..1
         float held = 0.0f;     // level while down/latched
+        uint8_t rawVel = 0;    // retained for future velocity→palette maps
         bool down = false;     // physical key down
         bool latched = false;  // held by pedal after key-up
     };
 
     Params params_;
+    // Velocity curve as a 128-entry LUT rebuilt in setParams: noteOn runs
+    // on the BLE key-event path even during practice (the director keeps
+    // reactive state warm), so it must never pay a pow() there (iron rule
+    // — E-wave closing review).
+    std::array<float, 128> velLut_{};
     KeyLedTable table_;
     Palette16 palette_;
     std::array<Key, 88> keys_{};

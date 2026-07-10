@@ -31,6 +31,9 @@ bool knownEffect(const std::string& name) {
 }
 
 const std::vector<std::string>& effectNames() {
+    // SYNC NOTE: this list is mirrored in webui/index.html (AFK_EFFECTS),
+    // tools/mock_device.py (AFK_EFFECTS) and docs/API.md — update all four
+    // together (no runtime discovery endpoint yet, deliberately).
     static const std::vector<std::string> kNames = {
         "rainbow", "confetti", "sinelon",    "juggle",     "bpm",
         "fire2012", "pacifica", "twinklefox", "colorwaves", "pride2015",

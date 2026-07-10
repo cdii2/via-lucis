@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <vector>
 
+#include "../helpers/fx_asserts.h"
 #include "vialucis/fx/afk_player.h"
 #include "vialucis/key_led_map.h"
 
@@ -21,22 +22,8 @@ namespace {
 
 constexpr uint16_t kLeds = 120;
 
-int litCount(const std::vector<Rgb>& f) {
-    int n = 0;
-    for (const Rgb& c : f)
-        if (c.r || c.g || c.b) ++n;
-    return n;
-}
-
-uint8_t maxChan(const std::vector<Rgb>& f) {
-    uint8_t m = 0;
-    for (const Rgb& c : f) {
-        if (c.r > m) m = c.r;
-        if (c.g > m) m = c.g;
-        if (c.b > m) m = c.b;
-    }
-    return m;
-}
+using fxtest::litCount;
+using fxtest::maxChan;
 
 int maxFrameDelta(const std::vector<Rgb>& a, const std::vector<Rgb>& b) {
     int worst = 0;
@@ -116,7 +103,9 @@ void test_crossfade_has_no_snap_frame() {
         prev = cur;
     }
     int worstJump = 0;
-    int frames = (5 * 1000 + 4000) / 16;
+    // Past the FIRST fade's completion (~dwell frames total incl. the
+    // warmup above) but well before the SECOND fade wraps back to track 0.
+    int frames = 350;
     for (int i = 0; i < frames; ++i) {
         p.render(cur);
         worstJump = std::max(worstJump, maxFrameDelta(prev, cur));

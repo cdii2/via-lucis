@@ -392,7 +392,12 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       runs unattended. Named tests: crossfade continuity (no snap frame), empty
       playlist falls back to the stub, dwell=0 clamped, shuffle with a single track.
       BRINGUP item: AFK arm → wake walk on the real device.
-- [ ] closing /code-review over the wave diff.
+- [x] closing /code-review over the wave diff — 8 angles, 18 findings: 14 fixed
+      (prepare/apply fence split + dial-tweaks-keep-position, velocity LUT off
+      the key path + practice-first ordering, 16-track cap, dwell/crossfade
+      cross-clamp, fade off-by-one, 64-bit AFK clock, one CRGB+=/|= and one
+      pick-next definition, unified bring-up rainbow, real-playlist director
+      test), 4 deferred with reasons (A50).
 
 ### P-wave — presentation: the light-show DAW (brief §4; heaviest, last)
 
@@ -436,10 +441,15 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 - [ ] P2 — clock sources: Demo (device playback owns sound + light) and Free-run
       (tempo-scaled scheduler). `clockSource` is per-show data. Named test: tempo
       change mid-show keeps the Free-run clock continuous.
-- [ ] P3 — editor MVP in `editor/` (off-device, VL3): piano-roll over the loaded MIDI
+- [x] P3 — editor MVP in `editor/` (off-device, VL3): piano-roll over the loaded MIDI
       (@tonejs/midi + canvas), effect clips with the three dimensions (beat span /
       key scope incl. note-binding / autonomous-vs-note-driven drive), grouping +
       nesting, compile→flatten→upload via `/api/shows` (+CORS on device).
+      *(2026-07-10: editor.html, single-file/offline — a BUILT-IN SMF parser
+      replaced @tonejs/midi (no CDN allowed from file://); binary self-test
+      15/15 round-trip; formatVersion handshake; .vlp project format for
+      re-editable authoring. Cue sort = startMs; lane-precedence z-order
+      flagged as a later design call.)*
 - [ ] P4 — score-follow clock: **gated on its own grilled design session (VL6)** —
       advances on match via wait-mode's machinery, tolerant of wrong/extra/skipped.
       Do not start from the current brief alone.
@@ -552,6 +562,21 @@ catalog curation, BOM scaling guidance.
   comments, A35 status-visibility note). Gates re-run green: 126 native, esp32dev
   SUCCESS. Rejected by the lead (not done): core predicate for F3's guard,
   fencing /api/ble or store()/settings() call sites.
+- 2026-07-10 v2 build run (autonomous /goal, Fable lead + sonnet/opus agents):
+  **C, Q, M waves CLOSED with 8-angle closing reviews; E1–E3 BUILT; P-POC +
+  P0 done early/on-order.** Baseline 126 → 271+ native tests, flash 45.7% →
+  47.3%, RAM 19.6% → 21.2% (budgets 70/35). Highlights: KeyLedTable = the
+  geometry primitive with wizard (design-reviewed, Codex outside voice);
+  repeat cue with precomputed windows; ModeDirector owns top modes + forced
+  sources + single dispatch; configure() never touches geometry (closing-
+  review ruling); FastLED 3.10.3 kernel + 6 classic ports (per-effect
+  commits, provenance headers); NoteDriven reactive layer; AfkPlayer +
+  /api/afk. P-POC verdict: file://+CORS proven, https→http = mixed-content
+  block ⇒ editor ships as a release artifact (VL3 ruling still Christian's;
+  it moves distribution only). Process notes: Q2+Q3 landed as one commit
+  (entangled configure wiring, A44); PS-roundtrip of a .cpp mangled UTF-8
+  once (restored from git — the Temper lesson holds here too; use
+  [System.IO.File] with explicit UTF8 for byte-safe rewrites).
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

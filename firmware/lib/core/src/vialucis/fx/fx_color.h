@@ -202,6 +202,23 @@ inline void fadeToBlackBy(std::vector<Rgb>& leds, uint8_t fadeBy) {
     }
 }
 
+// Saturating per-channel add — FastLED's CRGB operator+= semantics. THE
+// one definition; effect ports must not hand-roll the loop (closing review).
+inline Rgb& addRgb(Rgb& a, const Rgb& b) {
+    a.r = qadd8(a.r, b.r);
+    a.g = qadd8(a.g, b.g);
+    a.b = qadd8(a.b, b.b);
+    return a;
+}
+
+// Per-channel max — FastLED's CRGB operator|= semantics (NOT bitwise or).
+inline Rgb& maxRgb(Rgb& a, const Rgb& b) {
+    if (b.r > a.r) a.r = b.r;
+    if (b.g > a.g) a.g = b.g;
+    if (b.b > a.b) a.b = b.b;
+    return a;
+}
+
 // nblend: ported from FastLED's nblend(CRGB&, const CRGB&, fract8) —
 // blends `amount`/255 of overlay into existing, per channel, via blend8().
 inline Rgb& nblend(Rgb& existing, const Rgb& overlay, uint8_t amount) {

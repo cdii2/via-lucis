@@ -48,10 +48,19 @@ public:
     }
 
     // --- AFK playlist (E3) --------------------------------------------
+    // Boot/tests: prepare+apply in one call (allocates — see applyAfk's
+    // fence discipline for the REST path).
     void setAfkConfig(const fx::AfkConfig& c, uint32_t seed) {
         afk_.setConfig(c, seed);
         engine_.markFrameDirty();
     }
+    // REST path: the caller runs fx::AfkPlayer::prepare() UNFENCED (heap
+    // work) and hands the result here under the fence (pointer swaps only).
+    void applyAfkPrepared(fx::AfkPlayer::Prepared&& p) {
+        afk_.apply(std::move(p));
+        engine_.markFrameDirty();
+    }
+    uint16_t ledCount() const { return ledCount_; }
     std::string afkConfigJson() const {
         return fx::afkConfigToJson(afk_.config());
     }

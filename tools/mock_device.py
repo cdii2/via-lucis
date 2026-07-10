@@ -60,6 +60,7 @@ afk = {
     "crossfadeMs": 2000, "brightnessCap": 96, "masterSpeed": 1.0,
     "aboveKeysOnly": False,
 }
+# SYNC NOTE: mirrors effectNames() in fx/effect_factory.cpp (+ webui + API.md).
 AFK_EFFECTS = {"rainbow", "confetti", "sinelon", "juggle", "bpm",
                "fire2012", "pacifica", "twinklefox", "colorwaves",
                "pride2015"}

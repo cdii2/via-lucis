@@ -114,15 +114,19 @@ std::string App::afkJson() {
 }
 
 bool App::applyAfk(const char* json, std::string* err) {
-    // Parse UNFENCED (locals); fence only the swap. Save after.
+    // Parse AND build the per-track effects UNFENCED (heap work — the
+    // F-wave discipline: a tick never waits behind allocations); the
+    // fenced part is pointer swaps only. Save after.
     fx::AfkConfig cfg;
     if (!fx::afkConfigFromJson(json, cfg, err)) return false;
     std::string doc = fx::afkConfigToJson(cfg);
+    fx::AfkPlayer::Prepared prepared = fx::AfkPlayer::prepare(
+        cfg, static_cast<uint32_t>(esp_timer_get_time()),
+        director_.ledCount());
     {
         FenceGuard g(lock_);
         touchWriteActivity();
-        director_.setAfkConfig(
-            cfg, static_cast<uint32_t>(esp_timer_get_time()));
+        director_.applyAfkPrepared(std::move(prepared));
     }
     store_.saveAfk(doc);
     return true;
