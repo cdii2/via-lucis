@@ -57,6 +57,10 @@ browser").
 - **Falling-notes web view** synced to the lights — flagship v1.1 feature.
 - Fading guidance (lights dim as you improve) — needs scoring history; v2.
 - Bar-aware looping, per-note statistics, multi-piano support.
+- **Aesthetic & show systems** (AFK ambient, reactive free-play, presentation light-show
+  DAW, repeat-cue legibility, general per-key calibration) — designed in
+  [DESIGN-lightshow.md](DESIGN-lightshow.md). Note: that brief reopens the "exactly two
+  calibration settings" LOCK above, per Christian's sign-off.
 
 ## Technical notes (working decisions, not locked)
 
