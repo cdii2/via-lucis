@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d0e11">
+<title>Via Lucis — Show Editor</title>
+<style>
+/* ============ Via Lucis design language (mirrors webui/index.html) ============
+   piano-lacquer black, key-ivory text, candle-gold "lux" accent.
+   blue = LEFT hand, green = RIGHT hand — reserved product meanings. */
+:root{
+  --bg:#0d0e11; --panel:#15171c; --panel2:#1d2026; --line:#2a2d35;
+  --text:#ece9e2; --dim:#8f8d86; --lux:#f0b44c; --lux-ink:#1c1305;
+  --left:#4f8ef7; --right:#37c871; --red:#e5484d; --radius:12px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px}
+body{
+  background:var(--bg); color:var(--text); min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+:focus-visible{outline:2px solid var(--lux);outline-offset:2px}
+h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;font-weight:600;color:var(--dim);margin-bottom:8px}
+
+header{
+  display:flex;align-items:center;gap:12px;padding:12px 18px;position:relative;
+  border-bottom:1px solid var(--line);
+}
+header::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;opacity:.6;
+  background:linear-gradient(90deg,var(--left),var(--lux),var(--right))}
+.logo{font-family:ui-serif,Georgia,serif;font-style:italic;font-weight:600;font-size:1.2rem}
+.logo span{color:var(--lux)}
+.logo small{font-style:normal;font-family:inherit;color:var(--dim);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;margin-left:6px}
+header .grow{flex:1}
+.ver{font-size:.68rem;color:var(--dim);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+
+.wrap{padding:12px 14px;max-width:1500px;margin:0 auto}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px;margin-bottom:12px}
+.toolbar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+.tgroup{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tgroup .lbl{font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-right:2px}
+
+.btn{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:.82rem;font-weight:600;min-height:38px}
+.btn:hover{border-color:var(--lux)}
+.btn:active{transform:scale(.97)}
+.btn.accent{background:var(--lux);border-color:var(--lux);color:var(--lux-ink)}
+.btn.danger{color:var(--red);border-color:rgba(229,72,77,.4)}
+.btn.small{min-height:30px;padding:5px 9px;font-size:.74rem}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+select,input[type=text],input[type=number],input[type=url]{
+  background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  padding:7px 9px;color:var(--text);font-size:.82rem;min-height:36px
+}
+input[type=number]{width:88px;text-align:right}
+input[type=url],input[type=text]{min-width:150px}
+input[type=color]{width:40px;height:34px;border:1px solid var(--line);border-radius:7px;background:var(--panel2);padding:2px;cursor:pointer;vertical-align:middle}
+label.inl{font-size:.78rem;color:var(--dim);display:inline-flex;align-items:center;gap:6px}
+
+.grid{display:grid;grid-template-columns:1fr 320px;gap:12px;align-items:start}
+@media(max-width:1000px){.grid{grid-template-columns:1fr}}
+
+#rollScroll{overflow-x:auto;overflow-y:hidden;border:1px solid var(--line);border-radius:var(--radius);background:#0a0b0e}
+#roll{display:block}
+
+/* side panel */
+.panel .row{display:flex;align-items:center;gap:8px;min-height:38px;font-size:.82rem}
+.panel .row+.row{border-top:1px solid var(--line)}
+.panel .row .k{flex:1;color:var(--dim)}
+.panel .row .v{flex:none;display:flex;align-items:center;gap:6px}
+.panel select,.panel input[type=number]{min-height:32px;padding:5px 8px}
+.panel input[type=number]{width:78px}
+.hint{font-size:.72rem;color:var(--dim);line-height:1.45;margin-top:6px}
+.seg{display:flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:3px}
+.seg button{flex:1;padding:6px 4px;border-radius:6px;color:var(--dim);font-size:.74rem;font-weight:600}
+.seg button.active{background:var(--lux);color:var(--lux-ink)}
+.tag{display:inline-block;font-size:.66rem;padding:2px 7px;border-radius:999px;background:var(--panel2);border:1px solid var(--line);color:var(--dim)}
+.tag.on{color:var(--lux);border-color:var(--lux)}
+
+.statusline{font-size:.78rem;color:var(--dim);margin-top:6px}
+.statusline b{color:var(--text)}
+.showrow{display:flex;justify-content:space-between;font-size:.76rem;padding:5px 0;border-top:1px solid var(--line)}
+.showrow .nm{color:var(--text)}
+
+.glist{margin-top:6px}
+.gitem{border:1px solid var(--line);border-radius:9px;padding:8px;margin-top:8px;background:var(--panel2)}
+.gitem .top{display:flex;align-items:center;gap:8px}
+.gitem .top .gn{flex:1;font-weight:600;font-size:.82rem}
+.gitem .sub{font-size:.72rem;color:var(--dim);margin-top:4px}
+.ins{display:inline-block;font-size:.68rem;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:2px 6px;margin:3px 4px 0 0}
+
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:80;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:11px 16px;
+  font-size:.84rem;max-width:520px;display:none;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+#toast.show{display:block}
+#toast.err{border-color:var(--red);color:#ffd7d8}
+#toast.ok{border-color:var(--right)}
+
+#selftest{background:#0a0b0e;border:1px dashed var(--lux);border-radius:10px;padding:10px;margin-bottom:12px;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;white-space:pre-wrap;display:none}
+input[type=range]{-webkit-appearance:none;appearance:none;width:120px;height:26px;background:transparent;vertical-align:middle}
+input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:var(--panel2);border:1px solid var(--line)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--lux);margin-top:-8px}
+input[type=range]::-moz-range-track{height:5px;border-radius:3px;background:var(--panel2);border:1px solid var(--line)}
+input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--lux);border:none}
+.mini{font-size:.7rem;color:var(--dim)}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Via <span>Lucis</span><small>Show Editor</small></div>
+  <div class="grow"></div>
+  <div class="ver" id="emitVer">emits .vls v1.0</div>
+</header>
+
+<div class="wrap">
+  <pre id="selftest"></pre>
+
+  <!-- ============ toolbar ============ -->
+  <div class="card">
+    <div class="toolbar">
+      <div class="tgroup">
+        <span class="lbl">File</span>
+        <button class="btn small" id="btnLoadMidi">Load .mid</button>
+        <button class="btn small" id="btnLoadVlp">Open project</button>
+        <button class="btn small" id="btnSaveVlp">Save project</button>
+        <input type="file" id="fileMidi" accept=".mid,.midi" hidden>
+        <input type="file" id="fileVlp" accept=".vlp,.json" hidden>
+      </div>
+      <div class="tgroup">
+        <span class="lbl">Show</span>
+        <input type="text" id="showName" value="my-show" size="12" title="show name">
+        <label class="inl">Clock
+          <select id="clockSource">
+            <option value="0">Demo</option>
+            <option value="1">Free-run</option>
+            <option value="2" disabled>Score-follow (needs firmware P4)</option>
+          </select>
+        </label>
+      </div>
+      <div class="tgroup">
+        <span class="lbl">Zoom</span>
+        <button class="btn small" id="tzOut">Time −</button>
+        <button class="btn small" id="tzIn">Time +</button>
+        <button class="btn small" id="pzOut">Pitch −</button>
+        <button class="btn small" id="pzIn">Pitch +</button>
+      </div>
+      <div class="tgroup">
+        <span class="lbl">Compose</span>
+        <button class="btn small" id="btnAddClip">+ Clip</button>
+        <button class="btn small" id="btnGroup">Group selected</button>
+      </div>
+      <div class="tgroup">
+        <span class="lbl">Export</span>
+        <button class="btn small accent" id="btnVls">Download .vls</button>
+        <button class="btn small" id="btnVlsJson">Download .vls.json</button>
+        <button class="btn small" id="btnUpload">Upload to device</button>
+      </div>
+    </div>
+    <div class="mini" id="songInfo" style="margin-top:8px">No MIDI loaded — autonomous clips still author against a default 120&nbsp;BPM grid. Note-binding needs a song.</div>
+  </div>
+
+  <!-- ============ device ============ -->
+  <div class="card">
+    <div class="toolbar">
+      <div class="tgroup">
+        <span class="lbl">Device</span>
+        <input type="url" id="baseUrl" value="http://192.168.4.1" size="24">
+        <button class="btn small" id="btnConnect">Connect</button>
+      </div>
+      <div class="statusline" id="devStatus">Not connected.</div>
+    </div>
+    <div id="showList"></div>
+  </div>
+
+  <!-- ============ editor ============ -->
+  <div class="grid">
+    <div class="card" style="padding:0;overflow:hidden">
+      <div id="rollScroll"><canvas id="roll" width="800" height="520"></canvas></div>
+      <div class="mini" style="padding:8px 12px">
+        Piano roll on top (notes = bars, vertical lines = beats, brighter = bar).
+        Drag in a <b>lane</b> below to create a clip; drag its body to move, its right edge to resize.
+        Click to select; Shift-click to multi-select for grouping.
+      </div>
+    </div>
+
+    <div>
+      <!-- inspector -->
+      <div class="card panel" id="inspector">
+        <h2 id="inspTitle">Clip inspector</h2>
+        <div id="inspBody"><div class="hint">Select a clip to edit it, or drag in a lane to create one.</div></div>
+      </div>
+      <!-- groups -->
+      <div class="card panel">
+        <h2>Groups</h2>
+        <div id="groupList"><div class="hint">Select clips and press <b>Group selected</b>. A group has its own opacity multiplier and can be instantiated at time offsets — compile flattens everything into the flat cue list.</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+/* =====================================================================
+   Via Lucis Show Editor — single self-contained file (file:// + CORS).
+   Compiles arbitrarily-deep authoring (clips/groups/instances) into the
+   FLAT .vls cue stream defined byte-for-byte in docs/SHOW-FORMAT.md §1.
+   No network/CDN deps: the SMF parser below is built in.
+   ===================================================================== */
+
+const EMIT_MAJOR = 1, EMIT_MINOR = 0;
+const EFFECTS = ["rainbow","confetti","sinelon","juggle","bpm","fire2012",
+                 "pacifica","twinklefox","colorwaves","pride2015","notedriven"];
+const STOCK_PALETTES = ["rainbow","ocean","forest","lava","party","cloud","heat"];
+const MIN_NOTE = 21, MAX_NOTE = 108;         // 88-key piano
+const LANE_COUNT = 8;
+const DEFAULT_DURATION = 60000;              // when no MIDI is loaded
+
+/* ------------------------- little-endian byte writer ------------------ */
+class BW {
+  constructor(){ this.b = []; }
+  u8(v){ this.b.push(v & 0xff); return this; }
+  u16(v){ this.u8(v); this.u8(v>>>8); return this; }              // LE
+  u32(v){ v>>>=0; this.u8(v); this.u8(v>>>8); this.u8(v>>>16); this.u8(v>>>24); return this; }
+  raw(arr){ for(const x of arr) this.b.push(x & 0xff); return this; }
+  str0(s){                                                        // zero-terminated utf-8
+    const enc = new TextEncoder().encode(s);
+    for(const c of enc) this.b.push(c);
+    this.b.push(0); return this;
+  }
+  bytes(){ return new Uint8Array(this.b); }
+  get length(){ return this.b.length; }
+}
+
+/* ===================================================================== *
+ * 1. BUILT-IN STANDARD MIDI FILE PARSER (format 0/1, tempo map, ms).
+ *    Mirrors firmware/lib/core/src/vialucis/midi_parser.cpp semantics.
+ * ===================================================================== */
+class MR {                                    // big-endian reader (MIDI is BE)
+  constructor(u8){ this.d = u8; this.p = 0; this.ok = true; }
+  rem(){ return this.ok ? this.d.length - this.p : 0; }
+  u8(){ if(this.p+1>this.d.length){ this.ok=false; return 0; } return this.d[this.p++]; }
+  u16(){ return (this.u8()<<8)|this.u8(); }
+  u32(){ let v=0; for(let i=0;i<4;i++) v=(v*256)+this.u8(); return v; }
+  vlq(){ let v=0; for(let i=0;i<4;i++){ const b=this.u8(); v=(v<<7)|(b&0x7f); if(!(b&0x80)) return v; } this.ok=false; return v; }
+  match4(t){ if(this.p+4>this.d.length){ this.ok=false; return false; }
+    let m=true; for(let i=0;i<4;i++) if(this.d[this.p+i]!==t.charCodeAt(i)) m=false;
+    this.p+=4; return m; }
+  skip(n){ if(this.p+n>this.d.length){ this.ok=false; return; } this.p+=n; }
+  str(n){ if(this.p+n>this.d.length){ this.ok=false; return ""; }
+    let s=""; for(let i=0;i<n;i++) s+=String.fromCharCode(this.d[this.p+i]); this.p+=n; return s; }
+}
+
+function parseMidi(u8){
+  const r = new MR(u8);
+  if(u8.length < 14 || !r.match4("MThd")) throw new Error("not a MIDI file");
+  const headerLen = r.u32();
+  if(headerLen < 6) throw new Error("bad MIDI header");
+  r.u16();                                    // format 0/1 handled identically
+  const ntrks = r.u16();
+  const division = r.u16();
+  r.skip(headerLen - 6);
+  if(division & 0x8000) throw new Error("SMPTE time division not supported");
+  const song = { ticksPerQuarter: division || 480, tracks: [], tempo: [], notes: [] };
+
+  for(let ti=0; ti<ntrks; ti++){
+    if(!r.match4("MTrk")) throw new Error("bad track");
+    const chunkLen = r.u32();
+    if(chunkLen > r.rem()) throw new Error("truncated track");
+    const end = r.p + chunkLen;
+    const trk = { name: "" }; song.tracks.push(trk);
+    const open = {};                          // key "ch:note" -> {onTick,vel}
+    let tick = 0, running = 0;
+    while(r.p < end && r.ok){
+      tick += r.vlq();
+      let b = r.u8(); if(!r.ok) break;
+      if(b === 0xFF){                          // meta
+        const type = r.u8(); const len = r.vlq();
+        if(type === 0x2F){ r.skip(len); break; }             // end of track
+        else if(type === 0x51 && len === 3){                 // set tempo
+          const us = (r.u8()<<16)|(r.u8()<<8)|r.u8();
+          song.tempo.push({ tick, usPerQuarter: us });
+        } else if(type === 0x03){                             // track name
+          if(!trk.name) trk.name = r.str(len); else r.skip(len);
+        } else r.skip(len);
+        running = 0; continue;
+      }
+      if(b === 0xF0 || b === 0xF7){ const len = r.vlq(); r.skip(len); running = 0; continue; }
+      let status, data1;
+      if(b & 0x80){ status = b; running = b; data1 = r.u8(); }
+      else { if(!(running & 0x80)) throw new Error("bad running status"); status = running; data1 = b; }
+      const kind = status & 0xF0, ch = status & 0x0F;
+      if(kind === 0x80){ r.u8(); noteOff(open, song, ch, data1&0x7f, tick, ti); }
+      else if(kind === 0x90){ const vel = r.u8();
+        if(vel === 0) noteOff(open, song, ch, data1&0x7f, tick, ti);
+        else { const key = ch+":"+ (data1&0x7f);
+          if(open[key]) noteOff(open, song, ch, data1&0x7f, tick, ti);
+          open[key] = { onTick: tick, vel }; } }
+      else if(kind === 0xB0){ r.u8(); }        // control change (CC64 ignored here)
+      else if(kind === 0xA0 || kind === 0xE0){ r.u8(); }
+      else if(kind === 0xC0 || kind === 0xD0){ /* 1 data byte already read */ }
+      else throw new Error("unknown MIDI status");
+      if(!r.ok) throw new Error("truncated");
+    }
+    // close dangling notes at track end
+    for(const key in open){ const [ch,note]=key.split(":").map(Number); noteOff(open, song, ch, note, tick, ti); }
+    r.skip(end - r.p);
+  }
+  song.notes.sort((a,b)=>a.onTick-b.onTick);
+  song.tempo.sort((a,b)=>a.tick-b.tick);
+  // resolve ms for every note & compute duration
+  for(const n of song.notes){ n.onMs = tickToMs(song, n.onTick); n.offMs = tickToMs(song, n.offTick); }
+  song.durationMs = song.notes.reduce((m,n)=>Math.max(m,n.offMs),0);
+  return song;
+}
+function noteOff(open, song, ch, note, tick, track){
+  const key = ch+":"+note; const o = open[key]; if(!o) return; delete open[key];
+  song.notes.push({ onTick:o.onTick, offTick:tick, note, velocity:o.vel, track });
+}
+// tick -> ms, walking the tempo map (mirrors tickToMicros, /1000)
+function tickToMs(song, tick){
+  let us = 0, curTick = 0, uspq = 500000;
+  const tpq = song.ticksPerQuarter || 480;
+  for(const tc of song.tempo){
+    if(tc.tick >= tick) break;
+    if(tc.tick > curTick){ us += (tc.tick - curTick) * uspq / tpq; curTick = tc.tick; }
+    uspq = tc.usPerQuarter;
+  }
+  us += (tick - curTick) * uspq / tpq;
+  return us / 1000;
+}
+
+/* ===================================================================== *
+ * 2. PROJECT STATE (the .vlp authoring model — never the baked stream)
+ * ===================================================================== */
+let song = null;                 // parsed MIDI or null
+let clips = [];                  // authoring clips
+let groups = [];                 // {id,name,opacity,collapsed,members:[clipId],instances:[offsetMs]}
+let selection = new Set();       // selected clip ids
+let clipSeq = 1, groupSeq = 1;
+
+let pxPerMs = 0.06, pxPerRow = 5;
+let deviceFormatVersion = null;  // number (major) or null
+
+function newClip(lane, startMs, endMs){
+  return { id: clipSeq++, name: "clip "+clipSeq, effect: "rainbow",
+    startMs: Math.round(startMs), endMs: Math.round(endMs), openEnded: false,
+    lane, scopeType: 0, lo: 60, hi: 72, notes: [60,64,67],
+    drive: 0, blend: 0, opacity: 1.0,
+    paletteKind: "default", stockIdx: 0, cA: "#4f8ef7", cB: "#f0b44c",
+    speed: 1.0, groupId: 0 };
+}
+function clipById(id){ return clips.find(c=>c.id===id); }
+function groupById(id){ return groups.find(g=>g.id===id); }
+function currentDuration(){
+  let d = song ? song.durationMs : DEFAULT_DURATION;
+  for(const c of clips) if(!c.openEnded) d = Math.max(d, c.endMs);
+  return Math.max(1000, Math.round(d));
+}
+
+/* ------------------------- beat grid ---------------------------------- */
+function beatGrid(){
+  const dur = currentDuration();
+  const beats = [];
+  if(!song){ for(let t=0;t<=dur;t+=500) beats.push(t); return beats; }
+  const tpq = song.ticksPerQuarter || 480;
+  for(let tick=0, guard=0; guard<200000; tick+=tpq, guard++){
+    const ms = tickToMs(song, tick);
+    beats.push(ms);
+    if(ms > dur + 1) break;
+  }
+  return beats;
+}
+function snap(ms){                          // nearest beat
+  const beats = beatGrid(); let best = ms, bd = Infinity;
+  for(const b of beats){ const d = Math.abs(b-ms); if(d<bd){ bd=d; best=b; } }
+  return Math.round(best);
+}
+
+/* ===================================================================== *
+ * 3. COMPILER — flatten clips+groups+instances into the .vls cue model.
+ * ===================================================================== */
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+
+// build one flat cue object from a clip, applying an opacity multiplier and time offset
+function bakeCue(c, opacityMult, offsetMs, effIndex, palettes){
+  const startMs = Math.max(0, c.startMs + offsetMs);
+  const endMs = c.openEnded ? 0xFFFFFFFF : Math.max(startMs, c.endMs + offsetMs);
+  const opacity = clamp(Math.round(c.opacity * opacityMult * 255), 0, 255);
+  const speed = clamp(Math.round(c.speed * 16), 1, 255);
+  // palette ref
+  let paletteRef;
+  if(c.paletteKind === "default") paletteRef = 0xFF;
+  else if(c.paletteKind === "stock") paletteRef = 0x80 | (c.stockIdx & 0x7f);
+  else { paletteRef = palettes.length; palettes.push(customPalette(c.cA, c.cB)); }
+  // scope payload
+  let scope;
+  if(c.scopeType === 1) scope = { type:1, lo:c.lo & 0x7f, hi:c.hi & 0x7f };
+  else if(c.scopeType === 2) scope = { type:2, notes:(c.notes||[]).map(n=>n&0x7f) };
+  else if(c.scopeType === 3){
+    // NOTE-BINDING — bake the song's actual notes inside the (offset) span
+    const from = c.startMs, to = c.openEnded ? currentDuration() : c.endMs;
+    const bound = [];
+    if(song) for(const n of song.notes)
+      if(n.onMs >= from && n.onMs < to) bound.push({ onsetMs: Math.round(n.onMs + offsetMs), note: n.note & 0x7f });
+    bound.sort((a,b)=>a.onsetMs-b.onsetMs);
+    scope = { type:3, bound };
+  } else scope = { type:0 };
+  return { startMs, endMs, effectIndex: effIndex, blend: c.blend & 1, opacity,
+           drive: c.drive & 1, scopeType: c.scopeType, paletteRef, speed, flags: 0, scope };
+}
+function customPalette(a, b){
+  const pa = hex2rgb(a), pb = hex2rgb(b), out = [];
+  for(let i=0;i<16;i++){ const t=i/15;
+    out.push([ Math.round(pa[0]+(pb[0]-pa[0])*t), Math.round(pa[1]+(pb[1]-pa[1])*t), Math.round(pa[2]+(pb[2]-pa[2])*t) ]); }
+  return out;
+}
+function hex2rgb(h){ h=h.replace("#",""); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+
+function compile(){
+  const effects = [];                          // distinct factory names in first-use order
+  const palettes = [];                         // custom 16x3 palettes
+  const cues = [];
+  const effIndexOf = (name)=>{ let i=effects.indexOf(name); if(i<0){ i=effects.length; effects.push(name); } return i; };
+
+  // top-level clips (no group)
+  for(const c of clips){
+    if(c.groupId) continue;
+    cues.push(bakeCue(c, 1.0, 0, effIndexOf(c.effect), palettes));
+  }
+  // grouped clips: base placement (offset 0) + each instance offset; group opacity multiplies in
+  for(const g of groups){
+    const mult = g.opacity;
+    const members = clips.filter(c=>c.groupId === g.id);
+    const placements = [0, ...(g.instances || [])];
+    for(const off of placements)
+      for(const c of members)
+        cues.push(bakeCue(c, mult, off, effIndexOf(c.effect), palettes));
+  }
+  // stream order = render order (later over earlier). stable by start then lane.
+  cues.sort((a,b)=> (a.startMs-b.startMs) );
+
+  return {
+    magic: "VLS1", versionMajor: EMIT_MAJOR, versionMinor: EMIT_MINOR,
+    clockSource: parseInt(el("clockSource").value,10) & 0xff,
+    durationMs: currentDuration(),
+    showName: showNameSan(),
+    effects, palettes, cues
+  };
+}
+
+/* ------------------------- .vls ENCODER (SHOW-FORMAT §1) --------------- */
+function encodeVls(m){
+  // META (type 1): u8 clockSource · u32 durationMs · zero-terminated name (<=48 bytes)
+  const meta = new BW();
+  meta.u8(m.clockSource).u32(m.durationMs);
+  let nm = m.showName; while(new TextEncoder().encode(nm).length > 47) nm = nm.slice(0,-1);
+  meta.str0(nm);
+  // EFFECTS (type 2): u8 count · count x zero-terminated name
+  const eff = new BW(); eff.u8(m.effects.length); for(const n of m.effects) eff.str0(n);
+  // PALETTES (type 3): u8 count · count x 16*3 RGB
+  const pal = new BW(); pal.u8(m.palettes.length);
+  for(const p of m.palettes){ for(let i=0;i<16;i++){ const c=p[i]||[0,0,0]; pal.u8(c[0]).u8(c[1]).u8(c[2]); } }
+  // CUES (type 4): u16 count · records
+  const cue = new BW(); cue.u16(m.cues.length);
+  for(const q of m.cues){
+    cue.u32(q.startMs).u32(q.endMs>>>0);
+    cue.u8(q.effectIndex).u8(q.blend).u8(q.opacity).u8(q.drive)
+       .u8(q.scopeType).u8(q.paletteRef).u8(q.speed).u8(q.flags);   // 16-byte record
+    const s = q.scope;
+    if(s.type === 1) cue.u8(s.lo).u8(s.hi);
+    else if(s.type === 2){ cue.u8(s.notes.length); for(const n of s.notes) cue.u8(n); }
+    else if(s.type === 3){ cue.u16(s.bound.length); for(const bn of s.bound) cue.u32(bn.onsetMs).u8(bn.note); }
+  }
+  // container
+  const sections = [ [1,meta], [2,eff], [3,pal], [4,cue] ];
+  const out = new BW();
+  out.raw([0x56,0x4C,0x53,0x31]);                 // "VLS1"
+  out.u8(m.versionMajor).u8(m.versionMinor);
+  out.u16(sections.length + 1);                   // +1 for END
+  for(const [type,body] of sections){ out.u16(type).u32(body.length).raw(body.b); }
+  out.u16(0xFFFF).u32(0);                         // END (empty, last)
+  return out.bytes();
+}
+
+/* ------------------------- .vls DECODER (self-test round-trip) --------- */
+function decodeVls(u8){
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength); let p = 0;
+  const magic = String.fromCharCode(u8[0],u8[1],u8[2],u8[3]); p = 4;
+  if(magic !== "VLS1") throw new Error("bad magic");
+  const versionMajor = u8[p++], versionMinor = u8[p++];
+  const sectionCount = dv.getUint16(p,true); p += 2;
+  const m = { magic, versionMajor, versionMinor, clockSource:0, durationMs:0, showName:"",
+              effects:[], palettes:[], cues:[] };
+  const readStr0 = ()=>{ let s=""; while(u8[p]!==0){ s+=String.fromCharCode(u8[p++]); } p++; return s; };
+  for(let si=0; si<sectionCount; si++){
+    const type = dv.getUint16(p,true); p+=2;
+    const len = dv.getUint32(p,true); p+=4;
+    const secEnd = p + len;
+    if(type === 0xFFFF){ p = secEnd; break; }
+    if(type === 1){ m.clockSource = u8[p++]; m.durationMs = dv.getUint32(p,true); p+=4; m.showName = readStr0(); }
+    else if(type === 2){ const n = u8[p++]; for(let i=0;i<n;i++) m.effects.push(readStr0()); }
+    else if(type === 3){ const n = u8[p++]; for(let i=0;i<n;i++){ const pal=[]; for(let k=0;k<16;k++){ pal.push([u8[p++],u8[p++],u8[p++]]); } m.palettes.push(pal); } }
+    else if(type === 4){ const n = dv.getUint16(p,true); p+=2;
+      for(let i=0;i<n;i++){
+        const q = { startMs:dv.getUint32(p,true), endMs:dv.getUint32(p+4,true),
+          effectIndex:u8[p+8], blend:u8[p+9], opacity:u8[p+10], drive:u8[p+11],
+          scopeType:u8[p+12], paletteRef:u8[p+13], speed:u8[p+14], flags:u8[p+15] };
+        p += 16;
+        if(q.scopeType === 1){ q.scope = { type:1, lo:u8[p++], hi:u8[p++] }; }
+        else if(q.scopeType === 2){ const c=u8[p++]; const notes=[]; for(let k=0;k<c;k++) notes.push(u8[p++]); q.scope={type:2,notes}; }
+        else if(q.scopeType === 3){ const c=dv.getUint16(p,true); p+=2; const bound=[];
+          for(let k=0;k<c;k++){ bound.push({ onsetMs:dv.getUint32(p,true), note:u8[p+4] }); p+=5; } q.scope={type:3,bound}; }
+        else q.scope = { type:0 };
+        m.cues.push(q);
+      }
+    }
+    p = secEnd;
+  }
+  return m;
+}
+
+/* ------------------------- JSON twin ---------------------------------- */
+function jsonTwin(m){
+  return {
+    magic: m.magic, versionMajor: m.versionMajor, versionMinor: m.versionMinor,
+    sections: [
+      { type:1, name:"META", clockSource:m.clockSource, clockSourceName:["demo","freeRun","scoreFollow"][m.clockSource]||"?",
+        durationMs:m.durationMs, showName:m.showName },
+      { type:2, name:"EFFECTS", effects:m.effects },
+      { type:3, name:"PALETTES", palettes:m.palettes },
+      { type:4, name:"CUES", count:m.cues.length, cues: m.cues.map(cueTwin) },
+      { type:65535, name:"END" }
+    ]
+  };
+}
+function cueTwin(q){
+  const s = q.scope || {type:q.scopeType};
+  const o = { startMs:q.startMs, endMs: q.endMs===0xFFFFFFFF ? "open-ended" : q.endMs,
+    effectIndex:q.effectIndex, blend:["opacity","additive"][q.blend],
+    opacity:q.opacity, drive:["autonomous","note-driven"][q.drive],
+    scopeType:q.scopeType, scopeName:["all","pitchRange","noteSet","noteBinding"][q.scopeType],
+    paletteRef: q.paletteRef===0xFF ? "default" : (q.paletteRef&0x80 ? "stock#"+(q.paletteRef&0x7f) : "custom#"+q.paletteRef),
+    speed: q.speed/16, flags:q.flags };
+  if(s.type===1) o.scope = { lo:s.lo, hi:s.hi };
+  else if(s.type===2) o.scope = { notes:s.notes };
+  else if(s.type===3) o.scope = { boundCount:s.bound.length, bound:s.bound };
+  return o;
+}
+
+/* ===================================================================== *
+ * 4. CANVAS RENDER
+ * ===================================================================== */
+const cvs = el("roll"), ctx = cvs.getContext("2d");
+const RULER_H = 22, ROLL_GAP = 8, LANE_H = 34;
+function layout(){
+  const rows = MAX_NOTE - MIN_NOTE + 1;
+  const rollH = rows * pxPerRow;
+  const lanesTop = RULER_H + rollH + ROLL_GAP;
+  const totalH = lanesTop + LANE_COUNT * LANE_H + 8;
+  const dur = currentDuration();
+  const w = Math.max(700, Math.round(dur * pxPerMs) + 40);
+  return { rows, rollH, lanesTop, totalH, w, dur };
+}
+const xOf = (ms)=> ms * pxPerMs;
+const msOf = (x)=> x / pxPerMs;
+const yOfNote = (n)=> RULER_H + (MAX_NOTE - n) * pxPerRow;
+function laneAt(y){ const L = layout(); if(y < L.lanesTop) return -1;
+  return clamp(Math.floor((y - L.lanesTop)/LANE_H), 0, LANE_COUNT-1); }
+function laneY(lane){ return layout().lanesTop + lane*LANE_H; }
+const EFFECT_HUE = {rainbow:20,confetti:300,sinelon:200,juggle:120,bpm:40,fire2012:15,
+  pacifica:190,twinklefox:270,colorwaves:230,pride2015:330,notedriven:55};
+
+function draw(){
+  const L = layout();
+  cvs.width = L.w; cvs.height = L.totalH;
+  ctx.clearRect(0,0,L.w,L.totalH);
+  ctx.fillStyle = "#0a0b0e"; ctx.fillRect(0,0,L.w,L.totalH);
+  const scrollL = el("rollScroll").scrollLeft;
+  const beats = beatGrid();
+
+  // roll background rows (octave bands + C lines)
+  for(let n=MIN_NOTE; n<=MAX_NOTE; n++){
+    const y = yOfNote(n);
+    if((n % 12) === 0){ ctx.fillStyle="rgba(255,255,255,0.04)"; ctx.fillRect(0,y,L.w,pxPerRow); }
+  }
+  // beat grid (bars brighter)
+  for(let i=0;i<beats.length;i++){
+    const x = xOf(beats[i]); if(x>L.w) break;
+    const bar = (i % 4)===0;
+    ctx.strokeStyle = bar ? "rgba(240,180,76,0.22)" : "rgba(255,255,255,0.07)";
+    ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x+0.5, RULER_H); ctx.lineTo(x+0.5, L.totalH); ctx.stroke();
+  }
+  // ruler
+  ctx.fillStyle="#12141a"; ctx.fillRect(0,0,L.w,RULER_H);
+  ctx.fillStyle="#8f8d86"; ctx.font="10px ui-monospace,Consolas,monospace";
+  for(let i=0;i<beats.length;i+=4){ const x=xOf(beats[i]); if(x>L.w) break;
+    ctx.fillText((beats[i]/1000).toFixed(1)+"s", x+3, 14); }
+
+  // notes
+  if(song){
+    for(const n of song.notes){
+      const x = xOf(n.onMs), w = Math.max(2, xOf(n.offMs)-xOf(n.onMs)), y = yOfNote(n.note);
+      const hue = n.track===1 ? "--left" : n.track===0 ? "--right" : "--lux";
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(hue).trim() || "#f0b44c";
+      ctx.globalAlpha = 0.85; ctx.fillRect(x, y+0.5, w, Math.max(2,pxPerRow-1)); ctx.globalAlpha = 1;
+    }
+  }
+  // sticky C labels (stay in view)
+  ctx.fillStyle="#6a6862"; ctx.font="9px ui-monospace,Consolas,monospace";
+  for(let n=MIN_NOTE;n<=MAX_NOTE;n++) if((n%12)===0)
+    ctx.fillText("C"+((n/12)-1), scrollL+2, yOfNote(n)+pxPerRow);
+
+  // lane separators + labels
+  for(let i=0;i<LANE_COUNT;i++){
+    const y = laneY(i);
+    ctx.strokeStyle="rgba(255,255,255,0.05)"; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(L.w,y); ctx.stroke();
+    ctx.fillStyle="#3a3d45"; ctx.font="9px sans-serif"; ctx.fillText("lane "+(i+1), scrollL+3, y+11);
+  }
+
+  // clips
+  for(const c of clips){
+    const x = xOf(c.startMs);
+    const end = c.openEnded ? L.w : xOf(c.endMs);
+    const w = Math.max(6, end - x);
+    const y = laneY(c.lane)+3, h = LANE_H-6;
+    const hue = EFFECT_HUE[c.effect] ?? 55;
+    const sel = selection.has(c.id);
+    ctx.fillStyle = `hsla(${hue},60%,45%,${0.35 + 0.5*c.opacity})`;
+    roundRect(x, y, w, h, 5); ctx.fill();
+    if(c.groupId){ ctx.strokeStyle="rgba(240,180,76,0.7)"; ctx.lineWidth=1; ctx.setLineDash([4,3]); roundRect(x,y,w,h,5); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.strokeStyle = sel ? "#f0b44c" : "rgba(0,0,0,0.5)"; ctx.lineWidth = sel?2:1;
+    roundRect(x, y, w, h, 5); ctx.stroke();
+    // resize handle
+    ctx.fillStyle="rgba(255,255,255,0.25)"; ctx.fillRect(x+w-4, y+3, 2, h-6);
+    // label
+    ctx.fillStyle="#0a0b0e"; ctx.font="bold 10px sans-serif";
+    const glyph = ["∀","↕","•","♪"][c.scopeType] + (c.drive?"→":"");
+    ctx.save(); ctx.beginPath(); ctx.rect(x,y,w,h); ctx.clip();
+    ctx.fillText(c.effect+" "+glyph, x+5, y+14); ctx.restore();
+    c._rect = { x, y, w, h };
+  }
+}
+function roundRect(x,y,w,h,r){ r=Math.min(r,w/2,h/2); ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+/* ------------------------- canvas interaction ------------------------- */
+let drag = null;   // {mode, clip, startX, origStart, origEnd}
+cvs.addEventListener("mousedown", (e)=>{
+  const rect = cvs.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const hit = clipAt(x,y);
+  if(hit){
+    if(e.shiftKey){ if(selection.has(hit.id)) selection.delete(hit.id); else selection.add(hit.id); }
+    else { selection = new Set([hit.id]); }
+    // resize if near right edge
+    const nearRight = x > hit._rect.x + hit._rect.w - 7;
+    drag = { mode: nearRight ? "resize" : "move", clip: hit, startX: x, origStart: hit.startMs, origEnd: hit.endMs };
+    renderAll(); return;
+  }
+  const lane = laneAt(y);
+  if(lane >= 0){                     // start creating a clip
+    drag = { mode: "create", lane, startX: x, x0: x };
+  } else { selection = new Set(); renderAll(); }
+});
+window.addEventListener("mousemove", (e)=>{
+  if(!drag) return;
+  const rect = cvs.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  if(drag.mode === "create"){ drag.x1 = x; draw();
+    const a = Math.min(drag.x0, x), b = Math.max(drag.x0, x);
+    ctx.fillStyle="rgba(240,180,76,0.3)"; ctx.fillRect(a, laneY(drag.lane)+3, b-a, LANE_H-6);
+  } else if(drag.mode === "move"){
+    const dms = msOf(x - drag.startX); const len = drag.origEnd - drag.origStart;
+    drag.clip.startMs = Math.max(0, Math.round(drag.origStart + dms));
+    if(!drag.clip.openEnded) drag.clip.endMs = drag.clip.startMs + len;
+    draw();
+  } else if(drag.mode === "resize"){
+    drag.clip.endMs = Math.max(drag.clip.startMs+50, Math.round(drag.origEnd + msOf(x-drag.startX)));
+    draw();
+  }
+});
+window.addEventListener("mouseup", (e)=>{
+  if(!drag) return;
+  if(drag.mode === "create"){
+    const rect = cvs.getBoundingClientRect(); const x = e.clientX - rect.left;
+    let a = snap(msOf(Math.min(drag.x0, x))), b = snap(msOf(Math.max(drag.x0, x)));
+    if(b - a < 100) b = a + 500;                 // minimum clip
+    const c = newClip(drag.lane, a, b); clips.push(c); selection = new Set([c.id]);
+  } else if(drag.mode === "move"){ drag.clip.startMs = snap(drag.clip.startMs);
+    if(!drag.clip.openEnded){ const len = drag.origEnd-drag.origStart; drag.clip.endMs = drag.clip.startMs+len; }
+  } else if(drag.mode === "resize"){ drag.clip.endMs = snap(drag.clip.endMs); }
+  drag = null; renderAll();
+});
+function clipAt(x,y){
+  for(let i=clips.length-1;i>=0;i--){ const r=clips[i]._rect; if(r && x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return clips[i]; }
+  return null;
+}
+el("rollScroll").addEventListener("scroll", draw);
+
+/* ===================================================================== *
+ * 5. INSPECTOR + GROUPS UI
+ * ===================================================================== */
+function renderAll(){ draw(); renderInspector(); renderGroups(); }
+
+function renderInspector(){
+  const body = el("inspBody");
+  if(selection.size === 0){ el("inspTitle").textContent="Clip inspector";
+    body.innerHTML = '<div class="hint">Select a clip to edit it, or drag in a lane to create one.</div>'; return; }
+  if(selection.size > 1){ el("inspTitle").textContent = selection.size+" clips selected";
+    body.innerHTML = '<div class="hint">Multiple clips selected. Press <b>Group selected</b> in the toolbar to bundle them (shared opacity multiplier, instantiable at offsets).</div>'; return; }
+  const c = clipById([...selection][0]); if(!c){ selection.clear(); return renderInspector(); }
+  el("inspTitle").textContent = "Clip inspector";
+  const boundN = c.scopeType===3 ? countBound(c) : 0;
+  body.innerHTML = `
+    <div class="row"><span class="k">Name</span><span class="v"><input type="text" id="i_name" value="${esc(c.name)}" style="width:150px"></span></div>
+    <div class="row"><span class="k">Effect</span><span class="v"><select id="i_effect">${EFFECTS.map(e=>`<option ${e===c.effect?"selected":""}>${e}</option>`).join("")}</select></span></div>
+    <div class="row"><span class="k">Start (ms)</span><span class="v"><input type="number" id="i_start" value="${c.startMs}"><button class="btn small" id="i_snapS">snap</button></span></div>
+    <div class="row"><span class="k">End (ms)</span><span class="v"><input type="number" id="i_end" value="${c.endMs}" ${c.openEnded?"disabled":""}><button class="btn small" id="i_snapE">snap</button></span></div>
+    <div class="row"><span class="k">Open-ended</span><span class="v"><input type="checkbox" id="i_open" ${c.openEnded?"checked":""}></span></div>
+    <div class="row"><span class="k">Key scope</span><span class="v"><select id="i_scope">
+      <option value="0" ${c.scopeType===0?"selected":""}>All keys</option>
+      <option value="1" ${c.scopeType===1?"selected":""}>Pitch range</option>
+      <option value="2" ${c.scopeType===2?"selected":""}>Note set</option>
+      <option value="3" ${c.scopeType===3?"selected":""}>Note-binding (song)</option>
+    </select></span></div>
+    ${c.scopeType===1?`<div class="row"><span class="k">Range lo–hi</span><span class="v"><input type="number" id="i_lo" value="${c.lo}" style="width:60px"><input type="number" id="i_hi" value="${c.hi}" style="width:60px"></span></div>`:""}
+    ${c.scopeType===2?`<div class="row"><span class="k">Notes (csv)</span><span class="v"><input type="text" id="i_notes" value="${(c.notes||[]).join(",")}" style="width:150px"></span></div>`:""}
+    ${c.scopeType===3?`<div class="row"><span class="k">Bound notes</span><span class="v"><span class="tag ${boundN?"on":""}">${boundN} in span</span></span></div>${!song?'<div class="hint">Load a .mid to bind notes.</div>':""}`:""}
+    <div class="row"><span class="k">Drive</span><span class="v"><select id="i_drive"><option value="0" ${c.drive===0?"selected":""}>Autonomous</option><option value="1" ${c.drive===1?"selected":""}>Note-driven</option></select></span></div>
+    <div class="row"><span class="k">Blend</span><span class="v"><select id="i_blend"><option value="0" ${c.blend===0?"selected":""}>Opacity</option><option value="1" ${c.blend===1?"selected":""}>Additive</option></select></span></div>
+    <div class="row"><span class="k">Opacity</span><span class="v"><input type="range" id="i_op" min="0" max="1" step="0.01" value="${c.opacity}"><span class="mini" id="i_opv">${c.opacity.toFixed(2)}</span></span></div>
+    <div class="row"><span class="k">Palette</span><span class="v"><select id="i_pk">
+      <option value="default" ${c.paletteKind==="default"?"selected":""}>Effect default</option>
+      <option value="stock" ${c.paletteKind==="stock"?"selected":""}>Stock</option>
+      <option value="custom" ${c.paletteKind==="custom"?"selected":""}>Custom gradient</option>
+    </select></span></div>
+    ${c.paletteKind==="stock"?`<div class="row"><span class="k">Stock</span><span class="v"><select id="i_stock">${STOCK_PALETTES.map((p,i)=>`<option value="${i}" ${i===c.stockIdx?"selected":""}>${p}</option>`).join("")}</select></span></div>`:""}
+    ${c.paletteKind==="custom"?`<div class="row"><span class="k">Gradient</span><span class="v"><input type="color" id="i_ca" value="${c.cA}"><input type="color" id="i_cb" value="${c.cB}"></span></div>`:""}
+    <div class="row"><span class="k">Speed</span><span class="v"><input type="range" id="i_speed" min="0.25" max="4" step="0.05" value="${c.speed}"><span class="mini" id="i_spv">${c.speed.toFixed(2)}×</span></span></div>
+    <div class="row"><span class="k">Group</span><span class="v"><span class="mini">${c.groupId?("in "+(groupById(c.groupId)?.name||"?")):"—"}</span></span></div>
+    <div class="row"><span class="k"></span><span class="v"><button class="btn small danger" id="i_del">Delete clip</button></span></div>
+  `;
+  // wire up
+  const set = (id, ev, fn)=>{ const e=el(id); if(e) e.addEventListener(ev, fn); };
+  set("i_name","input",e=>{ c.name=e.target.value; });
+  set("i_effect","change",e=>{ c.effect=e.target.value; renderAll(); });
+  set("i_start","change",e=>{ c.startMs=Math.max(0,parseInt(e.target.value)||0); draw(); });
+  set("i_end","change",e=>{ c.endMs=Math.max(c.startMs+50,parseInt(e.target.value)||0); draw(); });
+  set("i_snapS","click",()=>{ c.startMs=snap(c.startMs); renderAll(); });
+  set("i_snapE","click",()=>{ c.endMs=snap(c.endMs); renderAll(); });
+  set("i_open","change",e=>{ c.openEnded=e.target.checked; renderAll(); });
+  set("i_scope","change",e=>{ c.scopeType=parseInt(e.target.value); renderAll(); });
+  set("i_lo","change",e=>{ c.lo=clamp(parseInt(e.target.value)||0,0,127); draw(); });
+  set("i_hi","change",e=>{ c.hi=clamp(parseInt(e.target.value)||0,0,127); draw(); });
+  set("i_notes","change",e=>{ c.notes=e.target.value.split(",").map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)); });
+  set("i_drive","change",e=>{ c.drive=parseInt(e.target.value); renderAll(); });
+  set("i_blend","change",e=>{ c.blend=parseInt(e.target.value); });
+  set("i_op","input",e=>{ c.opacity=parseFloat(e.target.value); el("i_opv").textContent=c.opacity.toFixed(2); draw(); });
+  set("i_pk","change",e=>{ c.paletteKind=e.target.value; renderInspector(); });
+  set("i_stock","change",e=>{ c.stockIdx=parseInt(e.target.value); });
+  set("i_ca","change",e=>{ c.cA=e.target.value; });
+  set("i_cb","change",e=>{ c.cB=e.target.value; });
+  set("i_speed","input",e=>{ c.speed=parseFloat(e.target.value); el("i_spv").textContent=c.speed.toFixed(2)+"×"; });
+  set("i_del","click",()=>{ clips=clips.filter(x=>x.id!==c.id);
+    for(const g of groups) g.members=g.members.filter(id=>id!==c.id);
+    selection.delete(c.id); renderAll(); });
+}
+function countBound(c){ if(!song) return 0; const to=c.openEnded?currentDuration():c.endMs;
+  return song.notes.filter(n=>n.onMs>=c.startMs && n.onMs<to).length; }
+
+function renderGroups(){
+  const box = el("groupList");
+  if(groups.length === 0){ box.innerHTML='<div class="hint">Select clips and press <b>Group selected</b>. A group has its own opacity multiplier and can be instantiated at time offsets — compile flattens everything into the flat cue list.</div>'; return; }
+  box.innerHTML = groups.map(g=>{
+    const n = clips.filter(c=>c.groupId===g.id).length;
+    return `<div class="gitem" data-g="${g.id}">
+      <div class="top"><input type="text" class="gname" value="${esc(g.name)}" style="width:120px">
+        <button class="btn small danger gdel">ungroup</button></div>
+      <div class="sub">${n} clip(s) · opacity mult <input type="range" class="gop" min="0" max="1" step="0.01" value="${g.opacity}" style="width:90px"><span class="gopv">${g.opacity.toFixed(2)}</span></div>
+      <div class="sub">Instances (offset ms): <input type="number" class="goff" placeholder="ms" style="width:80px;min-height:28px"><button class="btn small gadd">+ instance</button>
+        <div>${(g.instances||[]).map((o,i)=>`<span class="ins">+${o}ms <button class="btn small girm" data-i="${i}" style="min-height:20px;padding:0 5px">×</button></span>`).join("")}</div></div>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".gitem").forEach(node=>{
+    const g = groupById(parseInt(node.dataset.g));
+    node.querySelector(".gname").addEventListener("input",e=>{ g.name=e.target.value; });
+    node.querySelector(".gdel").addEventListener("click",()=>{ for(const c of clips) if(c.groupId===g.id) c.groupId=0;
+      groups=groups.filter(x=>x.id!==g.id); renderAll(); });
+    const op=node.querySelector(".gop"); op.addEventListener("input",e=>{ g.opacity=parseFloat(e.target.value);
+      node.querySelector(".gopv").textContent=g.opacity.toFixed(2); });
+    node.querySelector(".gadd").addEventListener("click",()=>{ const v=parseInt(node.querySelector(".goff").value);
+      if(!isNaN(v)){ g.instances=g.instances||[]; g.instances.push(v); renderGroups(); } });
+    node.querySelectorAll(".girm").forEach(b=>b.addEventListener("click",()=>{ g.instances.splice(parseInt(b.dataset.i),1); renderGroups(); }));
+  });
+}
+
+/* ===================================================================== *
+ * 6. TOOLBAR ACTIONS
+ * ===================================================================== */
+function el(id){ return document.getElementById(id); }
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function showNameSan(){ return (el("showName").value || "show").replace(/[^A-Za-z0-9._-]/g,"-").slice(0,47); }
+function toast(msg, kind){ const t=el("toast"); t.textContent=msg; t.className="show"+(kind?" "+kind:"");
+  clearTimeout(toast._t); toast._t=setTimeout(()=>t.className="",4200); }
+
+el("btnLoadMidi").onclick = ()=> el("fileMidi").click();
+el("fileMidi").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader(); rd.onload=()=>{ try{
+    song = parseMidi(new Uint8Array(rd.result));
+    el("songInfo").textContent = `Loaded ${f.name}: ${song.notes.length} notes, ${song.tracks.length} track(s), ${(song.durationMs/1000).toFixed(1)}s, ${song.tempo.length} tempo change(s).`;
+    renderAll(); toast("MIDI loaded","ok");
+  }catch(err){ toast("MIDI error: "+err.message,"err"); } };
+  rd.readAsArrayBuffer(f); e.target.value=""; };
+
+el("btnAddClip").onclick = ()=>{ const c=newClip(0, 0, snap(2000)||2000); clips.push(c); selection=new Set([c.id]); renderAll(); };
+
+el("btnGroup").onclick = ()=>{
+  const ids=[...selection]; if(ids.length<2){ toast("Select 2+ clips to group","err"); return; }
+  const g={ id:groupSeq++, name:"group "+groupSeq, opacity:1.0, collapsed:false, members:ids.slice(), instances:[] };
+  groups.push(g); for(const id of ids){ const c=clipById(id); if(c) c.groupId=g.id; }
+  toast("Grouped "+ids.length+" clips","ok"); renderAll();
+};
+
+el("tzIn").onclick=()=>{ pxPerMs=Math.min(2, pxPerMs*1.5); draw(); };
+el("tzOut").onclick=()=>{ pxPerMs=Math.max(0.005, pxPerMs/1.5); draw(); };
+el("pzIn").onclick=()=>{ pxPerRow=Math.min(14, pxPerRow+1); renderAll(); };
+el("pzOut").onclick=()=>{ pxPerRow=Math.max(2, pxPerRow-1); renderAll(); };
+
+/* ---- project save/load (.vlp) ---- */
+el("btnSaveVlp").onclick = ()=>{
+  const proj = { vialucisProject:1, showName:el("showName").value, clockSource:parseInt(el("clockSource").value),
+    clips, groups, clipSeq, groupSeq, pxPerMs, pxPerRow,
+    song: song ? { ticksPerQuarter:song.ticksPerQuarter, tempo:song.tempo, notes:song.notes, tracks:song.tracks, durationMs:song.durationMs } : null };
+  download(showNameSan()+".vlp", JSON.stringify(proj,null,2), "application/json");
+  toast("Project saved","ok");
+};
+el("btnLoadVlp").onclick = ()=> el("fileVlp").click();
+el("fileVlp").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader(); rd.onload=()=>{ try{
+    const p=JSON.parse(rd.result); if(!p.vialucisProject) throw new Error("not a .vlp project");
+    el("showName").value=p.showName||"my-show"; el("clockSource").value=p.clockSource||0;
+    clips=p.clips||[]; groups=p.groups||[]; clipSeq=p.clipSeq||1; groupSeq=p.groupSeq||1;
+    pxPerMs=p.pxPerMs||0.06; pxPerRow=p.pxPerRow||5; song=p.song||null; selection=new Set();
+    if(song){ el("songInfo").textContent=`Project song: ${song.notes.length} notes.`; }
+    renderAll(); toast("Project loaded","ok");
+  }catch(err){ toast("Project error: "+err.message,"err"); } };
+  rd.readAsText(f); e.target.value=""; };
+
+/* ---- export ---- */
+el("btnVls").onclick = ()=>{ const m=compile(); const bin=encodeVls(m);
+  download(showNameSan()+".vls", bin, "application/octet-stream");
+  toast(`Compiled ${m.cues.length} cue(s), ${bin.length} bytes`,"ok"); };
+el("btnVlsJson").onclick = ()=>{ const m=compile();
+  download(showNameSan()+".vls.json", JSON.stringify(jsonTwin(m),null,2), "application/json");
+  toast("Exported JSON twin","ok"); };
+
+function download(name, data, mime){
+  const blob = new Blob([data], {type:mime}); const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; document.body.appendChild(a); a.click();
+  a.remove(); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+}
+
+/* ===================================================================== *
+ * 7. DEVICE CONNECTION + UPLOAD
+ * ===================================================================== */
+function base(){ return el("baseUrl").value.replace(/\/+$/,""); }
+el("btnConnect").onclick = async ()=>{
+  el("devStatus").textContent = "Connecting…";
+  try{
+    const r = await fetch(base()+"/api/status");
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const s = await r.json();
+    el("devStatus").innerHTML = `Connected: <b>${esc(s.version||"?")}</b> · song <b>${esc(s.song||"none")}</b> · state ${esc(s.state||"?")} · mode ${esc(s.topMode||s.mode||"?")}`;
+    await loadShows();
+    toast("Device connected","ok");
+  }catch(err){
+    el("devStatus").innerHTML = `<span style="color:var(--red)">Not connected: ${esc(err.message)}</span> (file:// + CORS; check base URL & that the device/mock is up)`;
+  }
+};
+async function loadShows(){
+  const box = el("showList");
+  try{
+    const r = await fetch(base()+"/api/shows");
+    if(r.status === 404){ deviceFormatVersion=null; box.innerHTML='<div class="mini" style="margin-top:8px">Device has no /api/shows yet (P1 not flashed) — you can still compile & download. Upload will be tried anyway.</div>'; return; }
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const data = await r.json();
+    let list, fv;
+    if(Array.isArray(data)){ list=data; fv=undefined; }
+    else { list=data.shows||[]; fv=data.formatVersion; }
+    deviceFormatVersion = (typeof fv === "number") ? fv : null;
+    box.innerHTML = `<div class="mini" style="margin-top:8px">Device shows${deviceFormatVersion!=null?` · format v${deviceFormatVersion}`:""}:</div>` +
+      (list.length ? list.map(s=>`<div class="showrow"><span class="nm">${esc(s.name)}</span><span>${s.size||0} B · ${((s.durationMs||0)/1000).toFixed(1)}s · clock ${s.clockSource??"?"}</span></div>`).join("")
+                   : '<div class="mini">(no shows on device)</div>');
+  }catch(err){ box.innerHTML=`<div class="mini" style="margin-top:8px">Could not list shows: ${esc(err.message)}</div>`; }
+}
+el("btnUpload").onclick = async ()=>{
+  // version handshake: we emit major 1; refuse only if device reports a LOWER major
+  if(deviceFormatVersion != null && deviceFormatVersion < EMIT_MAJOR){
+    toast(`Device supports format v${deviceFormatVersion}, editor emits v${EMIT_MAJOR}. Update firmware to upload.`,"err"); return;
+  }
+  const m = compile(); const bin = encodeVls(m);
+  if(bin.length > 64*1024){ toast(`Show is ${bin.length} B — over the 64 KB per-show cap; trim it.`,"err"); return; }
+  const name = showNameSan()+".vls";
+  el("devStatus").textContent = "Uploading "+name+"…";
+  try{
+    const r = await fetch(base()+"/api/shows?name="+encodeURIComponent(name), {
+      method:"POST", headers:{"Content-Type":"application/octet-stream"}, body:bin });
+    if(r.ok){ toast(`Uploaded ${name} (${bin.length} B)`,"ok"); await loadShows();
+      el("devStatus").textContent="Upload OK: "+name; return; }
+    let msg; try{ msg=(await r.json()).error; }catch(_){ msg=null; }
+    // typed replies: 409 busy · 413 too large · 507 storage full
+    const map={409:"device busy (playing) — stop playback and retry",413:"show too large (>64 KB)",507:"device storage full"};
+    toast(`Upload failed ${r.status}: ${msg||map[r.status]||"error"}`,"err");
+    el("devStatus").textContent="Upload failed: "+r.status;
+  }catch(err){ toast("Upload error: "+err.message+" (device may lack /api/shows yet)","err");
+    el("devStatus").textContent="Upload error"; }
+};
+
+/* ===================================================================== *
+ * 8. SELF-TEST (?selftest=1) — build a show, compile, round-trip, assert
+ * ===================================================================== */
+function runSelfTest(){
+  const box = el("selftest"); box.style.display="block"; let log="", pass=true;
+  const A=(cond,name)=>{ if(!cond) pass=false; log += (cond?"  PASS ":"  FAIL ")+name+"\n"; };
+
+  // give it a fake song so note-binding (scope 3) has notes to bake
+  song = { ticksPerQuarter:480, tempo:[{tick:0,usPerQuarter:500000}], tracks:[{name:"R"}], notes:[
+    {onTick:0,offTick:240,note:60,velocity:100,track:0,onMs:0,offMs:250},
+    {onTick:480,offTick:720,note:64,velocity:90,track:0,onMs:500,offMs:750},
+    {onTick:960,offTick:1200,note:67,velocity:80,track:0,onMs:1000,offMs:1250} ] };
+  song.durationMs = 1250;
+
+  clips = [
+    // clip A: autonomous rainbow, all keys, stock palette, opacity blend
+    Object.assign(newClip(0,0,2000), { effect:"rainbow", scopeType:0, drive:0, blend:0,
+      opacity:0.5, paletteKind:"stock", stockIdx:3, speed:2.0 }),
+    // clip B: note-driven confetti, pitch range, custom gradient, additive
+    Object.assign(newClip(1,500,4000), { effect:"confetti", scopeType:1, lo:60, hi:72, drive:1,
+      blend:1, opacity:1.0, paletteKind:"custom", cA:"#ff0000", cB:"#0000ff", speed:0.5 }),
+    // clip C: note-binding, exercises scope type 3 (u16 n, n x (u32,u8))
+    Object.assign(newClip(2,0,1500), { effect:"pacifica", scopeType:3, drive:1, openEnded:false }),
+    // clip D: note set (scope type 2)
+    Object.assign(newClip(3,0,1000), { effect:"juggle", scopeType:2, notes:[36,48,60] })
+  ];
+  groups = [];
+  el("showName").value = "selftest"; el("clockSource").value = "1";
+
+  const m = compile();
+  const bin = encodeVls(m);
+  A(bin[0]===0x56&&bin[1]===0x4C&&bin[2]===0x53&&bin[3]===0x31, "magic VLS1");
+  A(bin[4]===1&&bin[5]===0, "version 1.0");
+  const back = decodeVls(bin);
+
+  A(back.magic==="VLS1", "decoded magic");
+  A(back.clockSource===1, "clockSource freeRun round-trips");
+  A(back.showName==="selftest", "show name round-trips");
+  A(back.cues.length===4, "4 cues ("+back.cues.length+")");
+  A(JSON.stringify(back.effects)===JSON.stringify(m.effects), "effects table matches: "+m.effects.join(","));
+  A(back.palettes.length===m.palettes.length, "palette count "+m.palettes.length);
+
+  // deep field checks against the compiled model
+  let fields=true;
+  for(let i=0;i<m.cues.length;i++){
+    const a=m.cues[i], b=back.cues[i];
+    if(a.startMs!==b.startMs||a.endMs>>>0!==b.endMs>>>0||a.effectIndex!==b.effectIndex||
+       a.blend!==b.blend||a.opacity!==b.opacity||a.drive!==b.drive||a.scopeType!==b.scopeType||
+       a.paletteRef!==b.paletteRef||a.speed!==b.speed||a.flags!==b.flags) fields=false;
+  }
+  A(fields, "all 16-byte cue fields round-trip");
+
+  // scope payloads
+  const rangeCue = back.cues.find(c=>c.scopeType===1);
+  A(rangeCue && rangeCue.scope.lo===60 && rangeCue.scope.hi===72, "scope1 pitch range 60-72");
+  const bindCue = back.cues.find(c=>c.scopeType===3);
+  A(bindCue && bindCue.scope.bound.length===3, "scope3 note-binding baked 3 notes ("+(bindCue?bindCue.scope.bound.length:"-")+")");
+  A(bindCue && bindCue.scope.bound[0].onsetMs===0 && bindCue.scope.bound[0].note===60, "scope3 first (onsetMs,note)=(0,60)");
+  const setCue = back.cues.find(c=>c.scopeType===2);
+  A(setCue && JSON.stringify(setCue.scope.notes)===JSON.stringify([36,48,60]), "scope2 note set [36,48,60]");
+  // speed fixed-point
+  A(m.cues.find(c=>c.effectIndex===m.effects.indexOf("rainbow")).speed===32, "speed 2.0×16=32");
+
+  // group flatten check: group the two clips, add an instance, expect doubled cues + opacity mult
+  clips[0].groupId = 0; // reset
+  const g={ id:99, name:"g", opacity:0.5, members:[clips[0].id,clips[1].id], instances:[1000] };
+  clips[0].groupId=99; clips[1].groupId=99; groups=[g];
+  const m2 = compile();
+  // clip C & D top-level (2) + group members (2) x placements (base+1 instance=2) = 2 + 4 = 6
+  A(m2.cues.length===6, "group+instance flattens to 6 cues ("+m2.cues.length+")");
+
+  box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
+  console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);
+  // reset editor to empty after the test
+  song=null; clips=[]; groups=[]; selection=new Set(); el("showName").value="my-show"; el("clockSource").value="0";
+  renderAll();
+}
+
+/* ===================================================================== *
+ * 9. BOOT
+ * ===================================================================== */
+renderAll();
+if(new URLSearchParams(location.search).get("selftest")==="1") runSelfTest();
+</script>
+</body>
+</html>
