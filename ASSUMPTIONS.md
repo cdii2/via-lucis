@@ -3,6 +3,20 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A48 (2026-07-10, E2): NoteDriven = the expressive base (velocity gamma
+  0.25–4, releaseMs decay stepped per fixed frame, CC64 latch; pedal-up
+  releases every latched glow). Pitch maps linearly across the shared
+  palette (low A0 = index 0, C8 = 255); geometry = the per-key table (VL1),
+  copied in like FrameRenderer does. The director feeds the layer EVERY key
+  edge (state stays warm so entering Reactive mid-hold shows the truth) but
+  it paints only in Reactive; no-song key events mark the frame clock dirty
+  so the glow lands within a frame. Device: BleMidiIo grew onPedal (CC64
+  edge ≥64 = down) and App registers note-off + pedal → director (all fire
+  inside ble_.poll under the tick fence). Tunables stay core-side defaults
+  for now — no settings/REST growth was sanctioned for E2; exposure can ride
+  a later /api/reactive if wanted (open, noted). Endpoint tests pin against
+  PALETTE truth (rainbow entries aren't 255-max — a ≥250 assertion was the
+  bug, not the code). 8 NoteDriven tests + a director glow/decay test.
 - A47 (2026-07-10, M-wave closing review): 8 angles, 4 paired agents, 15
   findings → 11 fixed, 4 resolved-by-decision. Fixed: F3 auto-pause moved
   INTO ModeDirector::setTestPattern (every caller keeps the no-burst

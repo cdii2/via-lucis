@@ -87,7 +87,7 @@ void test_any_activity_wakes_afk_within_one_frame() {
     r.tick(200 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
     // A key press wakes it instantly (no song ⇒ Reactive).
-    r.director.onKeyDown(60, 200 * kSec + 1000);
+    r.director.onKeyDown(60, 100, 200 * kSec + 1000);
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec + 2000) ==
                      TopMode::Reactive);
     // Pedal/CC (any midi) would arrive via onMidiActivity — same effect.
@@ -201,6 +201,23 @@ void test_stale_presentation_never_survives_unload() {
     TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
+void test_reactive_free_play_glows_and_decays() {
+    // E2: with no song, a key press paints its calibrated LEDs; release
+    // decays back to dark. The director must feed the layer both edges.
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    TEST_ASSERT_EQUAL_INT(0, litCount(r.director.renderFrame(1 * kSec)));
+    r.director.onKeyDown(60, 127, 1 * kSec + 1000);
+    TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec + 2000)) > 0);
+    r.director.onKeyUp(60, 1 * kSec + 3000);
+    // Default release 400ms = 25 fixed frames; render plenty.
+    int lit = 1;
+    for (int i = 0; i < 60 && lit > 0; ++i)
+        lit = litCount(r.director.renderFrame(2 * kSec + i * 17000));
+    TEST_ASSERT_EQUAL_INT(0, lit);
+}
+
 // --- the probe as a director-owned forced source (moved from C3) -----------
 
 void test_probe_dot_outranks_test_pattern_and_modes() {
@@ -225,7 +242,7 @@ void test_probe_capture_consumes_before_practice() {
     r.engine.setMode("wait", "both", gOut);
     TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
                       r.director.armProbe(50, 1 * kSec, 30000));
-    r.director.onKeyDown(60, 2 * kSec);  // the due key — probe eats it
+    r.director.onKeyDown(60, 100, 2 * kSec);  // the due key — probe eats it
     TEST_ASSERT_FALSE(r.director.probeArmed());
     std::string p = r.director.probeJson();
     TEST_ASSERT_TRUE(p.find("\"note\":60") != std::string::npos);
@@ -270,7 +287,7 @@ void test_probe_bad_led_timeout_and_cancel() {
     TEST_ASSERT_TRUE(r.director.probeJson().find("\"note\":null") !=
                      std::string::npos);
     r.director.armProbe(123, 40 * kSec, 30000);
-    r.director.onKeyDown(60, 41 * kSec);
+    r.director.onKeyDown(60, 100, 41 * kSec);
     r.director.cancelProbe();
     TEST_ASSERT_TRUE(r.director.probeJson().find("\"note\":null") !=
                      std::string::npos);
@@ -283,7 +300,7 @@ void test_probe_arm_counts_as_activity_but_capture_wakes_too() {
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
     // A key press (even one the probe consumes) is activity.
     r.director.armProbe(123, 200 * kSec, 30000);
-    r.director.onKeyDown(60, 200 * kSec + 1000);
+    r.director.onKeyDown(60, 100, 200 * kSec + 1000);
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec + 2000) ==
                      TopMode::Reactive);
 }
@@ -301,6 +318,7 @@ int main(int, char**) {
     RUN_TEST(test_test_pattern_is_a_forced_source_over_any_mode);
     RUN_TEST(test_pattern_activation_auto_pauses_playback);
     RUN_TEST(test_stale_presentation_never_survives_unload);
+    RUN_TEST(test_reactive_free_play_glows_and_decays);
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);
     RUN_TEST(test_probe_refused_while_playing_and_cancelled_by_play);

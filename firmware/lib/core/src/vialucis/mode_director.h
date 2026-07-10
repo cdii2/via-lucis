@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "vialucis/calibration_probe.h"
+#include "vialucis/fx/note_driven.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/settings.h"
 
@@ -31,17 +32,31 @@ enum class TopMode : uint8_t { Reactive, Afk, Practice, Presentation };
 class ModeDirector {
 public:
     ModeDirector(PlaybackEngine& engine, uint16_t ledCount)
-        : engine_(engine), ledCount_(ledCount), frame_(ledCount) {}
+        : engine_(engine), ledCount_(ledCount), frame_(ledCount) {
+        reactive_.reset(1, ledCount);
+    }
     ModeDirector(const ModeDirector&) = delete;
     ModeDirector& operator=(const ModeDirector&) = delete;
+
+    // Geometry for the note-driven layers (VL1: everything reads the one
+    // per-key table). App calls this alongside engine setTable.
+    void setTable(const KeyLedTable& t) { reactive_.setTable(t); }
 
     // --- activity (the idle clock's only writers) -----------------------
     void onMidiActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }
     void onWriteActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }
 
-    // The BLE note-on path: probe capture eats the press BEFORE practice
-    // sees it (C3 ownership rule, now director-owned per 3A).
-    void onKeyDown(uint8_t note, uint64_t nowUs);
+    // The BLE note paths: probe capture eats a press BEFORE practice sees
+    // it (C3/3A); every event also feeds the Reactive layer (E2) and the
+    // idle clock. Velocity rides through for the expressive mapping.
+    void onKeyDown(uint8_t note, uint8_t velocity, uint64_t nowUs);
+    void onKeyUp(uint8_t note, uint64_t nowUs);
+    void onPedal(bool down, uint64_t nowUs);
+
+    // Reactive tuning (E2) — velocity curve / release decay / pedal latch.
+    void setReactiveParams(const fx::NoteDriven::Params& p) {
+        reactive_.setParams(p);
+    }
 
     // --- explicit mode entry --------------------------------------------
     // Presentation is entered deliberately; requires a loaded song.
@@ -81,6 +96,8 @@ private:
     CalibrationProbe probe_;
     uint16_t ledCount_;
     std::vector<Rgb> frame_;  // director-produced sources paint here
+    fx::NoteDriven reactive_;  // E2: the live note-driven layer
+    uint32_t fxFrame_ = 0;     // fixed-timestep counter for fx renders
 
     enum class Test : uint8_t { None, Strip, Rainbow };
     Test test_ = Test::None;

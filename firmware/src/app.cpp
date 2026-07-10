@@ -37,14 +37,22 @@ void App::begin() {
                                calib_).ok())
         calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount);
     engine_.setTable(calib_.table);
+    director_.setTable(calib_.table);  // note-driven layers read it too
     director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
     leds_.begin(settings_.brightness);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
         onPianoNoteOn(note, vel, static_cast<uint64_t>(esp_timer_get_time()));
     });
-    // ANY midi message wakes/holds off AFK (M2). Fires inside ble_.poll(),
-    // which tick() calls under the fence — the u64 store is lock-protected.
+    // Note-offs and the sustain pedal feed the Reactive layer (E2); all of
+    // these fire inside ble_.poll(), which tick() calls under the fence.
+    ble_.onNoteOff([this](uint8_t note, uint8_t) {
+        director_.onKeyUp(note, static_cast<uint64_t>(esp_timer_get_time()));
+    });
+    ble_.onPedal([this](bool down) {
+        director_.onPedal(down, static_cast<uint64_t>(esp_timer_get_time()));
+    });
+    // ANY midi message wakes/holds off AFK (M2).
     ble_.onActivity([this]() {
         director_.onMidiActivity(static_cast<uint64_t>(esp_timer_get_time()));
     });
@@ -168,7 +176,10 @@ void App::applySettings(bool calibScalarsChanged) {
         FenceGuard g(lock_);
         touchWriteActivity();
         engine_.configure(settings_);
-        if (rebuild) engine_.setTable(calib_.table);
+        if (rebuild) {
+            engine_.setTable(calib_.table);
+            director_.setTable(calib_.table);
+        }
         director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
         leds_.setBrightness(settings_.brightness);
     }
@@ -189,6 +200,7 @@ CalibResult App::applyCalibration(const char* json) {
         FenceGuard g(lock_);
         touchWriteActivity();
         engine_.setTable(next.table);
+        director_.setTable(next.table);
     }
     calib_ = std::move(next);
     if (calib_.tier == "twoPoint") {
@@ -225,8 +237,7 @@ void App::onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs) {
     // take the lock (the mutex is non-recursive). Per key event the director
     // adds exactly one u64 store (activity) + one probe bool check — anything
     // heavier on this path needs latency scrutiny (iron rule).
-    (void)velocity;
-    director_.onKeyDown(note, nowUs);  // probe-first, then practice (M2)
+    director_.onKeyDown(note, velocity, nowUs);  // probe → reactive → practice
 }
 
 void App::tick(uint64_t nowUs) {

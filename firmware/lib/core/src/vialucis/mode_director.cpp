@@ -29,13 +29,33 @@ Rgb hsvToRgb(uint8_t h, uint8_t s, uint8_t v) {
 
 }  // namespace
 
-void ModeDirector::onKeyDown(uint8_t note, uint64_t nowUs) {
+void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
+                             uint64_t nowUs) {
     lastActivityUs_ = nowUs;  // any key press is activity (wakes AFK)
     if (probe_.onNoteOn(note)) {
         engine_.markFrameDirty();
         return;  // consumed — practice never sees it
     }
-    engine_.onKeyDown(note, nowUs);
+    // The Reactive layer hears every press (it only PAINTS in Reactive
+    // mode, but keeping state warm means entering the mode mid-hold shows
+    // the truth). Cost: array writes, no allocation.
+    reactive_.noteOn(note, velocity);
+    if (engine_.songLoaded()) {
+        engine_.onKeyDown(note, nowUs);
+    } else {
+        engine_.markFrameDirty();  // reactive glow appears within a frame
+    }
+}
+
+void ModeDirector::onKeyUp(uint8_t note, uint64_t nowUs) {
+    lastActivityUs_ = nowUs;
+    reactive_.noteOff(note);
+    if (!engine_.songLoaded()) engine_.markFrameDirty();
+}
+
+void ModeDirector::onPedal(bool down, uint64_t nowUs) {
+    lastActivityUs_ = nowUs;
+    reactive_.setPedal(down);
 }
 
 bool ModeDirector::setPresentation(bool on) {
@@ -176,10 +196,15 @@ const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {
         case TopMode::Practice:
             return engine_.renderFrame(nowUs);
         case TopMode::Afk:
-            paintRainbow(nowMs);  // VL5 stub — the E-wave replaces content
+            paintRainbow(nowMs);  // VL5 stub — E3's playlist replaces it
             return frame_;
+        case TopMode::Reactive: {  // E2: the live note-driven layer
+            fx::FxFrame f{frame_, fxFrame_, fxFrame_ * fx::kFxStepMs};
+            ++fxFrame_;
+            reactive_.render(f);
+            return frame_;
+        }
         case TopMode::Presentation:  // placeholder until the P-wave player
-        case TopMode::Reactive:      // dark until E2's note-driven layer
             std::fill(frame_.begin(), frame_.end(), Rgb{});
             return frame_;
     }

@@ -379,7 +379,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       Provenance rule (OV3): port ONLY from the FastLED repo `examples/` tree at a
       pinned commit (that tree is MIT) — never gists/forums; each port's header and
       A-entry name the exact source path + commit.
-- [ ] E2 — expressive note-driven base (velocity curve, release-decay ms, CC64 latch —
+- [x] E2 — expressive note-driven base (velocity curve, release-decay ms, CC64 latch —
       CC64 is already in the event stream; honoring it is a read) + Reactive free-play
       wiring (live MIDI → single note-driven layer, no timeline). Named tests:
       velocity 0 and 127 curve endpoints; pedal-up releases every latched glow;
