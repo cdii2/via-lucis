@@ -312,16 +312,44 @@ void test_unknown_effect() {
     TEST_ASSERT_EQUAL(ShowResult::Kind::UnknownEffect, r.kind);
 }
 
-// (g) clockSource 2 ⇒ ScoreFollowUnsupported.
-void test_score_follow_unsupported() {
+// (g) clockSource 2 is SUPPORTED since P4. The optional trailing META byte
+// (the frozen contract: u8 followTrackIndex, present only for clock 2) is
+// parsed when present and defaults to 0xFF (auto) when absent.
+void test_score_follow_meta_parses() {
+    // Absent trailing byte ⇒ followTrack = 0xFF (auto).
     StreamBuilder sb;
     sb.add(1, metaSection(2, 100, "x"));
     sb.add(2, effectsSection({"rainbow"}));
     std::vector<uint8_t> bytes = sb.build();
     Show show;
     ShowResult r = Show::parse(bytes.data(), bytes.size(), show);
-    TEST_ASSERT_EQUAL(ShowResult::Kind::ScoreFollowUnsupported, r.kind);
-    TEST_ASSERT_EQUAL_STRING("score-follow not supported yet", r.message());
+    TEST_ASSERT_TRUE(r.ok());
+    TEST_ASSERT_EQUAL_UINT8(2, show.meta.clockSource);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, show.meta.followTrack);
+
+    // Present trailing byte ⇒ parsed as the follow-track index.
+    StreamBuilder sb2;
+    std::vector<uint8_t> meta = metaSection(2, 100, "x");
+    meta.push_back(1);  // followTrackIndex = 1
+    sb2.add(1, std::move(meta));
+    sb2.add(2, effectsSection({"rainbow"}));
+    std::vector<uint8_t> bytes2 = sb2.build();
+    Show show2;
+    ShowResult r2 = Show::parse(bytes2.data(), bytes2.size(), show2);
+    TEST_ASSERT_TRUE(r2.ok());
+    TEST_ASSERT_EQUAL_UINT8(2, show2.meta.clockSource);
+    TEST_ASSERT_EQUAL_UINT8(1, show2.meta.followTrack);
+
+    // An explicit 0xFF byte is auto, same as absent.
+    StreamBuilder sb3;
+    std::vector<uint8_t> meta3 = metaSection(2, 100, "x");
+    meta3.push_back(0xFF);
+    sb3.add(1, std::move(meta3));
+    sb3.add(2, effectsSection({"rainbow"}));
+    std::vector<uint8_t> bytes3 = sb3.build();
+    Show show3;
+    TEST_ASSERT_TRUE(Show::parse(bytes3.data(), bytes3.size(), show3).ok());
+    TEST_ASSERT_EQUAL_UINT8(0xFF, show3.meta.followTrack);
 }
 
 // (h) cue scoped to notes outside the table / beyond 88 keys renders dark.
@@ -562,7 +590,7 @@ int main() {
     RUN_TEST(test_newer_major);
     RUN_TEST(test_unknown_section_skipped);
     RUN_TEST(test_unknown_effect);
-    RUN_TEST(test_score_follow_unsupported);
+    RUN_TEST(test_score_follow_meta_parses);
     RUN_TEST(test_out_of_range_scope_dark);
     RUN_TEST(test_compositor_blends);
     RUN_TEST(test_clip_local_determinism);

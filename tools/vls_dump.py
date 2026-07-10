@@ -178,13 +178,18 @@ def parse_vls(buf):
             clockSource = sr.u8()
             durationMs = sr.u32()
             showName = sr.str0()
-            twin["sections"].append({
+            meta = {
                 "type": 1, "name": "META",
                 "clockSource": clockSource,
                 "clockSourceName": CLOCK_NAMES[clockSource] if clockSource < len(CLOCK_NAMES) else "?",
                 "durationMs": durationMs,
                 "showName": showName,
-            })
+            }
+            # Optional trailing byte (P4): the score-follow track index.
+            # Emitted only for clockSource==2; absent means 0xFF = auto.
+            if sr.p < len(sr.buf):
+                meta["followTrackIndex"] = sr.u8()
+            twin["sections"].append(meta)
         elif stype == 2:  # EFFECTS
             sr = Reader(r.buf[r.p:body_end])
             n = sr.u8()

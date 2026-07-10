@@ -52,9 +52,14 @@ struct ShowCue {
 };
 
 struct ShowMeta {
-    uint8_t clockSource = 0;   // 0 demo · 1 freeRun · 2 scoreFollow (refused)
+    uint8_t clockSource = 0;   // 0 demo · 1 freeRun · 2 scoreFollow (P4)
     uint32_t durationMs = 0;
     std::string name;          // <= 48 bytes
+    // Optional trailing META byte (P4 frozen contract): the score-follow
+    // track index. Emitted by the editor only for clockSource==2; absent ⇒
+    // 0xFF = auto (the play-time mask resolver picks the default scope,
+    // A54). 0..N = a track index in the existing track space.
+    uint8_t followTrack = 0xFF;
 };
 
 // Result of parse(): a typed kind with stable REST-body text (message()).
@@ -66,7 +71,6 @@ struct ShowResult {
         Truncated,              // ran off the end of the buffer
         BadSection,             // a known section is internally malformed
         UnknownEffect,          // EFFECTS names an unregistered factory
-        ScoreFollowUnsupported, // META clockSource == 2
         BadCue,                 // a cue fails a bounds check
         TooLarge,               // len > 64 KB (the whole-load rule)
     };

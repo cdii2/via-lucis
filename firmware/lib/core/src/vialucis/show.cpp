@@ -57,23 +57,30 @@ bool effectNameValid(const std::string& name) {
     return false;
 }
 
-// META section: u8 clockSource · u32 durationMs · zero-terminated name.
+// META section: u8 clockSource · u32 durationMs · zero-terminated name ·
+// [optional] u8 followTrackIndex (P4 frozen contract: emitted only for
+// clockSource==2; absent ⇒ 0xFF = auto).
 ShowResult parseMeta(Reader& r, size_t end, ShowMeta& meta) {
     uint8_t clock = r.u8();
     uint32_t dur = r.u32();
     if (r.bad || r.pos > end) return mk(ShowResult::Kind::Truncated);
-    if (clock == 2) return mk(ShowResult::Kind::ScoreFollowUnsupported);
     if (clock > 2) return mk(ShowResult::Kind::BadSection);
     meta.clockSource = clock;
     meta.durationMs = dur;
     meta.name.clear();
+    bool terminated = false;
     while (r.pos < end) {
         uint8_t c = r.u8();
-        if (c == 0) break;
+        if (c == 0) {
+            terminated = true;
+            break;
+        }
         if (meta.name.size() >= 48)  // the documented cap IS the contract
             return mk(ShowResult::Kind::BadSection);
         meta.name.push_back(static_cast<char>(c));
     }
+    meta.followTrack = 0xFF;
+    if (terminated && r.pos < end) meta.followTrack = r.u8();
     return mk(ShowResult::Kind::Ok);
 }
 
@@ -193,7 +200,6 @@ const char* ShowResult::message() const {
         case Kind::Truncated: return "show truncated";
         case Kind::BadSection: return "bad show section";
         case Kind::UnknownEffect: return "unknown effect";
-        case Kind::ScoreFollowUnsupported: return "score-follow not supported yet";
         case Kind::BadCue: return "bad cue";
         case Kind::TooLarge: return "show too large";
     }
