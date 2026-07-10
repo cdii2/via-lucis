@@ -306,9 +306,9 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       borrowing, onset punctuality, 3ms-pathology collapse, seek/loop-wrap clears
       per-key repeat state (no phantom fill), first-onset-on-a-key has no fill,
       cross-hand same-key re-press still cues (the cue is per KEY, not per track).
-- [ ] Q2 — wait-mode re-due pulse (`repeatWaitPulseMs`, fixed width — no timing to
+- [x] Q2 — wait-mode re-due pulse (`repeatWaitPulseMs`, fixed width — no timing to
       protect when the song is halted).
-- [ ] Q3 — settings growth (the 6 "Incoming Re-press" fields; `repeatColor` validated
+- [x] Q3 — settings growth (the 6 "Incoming Re-press" fields; `repeatColor` validated
       ≠ wrong-red like hand colors) + API.md + contract-test update + webui panel.
       Named tests: `repeatCueEnabled=false` ⇒ frames byte-identical to v1 (the OFF
       pin); wrong-red `repeatColor` rejected. BRINGUP item: cue legibility on the

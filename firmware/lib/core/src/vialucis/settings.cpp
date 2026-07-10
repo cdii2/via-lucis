@@ -49,6 +49,12 @@ std::string Settings::toJson() const {
     doc["echoWindowMs"] = echoWindowMs;
     doc["wifiSsid"] = wifiSsid;
     doc["wifiPass"] = wifiPass;
+    doc["repeatCueEnabled"] = repeatCueEnabled;
+    doc["repeatColor"] = colorToHex(repeatColor);
+    doc["repeatFillStartPct"] = repeatFillStartPct;
+    doc["repeatFillPeakPct"] = repeatFillPeakPct;
+    doc["repeatFloorMs"] = repeatFloorMs;
+    doc["repeatWaitPulseMs"] = repeatWaitPulseMs;
     std::string out;
     serializeJson(doc, out);
     return out;
@@ -84,6 +90,31 @@ bool Settings::fromJson(const char* json, Settings& out) {
         out.wifiSsid = o["wifiSsid"].as<const char*>();
     if (o["wifiPass"].is<const char*>())
         out.wifiPass = o["wifiPass"].as<const char*>();
+
+    if (o["repeatCueEnabled"].is<bool>())
+        out.repeatCueEnabled = o["repeatCueEnabled"].as<bool>();
+    {
+        // A repeat cue that looks like the wrong-note flash would train the
+        // player to ignore errors — the collision is rejected (field kept
+        // at its previous value), same rule the UI enforces for hand colors.
+        Rgb rc = out.repeatColor;
+        readColor(o["repeatColor"], rc);
+        if (!(rc.r == out.wrongColor.r && rc.g == out.wrongColor.g &&
+              rc.b == out.wrongColor.b))
+            out.repeatColor = rc;
+    }
+    if (o["repeatFillStartPct"].is<uint8_t>())
+        out.repeatFillStartPct =
+            std::min<uint8_t>(o["repeatFillStartPct"].as<uint8_t>(), 100);
+    if (o["repeatFillPeakPct"].is<uint8_t>())
+        out.repeatFillPeakPct =
+            std::min<uint8_t>(o["repeatFillPeakPct"].as<uint8_t>(), 100);
+    if (o["repeatFloorMs"].is<uint32_t>())
+        out.repeatFloorMs =
+            std::min<uint32_t>(o["repeatFloorMs"].as<uint32_t>(), 1000);
+    if (o["repeatWaitPulseMs"].is<uint32_t>())
+        out.repeatWaitPulseMs =
+            std::min<uint32_t>(o["repeatWaitPulseMs"].as<uint32_t>(), 1000);
     return true;
 }
 

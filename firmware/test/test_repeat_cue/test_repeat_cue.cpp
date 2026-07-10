@@ -74,6 +74,18 @@ MidiSong crossHandSong() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// C4 on@0 off@480t, then E4 on@480t off@960t — consecutive DIFFERENT keys.
+MidiSong twoKeySong() {
+    smf::Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::noteOn(ev, 0, 0, 64, 100);
+    smf::noteOff(ev, 480, 0, 64);
+    smf::Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 void setupEngine(PlaybackEngine& e, MidiSong song, const char* mode) {
     e.configure(Settings{}, 360);
     gOut.clear();
@@ -230,6 +242,54 @@ void test_wait_mode_gets_no_crescendo_fill() {
     TEST_ASSERT_EQUAL_UINT8(0, c.r);
 }
 
+// --- Q2: wait-mode re-due pulse -------------------------------------------
+
+void test_wait_re_due_same_key_pulses_then_settles() {
+    PlaybackEngine e;
+    setupEngine(e, repeatSong(), "wait");
+    runTo(e, 100000);  // barrier holds at 0, chord {60} loaded
+    // Clear the chord: playback advances to the second C4's barrier.
+    e.onKeyDown(60, 1000 + 150000);
+    gOut.clear();
+    e.tick(1000 + 1200000, gOut);  // song reaches the 1000ms barrier
+    TEST_ASSERT_EQUAL_UINT64(1000000, e.positionUs());
+    // Inside the fixed pulse window (60ms default): repeatColor, not due.
+    Rgb pulse = ledAt(e.renderFrame(1000 + 1230000), 60);
+    TEST_ASSERT_TRUE_MESSAGE(isWhiteish(pulse), "re-due pulses repeatColor");
+    // After the pulse: the ordinary due light.
+    Rgb due = ledAt(e.renderFrame(1000 + 1300000), 60);
+    TEST_ASSERT_EQUAL_UINT8(kRight.g, due.g);
+    TEST_ASSERT_EQUAL_UINT8(0, due.r);
+}
+
+void test_wait_different_key_next_chord_has_no_pulse() {
+    PlaybackEngine e;
+    setupEngine(e, twoKeySong(), "wait");
+    runTo(e, 100000);  // chord {60} at barrier 0
+    e.onKeyDown(60, 1000 + 150000);
+    gOut.clear();
+    e.tick(1000 + 700000, gOut);  // E4's barrier at 500ms
+    TEST_ASSERT_EQUAL_UINT64(500000, e.positionUs());
+    Rgb c = ledAt(e.renderFrame(1000 + 710000), 64);
+    TEST_ASSERT_EQUAL_UINT8(kRight.g, c.g);  // plain due, no pulse
+    TEST_ASSERT_EQUAL_UINT8(0, c.r);
+}
+
+void test_wait_pulse_respects_disabled_cue() {
+    PlaybackEngine e;
+    setupEngine(e, repeatSong(), "wait");
+    RepeatCueConfig off;
+    off.enabled = false;
+    e.setRepeatCue(off);
+    runTo(e, 100000);
+    e.onKeyDown(60, 1000 + 150000);
+    gOut.clear();
+    e.tick(1000 + 1200000, gOut);
+    Rgb c = ledAt(e.renderFrame(1000 + 1210000), 60);
+    TEST_ASSERT_EQUAL_UINT8(kRight.g, c.g);  // straight to due
+    TEST_ASSERT_EQUAL_UINT8(0, c.r);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_gap_fill_value_lerps_across_the_gap);
@@ -242,5 +302,8 @@ int main(int, char**) {
     RUN_TEST(test_cross_hand_same_key_re_press_still_cues);
     RUN_TEST(test_disabled_cue_renders_v1_identical_frames);
     RUN_TEST(test_wait_mode_gets_no_crescendo_fill);
+    RUN_TEST(test_wait_re_due_same_key_pulses_then_settles);
+    RUN_TEST(test_wait_different_key_next_chord_has_no_pulse);
+    RUN_TEST(test_wait_pulse_respects_disabled_cue);
     return UNITY_END();
 }

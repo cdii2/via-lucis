@@ -206,6 +206,12 @@ Action: on the Play page, make sure the mode is **Wait**, then press **Play**.
 
 ⚠ VERIFY-ON-HARDWARE items in this step:
 
+- **Repeat-cue legibility at tempo:** load a song with fast same-key
+  re-presses (or loop a bar with repeated notes) and play it in Follow mode
+  at 100%+. The off-gap before each re-press should show a visible rising
+  white glow, and the beat itself must land exactly on time. If the glow is
+  too subtle in room light, raise "Glow peaks at" in Settings → Incoming
+  re-press; if it reads as a flicker, raise "Minimum visible gap".
 - **Echo guard window:** in Demo or Accompaniment mode the ESP32 sends notes TO
   the piano, and the piano may echo them back as if you played them. The
   firmware ignores echoes for 250 ms per sent note (setting `echoWindowMs`). If

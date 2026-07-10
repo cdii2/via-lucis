@@ -132,6 +132,7 @@ private:
     void applyMasks();         // after mode/practice/track changes
     void buildRepeatGaps();    // Q1: one load pass, O(1) render lookups
     void resyncRepeatCursors(uint64_t posUs);  // after seek / loop wrap
+    void resetWaitPulse();     // Q2: forget chord history + live pulses
     void stopAllSound(std::vector<MidiOutMsg>& out);
     Rgb colorForTrack(uint8_t track) const;
 
@@ -194,6 +195,14 @@ private:
     RepeatCueConfig repeatCue_;
     std::array<std::vector<RepeatWindow>, 88> repeatByKey_;
     std::array<size_t, 88> repeatCursor_{};
+
+    // Q2: wait-mode re-due pulse. When the barrier advances to a new chord,
+    // any key that was ALSO in the previous chord pulses repeatColor for a
+    // fixed wall-clock width (the song is halted — there is no timing to
+    // protect, so the pulse is fixed, not gap-derived).
+    std::array<uint64_t, 88> waitPulseUntilUs_{};
+    std::vector<uint8_t> prevChordKeys_;
+    uint64_t lastChordBarrierUs_ = kNoOnset;
 };
 
 }  // namespace vialucis

@@ -92,6 +92,10 @@ static void test_to_json_emits_exactly_the_contract_field_names() {
         "leftColor", "rightColor", "wrongColor",  "previewCap",
         "leadMs",    "offsetMm",   "ledsPerMeter", "brightness",
         "echoWindowMs", "wifiSsid", "wifiPass",
+        // Q3 growth (sanctioned by the Q-wave charter): appended, nothing
+        // existing changed.
+        "repeatCueEnabled", "repeatColor", "repeatFillStartPct",
+        "repeatFillPeakPct", "repeatFloorMs", "repeatWaitPulseMs",
     };
     constexpr size_t kCount = sizeof(kContract) / sizeof(kContract[0]);
 
@@ -110,6 +114,50 @@ static void test_to_json_emits_exactly_the_contract_field_names() {
         ++emitted;
     }
     TEST_ASSERT_EQUAL_size_t(kCount, emitted);  // none missing either
+}
+
+// Q3: the six Incoming Re-press fields round-trip; a repeatColor equal to
+// wrongColor is REJECTED (kept at its previous value) — a cue must never
+// read as an error.
+static void test_repeat_cue_fields_round_trip_and_clamp() {
+    Settings s;
+    TEST_ASSERT_TRUE(s.repeatCueEnabled);
+    TEST_ASSERT_EQUAL_UINT8(0, s.repeatFillStartPct);
+    TEST_ASSERT_EQUAL_UINT8(45, s.repeatFillPeakPct);
+    TEST_ASSERT_EQUAL_UINT32(35, s.repeatFloorMs);
+    TEST_ASSERT_EQUAL_UINT32(60, s.repeatWaitPulseMs);
+
+    Settings out;
+    TEST_ASSERT_TRUE(Settings::fromJson(
+        "{\"repeatCueEnabled\":false,\"repeatColor\":\"#FFAA00\","
+        "\"repeatFillStartPct\":20,\"repeatFillPeakPct\":100,"
+        "\"repeatFloorMs\":50,\"repeatWaitPulseMs\":90}",
+        out));
+    TEST_ASSERT_FALSE(out.repeatCueEnabled);
+    TEST_ASSERT_EQUAL_UINT8(0xFF, out.repeatColor.r);
+    TEST_ASSERT_EQUAL_UINT8(0xAA, out.repeatColor.g);
+    TEST_ASSERT_EQUAL_UINT8(20, out.repeatFillStartPct);
+    TEST_ASSERT_EQUAL_UINT8(100, out.repeatFillPeakPct);
+    TEST_ASSERT_EQUAL_UINT32(50, out.repeatFloorMs);
+    TEST_ASSERT_EQUAL_UINT32(90, out.repeatWaitPulseMs);
+
+    Settings clamp;
+    TEST_ASSERT_TRUE(Settings::fromJson(
+        "{\"repeatFillPeakPct\":250,\"repeatFloorMs\":99999}", clamp));
+    TEST_ASSERT_EQUAL_UINT8(100, clamp.repeatFillPeakPct);
+    TEST_ASSERT_EQUAL_UINT32(1000, clamp.repeatFloorMs);
+}
+
+static void test_wrong_red_repeat_color_rejected() {
+    Settings out;  // wrongColor default = #FF0000
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"repeatColor\":\"#FF0000\"}", out));
+    TEST_ASSERT_EQUAL_UINT8(255, out.repeatColor.g);  // stayed white
+    TEST_ASSERT_EQUAL_UINT8(255, out.repeatColor.b);
+    // A non-colliding value is accepted normally.
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"repeatColor\":\"#FF0001\"}", out));
+    TEST_ASSERT_EQUAL_UINT8(1, out.repeatColor.b);
 }
 
 int main(int, char**) {

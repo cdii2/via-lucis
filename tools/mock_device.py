@@ -43,6 +43,9 @@ settings = {
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
     "brightness": 160, "echoWindowMs": 250,
     "wifiSsid": "HomeNet", "wifiPass": "",
+    "repeatCueEnabled": True, "repeatColor": "#FFFFFF",
+    "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
+    "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
 }
 songs = [
     {"name": "clair-de-lune.mid", "size": 4321},

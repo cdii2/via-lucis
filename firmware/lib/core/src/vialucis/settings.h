@@ -33,6 +33,16 @@ struct Settings {
     std::string wifiSsid;  // empty ⇒ start AP "ViaLucis" directly
     std::string wifiPass;
 
+    // Incoming Re-press (Q3, brief §2). Percents are 0–100 on the wire;
+    // repeatColor is validated ≠ wrongColor (a cue must never read as an
+    // error). Appended after the v1 key set — the contract test locks this.
+    bool repeatCueEnabled = true;
+    Rgb repeatColor{255, 255, 255};
+    uint8_t repeatFillStartPct = 0;
+    uint8_t repeatFillPeakPct = 45;  // 100 ⇒ pure hue-snap glide
+    uint32_t repeatFloorMs = 35;
+    uint32_t repeatWaitPulseMs = 60;
+
     std::string toJson() const;
     // Tolerant: missing fields keep current values; false only on unparseable
     // input. Numeric fields are clamped to sane ranges.

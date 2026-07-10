@@ -87,9 +87,17 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "previewCap": 0.45, "leadMs": 1000,
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
     "brightness": 160, "echoWindowMs": 250,
-    "wifiSsid": "HomeNet", "wifiPass": "..."
+    "wifiSsid": "HomeNet", "wifiPass": "...",
+    "repeatCueEnabled": true, "repeatColor": "#FFFFFF",
+    "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
+    "repeatFloorMs": 35, "repeatWaitPulseMs": 60
   }
   ```
+  The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —
+  appended; nothing existing changed). Percents are 0–100 (`repeatFillPeakPct`
+  100 = pure hue-snap glide at onset). A `repeatColor` equal to `wrongColor`
+  is rejected (the field keeps its previous value) — a cue must never look
+  like an error.
 - `PUT /api/settings` — same shape, partial OK (missing fields unchanged)
   → `200` + full new settings. Persisted to LittleFS immediately.
   WiFi changes apply on next reboot (`POST /api/reboot` to apply now).

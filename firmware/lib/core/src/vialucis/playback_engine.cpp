@@ -38,6 +38,14 @@ void PlaybackEngine::configure(const Settings& s, uint16_t ledCount) {
     leftColor_ = s.leftColor;
     rightColor_ = s.rightColor;
     wrongColor_ = s.wrongColor;
+    RepeatCueConfig rc;  // Q3: wire settings (0–100 wire → 0..1 fractions)
+    rc.enabled = s.repeatCueEnabled;
+    rc.color = s.repeatColor;
+    rc.startPct = s.repeatFillStartPct / 100.0f;
+    rc.peakPct = s.repeatFillPeakPct / 100.0f;
+    rc.floorMs = s.repeatFloorMs;
+    rc.waitPulseMs = s.repeatWaitPulseMs;
+    setRepeatCue(rc);
 }
 
 void PlaybackEngine::setTable(const KeyLedTable& t) {
@@ -118,7 +126,14 @@ void PlaybackEngine::buildRepeatGaps() {
     }
 }
 
+void PlaybackEngine::resetWaitPulse() {
+    waitPulseUntilUs_.fill(0);
+    prevChordKeys_.clear();
+    lastChordBarrierUs_ = kNoOnset;
+}
+
 void PlaybackEngine::resyncRepeatCursors(uint64_t posUs) {
+    resetWaitPulse();
     for (size_t k = 0; k < 88; ++k) {
         const auto& v = repeatByKey_[k];
         size_t lo = 0, hi = v.size();
@@ -135,6 +150,8 @@ void PlaybackEngine::rebuildAfterLoad() {
     sched_ = std::make_unique<Scheduler>(song_);
     trackCfg_ = TrackConfig::defaultsFor(song_);
     buildRepeatGaps();
+    resetWaitPulse();
+    prevChordKeys_.reserve(16);
     wait_ = std::make_unique<WaitMode>(*sched_, kTrackMaskAll);
     wait_->setEchoGuard(&guard_);
     soundingLights_.clear();
@@ -157,6 +174,7 @@ void PlaybackEngine::applyMasks() {
 
     if (wait_) {
         wait_->setPracticedMask(trackCfg_.practicedMask(practice_));
+        resetWaitPulse();  // mode/mask changes invalidate chord history
         if (barrierMode())
             wait_->resync();
         else
@@ -310,7 +328,29 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     }
     prevPosUs_ = newPos;
 
-    if (barrierMode()) wait_->update();
+    if (barrierMode()) {
+        wait_->update();
+        // Q2: a NEW chord just loaded at the barrier — keys that were also
+        // in the previous chord are re-dues; start their fixed pulse.
+        if (wait_->chordPending() &&
+            wait_->barrierTimeUs() != lastChordBarrierUs_) {
+            if (repeatCue_.enabled && lastChordBarrierUs_ != kNoOnset) {
+                for (uint8_t n : wait_->pendingNotes()) {
+                    for (uint8_t p : prevChordKeys_) {
+                        if (p != n) continue;
+                        if (n >= 21 && n <= 108)
+                            waitPulseUntilUs_[n - 21] =
+                                nowUs + static_cast<uint64_t>(
+                                            repeatCue_.waitPulseMs) * 1000;
+                        frameDirty_ = true;
+                        break;
+                    }
+                }
+            }
+            prevChordKeys_ = wait_->pendingNotes();
+            lastChordBarrierUs_ = wait_->barrierTimeUs();
+        }
+    }
 
     emitter_.consume(eventsBuf_, nowUs, out);
 
@@ -394,13 +434,20 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
             renderer_.addDue(s.note, colorForTrack(s.track));
         }
 
-        // Wait mode: the due chord at 100%.
+        // Wait mode: the due chord at 100% — except keys inside their Q2
+        // re-due pulse window, which flash repeatColor first ("this key
+        // AGAIN") and then settle into the ordinary due light.
         if (barrierMode() && wait_->chordPending()) {
             sched_->notesOnAt(wait_->barrierTimeUs(),
                               trackCfg_.practicedMask(practice_), queryBuf_);
             for (const SchedEvent& e : queryBuf_) {
-                if (wait_->isPending(e.note) &&
-                    trackInMask(lightsMask, e.track))
+                if (!wait_->isPending(e.note) ||
+                    !trackInMask(lightsMask, e.track))
+                    continue;
+                if (repeatCue_.enabled && e.note >= 21 && e.note <= 108 &&
+                    nowUs < waitPulseUntilUs_[e.note - 21])
+                    renderer_.addRepeatFill(e.note, repeatCue_.color);
+                else
                     renderer_.addDue(e.note, colorForTrack(e.track));
             }
         }

@@ -427,6 +427,26 @@ input[type=color] {
   </div>
 
   <div class="card set-grid">
+    <h2>Incoming re-press</h2>
+    <div class="row">
+      <label class="name" for="s_repeatCueEnabled">Cue repeated notes</label>
+      <span class="tog"><input type="checkbox" id="s_repeatCueEnabled" aria-label="Repeat cue enabled"><span class="tr"></span></span>
+    </div>
+    <div class="note-txt">A fast re-press of the same key fills the gap with a rising glow so two presses never read as one held light.</div>
+    <div class="row"><label for="s_repeatColor">Cue color</label><input type="color" id="s_repeatColor" data-key="repeatColor"></div>
+    <div class="row"><label for="s_repeatFillStartPct">Glow starts at</label><span class="valout" id="v_repeatFillStartPct">0%</span></div>
+    <input type="range" id="s_repeatFillStartPct" min="0" max="100" step="5">
+    <div class="row"><label for="s_repeatFillPeakPct">Glow peaks at</label><span class="valout" id="v_repeatFillPeakPct">45%</span></div>
+    <input type="range" id="s_repeatFillPeakPct" min="0" max="100" step="5">
+    <div class="note-txt">Peak 100% = no brightness jump at the beat — only the color snaps to the hand color.</div>
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:0.82rem;color:var(--dim);padding:6px 0;min-height:44px;display:flex;align-items:center">Fine timing</summary>
+      <div class="row"><label for="s_repeatFloorMs">Minimum visible gap (ms)</label><input type="number" id="s_repeatFloorMs" data-key="repeatFloorMs" step="5" min="0" max="1000"></div>
+      <div class="row"><label for="s_repeatWaitPulseMs">Wait-mode pulse (ms)</label><input type="number" id="s_repeatWaitPulseMs" data-key="repeatWaitPulseMs" step="10" min="0" max="1000"></div>
+    </details>
+  </div>
+
+  <div class="card set-grid">
     <h2>Strip calibration</h2>
     <div class="row"><span class="grow" id="calStatusLine">Loading…</span></div>
     <div class="btnrow" style="margin-top:8px">
@@ -994,6 +1014,19 @@ function applySettings(s, quiet) {
   }
   setIf("s_wifiSsid", s.wifiSsid);
   setIf("s_wifiPass", s.wifiPass);
+  if (document.activeElement !== $("s_repeatCueEnabled"))
+    $("s_repeatCueEnabled").checked = !!s.repeatCueEnabled;
+  setIf("s_repeatColor", s.repeatColor);
+  if (!quiet || ae !== $("s_repeatFillStartPct")) {
+    $("s_repeatFillStartPct").value = s.repeatFillStartPct;
+    $("v_repeatFillStartPct").textContent = s.repeatFillStartPct + "%";
+  }
+  if (!quiet || ae !== $("s_repeatFillPeakPct")) {
+    $("s_repeatFillPeakPct").value = s.repeatFillPeakPct;
+    $("v_repeatFillPeakPct").textContent = s.repeatFillPeakPct + "%";
+  }
+  setIf("s_repeatFloorMs", s.repeatFloorMs);
+  setIf("s_repeatWaitPulseMs", s.repeatWaitPulseMs);
   settingsLoaded = true;
 }
 
@@ -1025,6 +1058,24 @@ $("s_leadMs").addEventListener("input", function () {
 $("s_brightness").addEventListener("input", function () {
   $("v_brightness").textContent = $("s_brightness").value;
   queueSetting("brightness", +$("s_brightness").value);
+});
+$("s_repeatCueEnabled").addEventListener("change", function () {
+  queueSetting("repeatCueEnabled", $("s_repeatCueEnabled").checked);
+});
+$("s_repeatFillStartPct").addEventListener("input", function () {
+  $("v_repeatFillStartPct").textContent = $("s_repeatFillStartPct").value + "%";
+  queueSetting("repeatFillStartPct", +$("s_repeatFillStartPct").value);
+});
+$("s_repeatFillPeakPct").addEventListener("input", function () {
+  $("v_repeatFillPeakPct").textContent = $("s_repeatFillPeakPct").value + "%";
+  queueSetting("repeatFillPeakPct", +$("s_repeatFillPeakPct").value);
+});
+// Same client-side rule the hand colors follow: the cue must never look
+// like the wrong-note flash (the device rejects it too).
+$("s_repeatColor").addEventListener("change", function () {
+  if ($("s_repeatColor").value.toUpperCase() ===
+      $("s_wrongColor").value.toUpperCase())
+    toast("Cue color can't match the wrong-note color", true);
 });
 
 // strip test buttons

@@ -3,6 +3,18 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A41 (2026-07-10, Q2+Q3): wait-mode re-due pulse = chord-history compare (new
+  barrier's pending keys ∩ previous chord's keys pulse repeatColor for a fixed
+  wall-clock width, then settle into the due light; mode/mask changes, seeks,
+  wraps and loads reset the history — no stale pulses). Q3 settings: the six
+  Incoming Re-press fields APPENDED to the settings contract (key-set test
+  updated; percents 0–100 on the wire → 0..1 fractions in RepeatCueConfig via
+  configure()); repeatColor == wrongColor is REJECTED server-side by keeping
+  the field's previous value (tolerant-partial style — the body still 200s,
+  matching fromJson's clamp semantics) plus the same client-side toast rule
+  hand colors follow; floor/pulse clamped 0–1000ms. Webui: "Incoming
+  re-press" card (toggle, color, start/peak sliders, fine-timing details).
+  176 native tests.
 - A40 (2026-07-10, Q1): repeat-cue mechanics — per-key windows precomputed at
   load (7A): fillStart = onset − max(gap, floor), so tail-borrowing falls out
   of the formula; windows sorted per key, render advances an 88-entry cursor
