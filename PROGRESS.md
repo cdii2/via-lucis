@@ -453,16 +453,23 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       re-editable authoring. Cue sort = startMs, ties broken by descending
       lane so the lower lane renders on top (SHOW-FORMAT §1 z-order — settled
       in the P-wave closing review, A52).)*
-- [ ] P4 — score-follow clock: **VL6 RESOLVED 2026-07-10 (spec = DESIGN-lightshow.md
-      §4a, A53) — now UNBLOCKED to build.** Advances on match via wait-mode's matcher
-      over an editor-selected follow track; snap-and-extrapolate clock with a clamped
-      hybrid tempo; performance mode (no wrong-note flash); forward-biased robustness;
-      free-run safety-net when confidence drops. v1 defers smooth backward tracking,
-      ornament/repeat modelling, per-note anchor authoring, confidence-driven pause.
-      *(Staged and ready: clockSource 2 reserved + typed-refused, editor shows it
-      disabled, TLV/META extend without migration. Build surface: a native-testable
-      `ScoreFollower` in core driving the Scheduler as the Presentation feeder + one
-      "follow track" editor selector + one optional META follow-track-index field.)*
+- [x] P4 — score-follow clock: **BUILT 2026-07-10 against DESIGN-lightshow.md §4a
+      (A53); firmware/format half (this branch) — the editor "follow track" selector
+      is the editor agent's parallel worktree.** Native-testable `ScoreFollower` in
+      core (pure: scripted (note, timeUs) stream in → clock trajectory out; 18
+      trajectory tests: clean follow, rubato + clamp, wrong-note-ignored, bounded
+      skip-ahead, backward re-arm, rest coast-then-hold, lost→free-run→re-acquire,
+      first-anchor start, chord tolerance, echo guard, anchor extraction). Anchors =
+      the wait-mode barrier cadence over `followTrackMask()` (META followTrack;
+      0xFF auto = right-hand mask, A54). Director selects it as the clock-2
+      Presentation feeder INSTEAD of transport("play") — transport stays stopped,
+      onKeyDown feeds the follower, `driveShowClock()` writes song time each key
+      event + tick; practice verdict path inert by construction (no red flash).
+      META gains the optional trailing followTrackIndex byte (frozen contract);
+      the clock-2 typed refusal is deleted (A54); SHOW-FORMAT §1/§4 updated;
+      matcher params = firmware constants (A55). Later waves still deferred:
+      smooth backward tracking, ornament/repeat modelling, per-note anchor
+      authoring, confidence-driven pause (new TLV sections, no migration).
 - [x] closing /code-review over the wave diff — 8 angles (4 paired agents).
       Applied: show.cpp overflow/DoS/name-length guards; show_player reworked
       to bounded per-frame work (per-cue 88-key bitmaps, sorted BindEvent

@@ -43,14 +43,23 @@ then sectionCount × section:
 
 | type | name | payload |
 | --- | --- | --- |
-| 1 | META | u8 clockSource (0=demo, 1=freeRun, 2=scoreFollow*) · u32 durationMs · zero-terminated show name (≤48 bytes) |
+| 1 | META | u8 clockSource (0=demo, 1=freeRun, 2=scoreFollow) · u32 durationMs · zero-terminated show name (≤48 bytes) · **[optional] u8 followTrackIndex*** |
 | 2 | EFFECTS | u8 count × zero-terminated factory name (the E-wave registry: `rainbow`…`pride2015`, plus `notedriven`) |
 | 3 | PALETTES | u8 count × 16×3 bytes RGB (custom palettes; stock ones ride effect params) |
 | 4 | CUES | u16 count × cue record (below) |
 | 0xFFFF | END | empty; must be last |
 
-*clockSource=2 streams are refused by v1 firmware (typed `"score-follow
-not supported yet"`) — the value is reserved so P4 needs no major bump.
+*The optional trailing META byte (P4, frozen contract): the score-follow
+track index. The editor emits it **only for clockSource=2**. `0xFF` = auto
+(the device resolves the default follow scope at play time — the
+right-hand/melody practiced mask, falling back to lights/all-tracks, A54);
+`0..N` = a track index in the existing track space (an unusable index also
+falls back to auto). **Absent ⇒ 0xFF.** Streams without the byte remain
+valid — pre-P4 clockSource 0/1 shows parse unchanged. All score-follow
+matching parameters (timing windows, tempo band, look-ahead depth) are
+firmware constants in v1 — no TLV section; a richer per-show follow config
+is a later-wave extension via new section types, which v1 firmware skips
+per the compatibility rule above.
 
 ### Cue record (fixed 16 bytes + scope payload)
 
@@ -118,10 +127,17 @@ binary stream as its JSON twin for round-trip checks.
 | --- | --- | --- |
 | Demo | device plays the song (emitter) and the show from ONE scheduler | ✔ |
 | Free-run | tempo-scaled scheduler; the human keeps up | ✔ |
-| Score-follow | clock slaved to the performer via the wait-mode matcher | **P4 — gated on its own design session (VL6)** |
+| Score-follow | clock slaved to the performer: `ScoreFollower` (a wait-mode-style matcher over the follow track) snaps to matched chord onsets and extrapolates at a clamped hybrid tempo, driving the Scheduler's song time | ✔ **(P4, per DESIGN-lightshow §4a / A53)** |
 
-Both v1 clocks read song-time ms from the existing `Scheduler` — tempo
-changes mid-show keep Free-run continuous (named P2 test).
+All three clocks read song-time ms from the existing `Scheduler` — tempo
+changes mid-show keep Free-run continuous (named P2 test). Score-follow
+keeps the transport STOPPED and writes song time directly from the
+follower's estimate (the performer is the only clock; wrong notes are
+ignored and never red-flash — performance mode). Still deferred to later
+waves (NOT in v1): smooth backward tracking, ornament/trill/repeat
+modelling, per-note anchor authoring, a confidence-driven pause — their
+richer per-show config arrives as new TLV sections that v1 firmware
+skips, no migration.
 
 ## 5. Editor (P3) & distribution
 
@@ -143,6 +159,7 @@ changes mid-show keep Free-run continuous (named P2 test).
 ## 6. Out of scope for v1 (recorded, not built)
 
 Extended blend modes; show export/share format + xLights import; the
-falling-notes screen view; AFK starter catalog. Score-follow (P4) builds
-only after its own grilled design session — the format above reserves its
-clockSource value and extends via new TLV sections, so no migration.
+falling-notes screen view; AFK starter catalog. Score-follow's later-wave
+extensions (smooth backward tracking, ornament/repeat modelling, per-note
+anchor authoring, confidence-driven pause) extend via new TLV sections —
+no migration. The v1 score-follow clock itself shipped at P4 (§4).

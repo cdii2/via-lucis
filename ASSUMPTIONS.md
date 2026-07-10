@@ -3,6 +3,43 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A55 (2026-07-10, P4 build): ScoreFollower decisions beyond §4a's letter,
+  all as named test-tunable constants per Q15 — "enough" chord match =
+  majority (n≤2 needs all, else n/2+1: inner voices tolerated, a bare single
+  note never advances a chord); chord gather window 600ms (a staler partial
+  restarts with the new note); look-ahead = 4 anchors AND ≤8s of song time;
+  lost = 4 unmatched notes while Following (silence is NOT lost — silence
+  holds, that's a fermata); hybrid tempo = EMA α=0.35 toward the measured
+  tempo, measured ONLY across consecutive-anchor snaps (skips/re-arms
+  measure omission, not tempo), clamped 0.25–3.0 before and after blending;
+  re-acquire/re-arm evidence = the newest unmatched notes (ring of 8, ≤4s
+  old) confidently walking ≥3 CONSECUTIVE anchors anywhere in the score,
+  re-arming at the walk's end (covers backward runs AND far skips; ties go
+  to the anchor nearest the current position); re-acquire also works from
+  AwaitingFirst (starting mid-piece starts the clock there); one key press
+  credits only the NEAREST window candidate that needs it (a repeated
+  melody note advances one anchor per press, never several); past the FINAL
+  anchor the clock runs free at the last tempo (the show tail plays out);
+  in FreeRun the window stays at the lost anchor (the performer usually
+  continues from where they fumbled) while the run-scan covers everywhere
+  else. Wiring: clock-2 shows run follow sub-mode with the transport
+  STOPPED — the follower is the only clock (engine.driveShowClock refused
+  while Playing), so the practice verdict path is inert by construction
+  (no red flash possible) and /api/status reads "idle" during a
+  score-follow show (topMode says presentation; accepted cosmetic).
+- A54 (2026-07-10, P4 build): META followTrack=0xFF (auto) resolution — the
+  device picks the follow scope at PLAY time via engine.followTrackMask():
+  the right-hand practiced mask (tracks assigned Right or Both — the §4a Q6
+  "melody/right hand" default under the existing track heuristics) when it
+  has onsets, else the lights mask, else all tracks; an explicit index that
+  is out of the track space or has no onsets falls back to the same auto
+  chain (a show authored against a different arrangement still follows
+  SOMETHING rather than dying). The optional trailing META byte is parsed
+  tolerantly (stored for any clockSource; the editor only emits it for 2);
+  absent ⇒ 0xFF. The clock-2 typed refusal ("score-follow not supported
+  yet") is deleted rather than kept for later waves — later-wave follow
+  features arrive as new TLV sections, which v1 skips by the compatibility
+  rule, so there is nothing left to refuse.
 - A53 (2026-07-10, VL6 score-follow grill): P4's design is RESOLVED with
   Christian (batch, 15 decisions, all on the recommended option) — full spec in
   docs/DESIGN-lightshow.md §4a. Load-bearing shape: reuse wait-mode's barrier
