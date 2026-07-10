@@ -291,7 +291,11 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       LED/probe/tier; calibration UI is gold/white only (blue/green stay hand-
       reserved); a11y: dialog semantics, focus trap, Escape=cancel, aria-live
       prompts, ≥44px targets.*
-- [ ] closing /code-review over the wave diff.
+- [x] closing /code-review over the wave diff — 8 angles, 13 findings applied
+      as one commit (935b09c: configure() never touches geometry / setTable =
+      the one writer; dials-edit reverts tier; wizard verify fallback,
+      reversed-flag carry, arm-generation race fix, hidden-tab poll pause;
+      dedupes), 4 accepted with reasons (A42).
 
 ### Q-wave — repeat cue (brief §2; the one sanctioned practice-visual delta)
 

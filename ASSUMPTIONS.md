@@ -3,6 +3,25 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A42 (2026-07-10, C-wave closing review): 8 finder angles (3 correctness +
+  reuse/simplification/efficiency/altitude/conventions) + Codex-informed
+  verify; 13 findings applied in one commit (935b09c), 4 accepted-as-is with
+  reasons. THE structural ruling: PlaybackEngine::configure() never touches
+  geometry — setTable is the ONE table writer (three angles converged on the
+  configure-then-setTable ordering hazard; a dropped setTable would have
+  silently reverted wizard calibration with no failing test). Behavior
+  ruling: an EDIT of offsetMm/ledsPerMeter via PUT /api/settings reverts
+  geometry to the 2-point tier (web_server diffs old vs new scalars →
+  applySettings(scalarsChanged)) — matches the TROUBLESHOOTING promise that
+  the dials win; untouched scalars never clobber wizard tables. Fallback
+  caveat documented, not re-architected: a corrupt /calibration.json loses
+  the reversed flag (it lives only there); recovery = re-run the wizard
+  (direction re-detected from two presses). Accepted-as-is: onJsonBody's
+  POST|PUT dual registration (pre-existing v1 pattern on every route),
+  Settings↔Calibration scalar mirror (charter-deliberate), KeyLedTable::set
+  silent range guard (all callers validate first). Process note: Q2+Q3
+  landed as one commit (entangled configure() wiring) — deviation from
+  one-item-per-commit, recorded here.
 - A41 (2026-07-10, Q2+Q3): wait-mode re-due pulse = chord-history compare (new
   barrier's pending keys ∩ previous chord's keys pulse repeatColor for a fixed
   wall-clock width, then settle into the due light; mode/mask changes, seeks,
