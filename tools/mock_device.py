@@ -53,6 +53,56 @@ songs = [
 ]
 last_tick = time.time()
 
+# --- calibration (C4) -------------------------------------------------
+# Mock geometry: LED 2 sits under A0 (note 21), ~3.85 LEDs per key, so the
+# wizard's probe captures a believable note for any LED. Set REVERSED=True
+# to rehearse a right-to-left install. LEDs below NO_KEY_BELOW have no key
+# beneath them — probes there never capture (exercises timeout / move-dot).
+LED_COUNT = 360
+LEDS_PER_KEY = 3.85
+FIRST_KEY_LED = 2.0
+REVERSED = False
+NO_KEY_BELOW = 2
+CAPTURE_DELAY_S = 1.2
+
+calibration = {
+    "tier": "twoPoint", "reversed": False, "ledCount": LED_COUNT,
+    "offsetMm": 0.0, "ledsPerMeter": 180.0,
+    "keys": [{"note": 21 + k,
+              "first": int(FIRST_KEY_LED + k * LEDS_PER_KEY),
+              "last": int(FIRST_KEY_LED + k * LEDS_PER_KEY) + 2}
+             for k in range(88)],
+}
+probe = {"armed": False, "led": 0, "note": None, "armed_at": 0.0,
+         "timeout_s": 30.0}
+
+
+def note_under_led(led):
+    """The key the mock piano-owner would press under this LED (or None)."""
+    if led < NO_KEY_BELOW:
+        return None
+    pos = (LED_COUNT - 1 - led) if REVERSED else led
+    key = round((pos - FIRST_KEY_LED) / LEDS_PER_KEY)
+    if key < 0 or key > 87:
+        return None
+    return 21 + key
+
+
+def probe_tick():
+    """Simulate the human: ~1.2s after arming, press the key under the dot."""
+    if not probe["armed"]:
+        return
+    elapsed = time.time() - probe["armed_at"]
+    if elapsed >= probe["timeout_s"]:
+        probe["armed"] = False  # timed out, no capture
+        return
+    if elapsed >= CAPTURE_DELAY_S:
+        note = note_under_led(probe["led"])
+        if note is not None:
+            probe["note"] = note
+            probe["armed"] = False
+        # else: no key under the dot — keep waiting until timeout
+
 
 def advance():
     """Fake playback: position advances while 'playing'; 'waiting' holds."""
@@ -105,6 +155,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, settings)
         elif self.path == "/api/ble":
             self._json(200, {"connected": True, "device": "FP-30X BLE-MIDI"})
+        elif self.path == "/api/calibration":
+            self._json(200, calibration)
+        elif self.path == "/api/calibration/probe":
+            probe_tick()
+            self._json(200, {"armed": probe["armed"], "led": probe["led"],
+                             "note": probe["note"]})
         else:
             self._json(404, {"error": "not found"})
 
@@ -144,6 +200,20 @@ class Handler(BaseHTTPRequestHandler):
                              "startMs": int(b.get("startMs", 0)),
                              "endMs": int(b.get("endMs", 0))}
             self._json(200, self._status())
+        elif self.path == "/api/calibration/probe":
+            if state["state"] in ("playing", "waiting"):
+                self._json(409, {"error": "playing"})
+                return
+            b = self._body()
+            led = int(b.get("led", -1))
+            if led < 0 or led >= LED_COUNT:
+                self._json(400, {"error": "bad led"})
+                return
+            probe.update(armed=True, led=led, note=None,
+                         armed_at=time.time(),
+                         timeout_s=min(300, max(1, int(b.get(
+                             "timeoutMs", 30000)) / 1000)))
+            self._json(200, {"armed": True, "led": led, "note": None})
         elif self.path == "/api/test":
             self._json(200, {})
         elif self.path == "/api/reboot":
@@ -164,6 +234,66 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/settings":
             settings.update(self._body())
             self._json(200, settings)
+        elif self.path == "/api/calibration":
+            b = self._body()
+            tier = b.get("tier")
+            if tier not in ("twoPoint", "multiPoint", "perKey"):
+                self._json(400, {"error": "bad tier"})
+                return
+            if tier == "multiPoint":
+                lm = b.get("landmarks") or []
+                if len(lm) < 2:
+                    self._json(400, {"error": "need at least 2 landmarks"})
+                    return
+                notes = [m["note"] for m in lm]
+                if notes != sorted(notes) or len(set(notes)) != len(notes):
+                    self._json(400,
+                               {"error": "landmarks must ascend by note"})
+                    return
+                leds = [m["led"] for m in lm]
+                desc = all(b2 < a2 for a2, b2 in zip(leds, leds[1:]))
+                asc = all(b2 > a2 for a2, b2 in zip(leds, leds[1:]))
+                if not (asc or desc):
+                    self._json(400, {"error": "led direction inconsistent"})
+                    return
+                calibration.update(tier=tier, reversed=desc, landmarks=lm)
+                calibration.pop("offsetMm", None)
+                calibration.pop("ledsPerMeter", None)
+                # Table rebuild faked: interpolate keys between landmarks.
+                lo, hi = lm[0], lm[-1]
+                span = max(1, hi["note"] - lo["note"])
+                per = (hi["led"] - lo["led"]) / span
+                keys = []
+                for k in range(88):
+                    n = 21 + k
+                    first = int(round(lo["led"] + (n - lo["note"]) * per))
+                    a2, b2 = sorted((first, first + (2 if per > 0 else -2)))
+                    if a2 < 0 or b2 >= LED_COUNT:
+                        continue
+                    keys.append({"note": n, "first": a2, "last": b2})
+                calibration["keys"] = keys
+            elif tier == "perKey":
+                keys = b.get("keys")
+                if not isinstance(keys, list):
+                    self._json(400, {"error": "missing field"})
+                    return
+                calibration.update(tier=tier, keys=keys)
+                calibration.pop("landmarks", None)
+            else:
+                calibration.update(
+                    tier=tier,
+                    reversed=bool(b.get("reversed", False)),
+                    offsetMm=b.get("offsetMm", 0.0),
+                    ledsPerMeter=b.get("ledsPerMeter", 180.0))
+                calibration.pop("landmarks", None)
+                calibration["keys"] = [  # rebuild like the firmware does
+                    {"note": 21 + k,
+                     "first": int(FIRST_KEY_LED + k * LEDS_PER_KEY),
+                     "last": int(FIRST_KEY_LED + k * LEDS_PER_KEY) + 2}
+                    for k in range(88)]
+                settings["offsetMm"] = calibration["offsetMm"]
+                settings["ledsPerMeter"] = calibration["ledsPerMeter"]
+            self._json(200, calibration)
         elif self.path.startswith("/api/tracks/"):
             idx = int(self.path.rsplit("/", 1)[1])
             b = self._body()
@@ -175,6 +305,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_DELETE(self):
+        if self.path == "/api/calibration/probe":
+            probe.update(armed=False, note=None)
+            self._json(200, {"armed": False, "led": probe["led"],
+                             "note": None})
+            return
         self._json(204, {})
 
     def log_message(self, *a):  # quiet

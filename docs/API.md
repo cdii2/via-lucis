@@ -1,4 +1,4 @@
-# Via Lucis — REST API contract (v1)
+# Via Lucis — REST API contract (v1 + v2 growth)
 
 The seam between the firmware (`firmware/src/`) and the web UI (`webui/`).
 **Both sides build against this file. Change it here first or not at all.**
@@ -93,6 +93,48 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 - `PUT /api/settings` — same shape, partial OK (missing fields unchanged)
   → `200` + full new settings. Persisted to LittleFS immediately.
   WiFi changes apply on next reboot (`POST /api/reboot` to apply now).
+
+## Calibration (v2 C-wave)
+
+The per-key LED table is the geometry truth; the wizard tiers are just ways
+to fill it. `offsetMm`/`ledsPerMeter` in settings remain the 2-point tier's
+inputs — changing them (either route) rebuilds the table on that tier only.
+
+- `GET /api/calibration` →
+  ```json
+  {
+    "tier": "twoPoint",              // twoPoint | multiPoint | perKey
+    "reversed": false,               // right-to-left strip install
+    "ledCount": 360,
+    "offsetMm": 0.0,                  // twoPoint only
+    "ledsPerMeter": 180.0,            // twoPoint only
+    "landmarks": [{"note": 21, "led": 2}],   // multiPoint only
+    "keys": [{"note": 21, "first": 0, "last": 1}]  // always: the table (valid keys)
+  }
+  ```
+- `PUT /api/calibration` — body by tier (device rebuilds/validates the table;
+  body `ledCount` is ignored — the device knows its strip):
+  - `{"tier":"twoPoint","offsetMm":0,"ledsPerMeter":180,"reversed":false}`
+    (writes the two scalars through to settings)
+  - `{"tier":"multiPoint","landmarks":[{"note":21,"led":2}, ...]}` (>= 2,
+    notes strictly ascending; descending LEDs = reversed mount)
+  - `{"tier":"perKey","keys":[{"note":60,"first":150,"last":152}, ...]}`
+    (unlisted keys stay dark)
+  → `200` + the GET shape, or `400 {"error": "<typed message>"}` (bad json /
+  bad tier / missing field / need at least 2 landmarks / landmarks must
+  ascend by note / led direction inconsistent / key range off strip / key
+  ranges overlap / note out of range / led off strip).
+  Persisted to `/calibration.json`. Boot with no (or unreadable) file seeds
+  the table from the settings' 2-point values — byte-identical to v1.
+- `POST /api/calibration/probe` body `{"led": 123, "timeoutMs": 30000}`
+  (`timeoutMs` optional, clamped 1s–5min) — lights a single white dot at
+  that LED and captures the NEXT piano note-on as the answer (the press
+  never reaches practice/wait mode). → `200` + probe status, `400 bad led`,
+  `409 playing` (probe never arms during playback; starting playback
+  cancels an armed probe).
+- `GET /api/calibration/probe` → `{"armed": true, "led": 123, "note": null}`
+  (`note` = the captured MIDI note after the press; poll ~2×/s while armed).
+- `DELETE /api/calibration/probe` — cancel; clears any capture. → `200`.
 
 ## Utility
 

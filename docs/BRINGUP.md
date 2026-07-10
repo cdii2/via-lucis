@@ -212,10 +212,42 @@ Action: on the Play page, make sure the mode is **Wait**, then press **Play**.
   notes ever clear themselves without you touching a key →
   [Notes clear themselves (echo)](TROUBLESHOOTING.md#notes-clear-themselves-echo).
 - **Calibration:** if lights sit above the WRONG keys (off by a key or a few
-  millimeters) → [Wrong keys light up](TROUBLESHOOTING.md#wrong-keys-light-up-calibration)
-  for the exact dial-in procedure.
+  millimeters) → run the alignment wizard (Step 11b below), or see
+  [Wrong keys light up](TROUBLESHOOTING.md#wrong-keys-light-up-calibration).
 - **Latency feel:** press-to-light-change should feel instant. If it lags →
   [Lights lag behind key presses](TROUBLESHOOTING.md#lights-lag-behind-key-presses).
+
+## Step 11b — Alignment wizard walk ⚠ VERIFY-ON-HARDWARE
+
+Action: web UI → **Settings** → **Calibration** → **Align lights to keys**.
+Walk the whole wizard once on the real strip.
+
+**Expected:**
+
+1. The ready screen shows both checks green (piano connected, playback
+   stopped). If you left the song playing, the Stop button there stops it.
+2. A single white dot lights near the LEFT end of the strip. If it isn't
+   clearly over a key, the ‹ › buttons visibly slide it. Press the key under
+   it → the phone shows "Got it — <key name>" within a beat (BLE latency,
+   well under a second).
+3. Same for a dot near the RIGHT end.
+4. The check step lights a dot over a middle key by itself — press that key;
+   on a match the wizard finishes with "Lights aligned".
+5. After finishing, load a song in Wait mode and confirm the lit positions
+   sit squarely over the right keys across the whole range.
+
+⚠ VERIFY-ON-HARDWARE items in this step:
+
+- **Dot visibility at practice brightness** — the single white probe dot must
+  be findable in normal room light. If it's too dim, raise Brightness in
+  settings for the wizard run.
+- **Capture correctness** — the key name shown must be the key you pressed
+  (this exercises BLE note-on capture end to end).
+- **Cancel restores** — cancel the wizard midway after at least one save and
+  confirm the previous alignment still works (play a song; lights unchanged).
+- **Reversed-mount check (optional but recommended once):** nothing to do if
+  your strip runs left→right; if you mounted it right→left, the wizard must
+  still finish and lights must land on the correct keys.
 
 ## Step 12 — Done
 

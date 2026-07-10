@@ -3,6 +3,26 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A39 (2026-07-10, C4): wizard shipped per the hardened /plan-design-review
+  spec (autonomous run + Codex outside voice, 18 findings; full pins recorded
+  in PROGRESS C4). Key build decisions: the wizard NEVER PUTs twoPoint — its
+  two-dot coarse step is a 2-landmark multiPoint PUT (measured beats derived;
+  reversal falls out of the data); the twoPoint tier remains the manual-
+  scalars path under "Advanced manual calibration". Commit model = snapshot
+  GET on open, Cancel PUTs it back (the GET shape is PUT-able for every tier
+  — deliberate C3 API property). Coarse dots at 12%/88% of the strip; verify
+  key = white key nearest the captured-span midpoint, alternating 25%/75%
+  probes on "check another key"; a verify MISS becomes the next landmark at
+  the lit LED (the user's press is the measurement). Probe-arm POSTs use raw
+  fetch so 409 routes to the preflight gate by status code. UI auto-re-arms
+  the device's 30s probe timeout silently ("Still waiting…") — no dead ends;
+  body scroll locks while the overlay is open. Mock server grew the full
+  calibration surface + a simulated key-presser (1.2s delay, geometry-derived
+  note, no-key zone at strip start for the move-dot path, REVERSED switch);
+  wizard-abort mid-flow exercised against it via the browse daemon (snapshot
+  restore + probe cleanup + overlay close all verified). gz 10.9→15.6KB,
+  flash 46.3%/RAM 20.4%. Tests unchanged (webui has no native suite; the
+  wizard's device contract is pinned by C3's tests + the API.md doc).
 - A38 (2026-07-10, C3): calibration wiring — the document (tier + reversed +
   tier inputs + the finished table) lives in core `Calibration` with typed
   CalibResult (BadJson/BadTier/MissingField/BadTable{TableError,badKey}) whose

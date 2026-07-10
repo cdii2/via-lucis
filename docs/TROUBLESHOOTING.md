@@ -248,40 +248,50 @@ Fix:
 few millimeters, or drifts — correct at the left end but one key off at the
 right end.
 
-Two dials exist, both on the web UI **Settings** page under **Strip
-calibration**:
+**The fix is the alignment wizard.** Web UI → **Settings** → **Calibration**
+→ **Align lights to keys**. The whole idea: the device lights one dot, you
+press the key under it, and it learns where your keys actually are. No
+measuring, no numbers.
 
-- **Strip offset (mm)** — slides ALL lights left/right. Positive numbers move
-  lights toward the HIGHER keys (right), negative toward the bass. One LED is
-  about 5.6 mm.
-- **LEDs per meter** — fixes *stretch*: correct at one end but increasingly
-  wrong toward the other. Should be 180 for the BOM strip; only touch it if the
-  error grows across the keyboard.
+The wizard walks you through it, but so you know what to expect:
 
-Before dialing: confirm the physical mounting rule — LED 0 (input end) at the
-**left edge of the lowest key A0** (BUILD-GUIDE section 5). If the strip is
-grossly misplaced, slide the strip/channel first; calibration is for the last
-few millimeters.
+1. **Ready check** — it won't start until your piano is connected over
+   Bluetooth and playback is stopped (there's a Stop button right there).
+2. **Align the ends** — a white dot lights near each end of the strip. Use
+   the ‹ › buttons if the dot isn't clearly over a key (e.g. it's past the
+   keyboard's edge), then press the key beneath it. It confirms each press
+   ("Got it — C4") so a bumped key can't sneak in — hit "Try again" if the
+   wrong press got captured.
+3. **Check a key** — the device lights where it now *thinks* a middle key
+   is; you press the key under the light. Match → done. Miss → your press
+   itself becomes a new guide point exactly where the map was wrong, and it
+   checks a different key. Two or three rounds handles even oddly-mounted
+   strips.
+4. **Fine-tune keys** (optional, from the finish screen) — nudge any single
+   key's lights one LED at a time, with a "Show" button that lights the key
+   so you can see what you're adjusting.
 
-The dial-in procedure (uses the red wrong-note flash as a position marker):
+Mounted the strip right-to-left? Nothing special to do — the wizard notices
+the direction from your two key presses and flips everything itself.
 
-1. Load any song, set mode **Wait**, press **Play**. The first notes light and
-   the song waits.
-2. Press the **lowest key** on the piano (A0, far left). Unless the song
-   happens to start on A0, you get a **red flash** exactly where the firmware
-   thinks A0 is.
-3. Compare flash position to the actual key. Adjust **Strip offset** in steps
-   of 2–3 mm (the change takes effect immediately; press A0 again after each
-   change) until the red flash sits squarely over A0.
-4. Now press the **highest key** (C8, far right) and watch its red flash.
-   - Flash centered on C8 → done.
-   - Flash off at the top but perfect at A0 → stretch error. Nudge **LEDs per
-     meter** by 1 at a time: if the C8 flash sits to the **left** of C8 (toward
-     the bass), **raise** the value; if it sits to the **right** (past C8),
-     **lower** it. Re-check BOTH ends after each nudge — offset and stretch
-     interact.
-5. Finish by playing a song in wait mode across the whole range; every lit
-   key should be unambiguous. Settings save automatically and survive reboots.
+Cancel at any point keeps whatever alignment you had before — nothing is
+final until the wizard finishes.
+
+Notes for special cases:
+
+- **Strip physically misplaced** (dots landing on the wall, half the
+  keyboard dark): slide the strip/channel first — BUILD-GUIDE section 5.
+  The wizard fixes mapping, not mounting.
+- **The two manual dials** (Strip offset mm / LEDs per meter) still exist
+  under **Advanced manual calibration** on the Settings page. They're the
+  no-wizard path: offset slides all lights sideways (positive = toward the
+  high keys; one LED ≈ 5.6 mm), LEDs-per-meter fixes stretch (right at one
+  end, increasingly wrong toward the other — 180 for the BOM strip). Using
+  the dials switches you back to standard 2-point alignment; running the
+  wizard afterwards wins again.
+- Alignment saves to the device and survives reboots — and if its saved
+  file is ever corrupted, the device falls back to the manual dials'
+  values rather than going dark.
 
 ## Lights lag behind key presses
 

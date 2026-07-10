@@ -256,6 +256,52 @@ input[type=color] {
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 #toast.err { border-color: rgba(229,72,77,0.5); color: #ff8b8e; }
+
+/* ============ calibration wizard ============ */
+#calWizard {
+  position: fixed; inset: 0; z-index: 70; display: none; flex-direction: column;
+  background: var(--bg);
+}
+#calWizard.show { display: flex; }
+.calhead {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; padding-top: calc(14px + env(safe-area-inset-top));
+  border-bottom: 1px solid var(--line); flex: none;
+}
+.calhead .steplbl {
+  font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em;
+  font-weight: 600; color: var(--dim);
+}
+.calbody {
+  flex: 1; overflow-y: auto; padding: 24px 16px 40px;
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 18px; max-width: 480px; margin: 0 auto; width: 100%;
+}
+.calbody .card { text-align: left; width: 100%; }
+.calbody .btnrow { width: 100%; }
+.calprompt { font-size: 1.3rem; line-height: 1.4; color: var(--text); }
+.calquiet { font-size: 0.8rem; color: var(--dim); margin-top: 4px; }
+.caldot-wrap { width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex: none; }
+.caldot {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--lux);
+  box-shadow: 0 0 22px rgba(240,180,76,0.75);
+  animation: caldotpulse 1.4s ease-in-out infinite;
+}
+@keyframes caldotpulse {
+  0%, 100% { transform: scale(0.82); opacity: 0.65; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+.calmoves { display: flex; gap: 20px; align-items: center; justify-content: center; width: 100%; }
+.calmoves .btn { width: 56px; height: 56px; min-height: 56px; border-radius: 50%; font-size: 1.4rem; padding: 0; flex: none; }
+.calkeynav { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.calchecks { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.calcheck {
+  display: flex; align-items: center; gap: 10px; min-height: 44px;
+  padding: 10px 14px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; font-size: 0.88rem; text-align: left;
+}
+.calcheck .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); flex: none; }
+.calcheck.ok .dot { background: var(--lux); box-shadow: 0 0 6px var(--lux); }
 </style>
 </head>
 <body>
@@ -382,8 +428,15 @@ input[type=color] {
 
   <div class="card set-grid">
     <h2>Strip calibration</h2>
-    <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5"></div>
-    <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="1"></div>
+    <div class="row"><span class="grow" id="calStatusLine">Loading…</span></div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="btn accent" id="btnOpenCal" style="width:100%">Align lights to keys</button>
+    </div>
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:0.82rem;color:var(--dim);padding:6px 0;min-height:44px;display:flex;align-items:center">Advanced manual calibration</summary>
+      <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5"></div>
+      <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="1"></div>
+    </details>
     <div class="row"><label for="s_echoWindowMs">Echo window (ms)</label><input type="number" id="s_echoWindowMs" data-key="echoWindowMs" step="50" min="0" max="5000"></div>
     <div class="note-txt">Raise the echo window if notes clear themselves in wait mode while demo or accompaniment is sounding.</div>
     <div class="row"><label for="s_brightness">Brightness</label><span class="valout" id="v_brightness">160</span></div>
@@ -433,6 +486,14 @@ input[type=color] {
 
 <div id="overlay"><div class="spinner"></div><div>Connecting…</div></div>
 <div id="toast" role="status"></div>
+
+<div id="calWizard" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="calStepLabel">
+  <div class="calhead">
+    <span class="steplbl" id="calStepLabel">Ready to align</span>
+    <button class="btn small" id="calCancel">Cancel</button>
+  </div>
+  <div class="calbody" id="calBody" aria-live="polite"></div>
+</div>
 
 <script>
 "use strict";
@@ -940,6 +1001,7 @@ function loadSettings() {
   api("GET", "/api/settings")
     .then(function (s) { applySettings(s, false); })
     .catch(function (e) { toast(e.message, true); });
+  loadCalStatus();
 }
 
 // color pickers + plain inputs (data-key)
@@ -999,6 +1061,454 @@ $("btnReboot").addEventListener("click", function () {
   offline = false;
   setOffline(true);
 });
+
+/* =========================================================
+   CALIBRATION STATUS (settings card)
+   ========================================================= */
+function calTierLabel(data) {
+  var suffix = data.reversed ? " · reversed strip" : "";
+  if (data.tier === "twoPoint") return "Standard 2-point alignment" + suffix;
+  if (data.tier === "multiPoint") {
+    var n = (data.landmarks || []).length;
+    return "Aligned with " + n + " guide point" + (n === 1 ? "" : "s") + suffix;
+  }
+  if (data.tier === "perKey") return "Custom per-key alignment" + suffix;
+  return "Not aligned yet";
+}
+function loadCalStatus() {
+  api("GET", "/api/calibration")
+    .then(function (data) { $("calStatusLine").textContent = calTierLabel(data); })
+    .catch(function () { $("calStatusLine").textContent = "Couldn't load alignment status"; });
+}
+
+/* =========================================================
+   CALIBRATION WIZARD
+   ========================================================= */
+var WHITE_PC = [0, 2, 4, 5, 7, 9, 11];
+function isWhiteNote(n) { return WHITE_PC.indexOf(((n % 12) + 12) % 12) !== -1; }
+function nearestWhiteNote(n) {
+  for (var d = 0; d < 12; d++) {
+    if (isWhiteNote(n - d)) return n - d;
+    if (isWhiteNote(n + d)) return n + d;
+  }
+  return n;
+}
+
+var cal = {}; // wizard working state, reset on each open
+
+function calProbePost(led, timeoutMs) {
+  return fetch("/api/calibration/probe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ led: led, timeoutMs: timeoutMs || 30000 })
+  }).then(function (r) {
+    return r.text().then(function (txt) {
+      var data = null;
+      try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* ok */ }
+      if (!r.ok) {
+        var e2 = new Error((data && data.error) || ("probe failed (" + r.status + ")"));
+        e2.status = r.status;
+        throw e2;
+      }
+      return data;
+    });
+  });
+}
+
+function openCalWizard() {
+  api("GET", "/api/calibration").then(function (data) {
+    cal.snapshot = data;
+    cal.lastCalData = data;
+    cal.ledCount = data.ledCount;
+    cal.ledA = Math.round(0.12 * data.ledCount);
+    cal.ledB = Math.round(0.88 * data.ledCount);
+    cal.putMade = false;
+    cal.points = [null, null];
+    cal.landmarks = [];
+    cal.quiet = false;
+    cal.lastFocus = document.activeElement;
+    var ov = $("calWizard");
+    ov.className = "show";
+    ov.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";  // lock page scroll behind
+    goToPreflight();
+    $("calCancel").focus();
+  }).catch(function (e) { toast(e.message || "Couldn't reach the device", true); });
+}
+
+function closeCalWizard(keep) {
+  clearInterval(cal.pollTimer);
+  clearInterval(cal.preflightTimer);
+  fetch("/api/calibration/probe", { method: "DELETE" }).catch(function () {});
+  function finish() {
+    var ov = $("calWizard");
+    ov.className = "";
+    ov.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    if (cal.lastFocus && cal.lastFocus.focus) cal.lastFocus.focus();
+    loadCalStatus();
+  }
+  if (!keep && cal.putMade && cal.snapshot) {
+    api("PUT", "/api/calibration", cal.snapshot).catch(function (e) { toast(e.message, true); }).then(finish);
+  } else {
+    finish();
+  }
+}
+function cancelWizard() { closeCalWizard(false); }
+function finishWizard() { closeCalWizard(true); }
+$("calCancel").addEventListener("click", cancelWizard);
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape" && $("calWizard").className.indexOf("show") !== -1) cancelWizard();
+});
+document.addEventListener("focusin", function (e) {
+  var wiz = $("calWizard");
+  if (wiz.className.indexOf("show") !== -1 && !wiz.contains(e.target)) $("calCancel").focus();
+});
+$("btnOpenCal").addEventListener("click", openCalWizard);
+
+function calStepLabel() {
+  switch (cal.step) {
+    case "preflight": return "Ready to align";
+    case "step1": case "confirm1": return "Align the ends";
+    case "saving2": return "Saving…";
+    case "step3": case "confirmMismatch": return "Check a key";
+    case "done": return "Lights aligned";
+    case "finetune": return "Fine-tune keys";
+    default: return "";
+  }
+}
+function calRender() {
+  $("calStepLabel").textContent = calStepLabel();
+  switch (cal.step) {
+    case "preflight": calRenderPreflight(); break;
+    case "step1": calRenderProbeUI(true); break;
+    case "confirm1": calRenderConfirm1(); break;
+    case "step3": calRenderProbeUI(false); break;
+    case "confirmMismatch": calRenderMismatch(); break;
+    case "done": calRenderDone(); break;
+    case "finetune": calRenderFineTune(); break;
+  }
+}
+
+/* ---- preflight ---- */
+function calPreflightTick() {
+  api("GET", "/api/ble").then(function (b) {
+    cal.bleOk = !!b.connected;
+    if (cal.step === "preflight") calRenderPreflight();
+  }).catch(function () { cal.bleOk = false; if (cal.step === "preflight") calRenderPreflight(); });
+  api("GET", "/api/status").then(function (s) {
+    cal.stateOk = (s.state === "idle" || s.state === "finished");
+    if (cal.step === "preflight") calRenderPreflight();
+  }).catch(function () {});
+}
+function goToPreflight() {
+  clearInterval(cal.pollTimer);
+  clearInterval(cal.preflightTimer);
+  fetch("/api/calibration/probe", { method: "DELETE" }).catch(function () {});
+  cal.step = "preflight";
+  cal.bleOk = false;
+  cal.stateOk = false;
+  calRender();
+  cal.preflightTimer = setInterval(calPreflightTick, 500);
+  calPreflightTick();
+}
+function calRenderPreflight() {
+  var bleOk = cal.bleOk, stateOk = cal.stateOk;
+  var html = '<div class="calchecks">';
+  html += '<div class="calcheck' + (bleOk ? " ok" : "") + '"><span class="dot"></span><span>' +
+    (bleOk ? "Piano connected" : "Turn on your piano’s Bluetooth and wait for the ♪ chip up top") +
+    "</span></div>";
+  html += '<div class="calcheck' + (stateOk ? " ok" : "") + '"><span class="dot"></span><span>' +
+    (stateOk ? "Playback stopped" : "Stop playback to align") + "</span></div>";
+  html += "</div>";
+  if (!stateOk) html += '<button class="btn" id="calStopBtn" style="width:100%;max-width:280px">Stop</button>';
+  html += '<button class="btn accent" id="calStartBtn" style="width:100%;max-width:280px"' +
+    ((bleOk && stateOk) ? "" : " disabled") + ">Start</button>";
+  $("calBody").innerHTML = html;
+  var stopBtn = $("calStopBtn");
+  if (stopBtn) stopBtn.addEventListener("click", function () {
+    api("POST", "/api/transport", { action: "stop" }).catch(function (e) { toast(e.message, true); });
+  });
+  $("calStartBtn").addEventListener("click", function () {
+    if (!(cal.bleOk && cal.stateOk)) return;
+    goToStep1(0);
+  });
+}
+
+/* ---- step 1: align the ends ---- */
+function goToStep1(idx) {
+  clearInterval(cal.preflightTimer);
+  cal.dotIndex = idx;
+  cal.step = "step1";
+  cal.quiet = false;
+  calRender();
+  calArm(idx === 0 ? cal.ledA : cal.ledB, 30000);
+}
+function calArm(led, timeoutMs) {
+  cal.armedLed = led;
+  cal.quiet = false;
+  clearInterval(cal.pollTimer);
+  calProbePost(led, timeoutMs).then(function () {
+    cal.pollTimer = setInterval(function () { calPollProbe(led); }, 500);
+    if (cal.step === "step1" || cal.step === "step3") calRender();
+  }).catch(function (e) {
+    if (e.status === 409) { goToPreflight(); return; }
+    toast(e.message || "Couldn't reach the device", true);
+  });
+}
+function calPollProbe(led) {
+  api("GET", "/api/calibration/probe").then(function (p) {
+    if (p.note != null) {
+      clearInterval(cal.pollTimer);
+      calOnCapture(led, p.note);
+      return;
+    }
+    if (p.armed === false) {
+      cal.quiet = true;
+      calRender();
+      calProbePost(led, 30000).catch(function (e) {
+        if (e.status === 409) goToPreflight();
+      });
+    }
+  }).catch(function () { /* transient — keep polling */ });
+}
+function calMove(delta) {
+  var next = Math.max(0, Math.min(cal.ledCount - 1, cal.armedLed + delta));
+  calArm(next, 30000);
+}
+function calRenderProbeUI(showMoves) {
+  var prompt = showMoves
+    ? "Move the light until it sits clearly under a key, then press that key."
+    : "Press the key closest to the lit light.";
+  var html = '<div class="caldot-wrap"><div class="caldot"></div></div>';
+  html += '<div class="calprompt">' + prompt + "</div>";
+  if (cal.quiet) html += '<div class="calquiet">Still waiting for a key press…</div>';
+  if (showMoves) {
+    html += '<div class="calmoves">' +
+      '<button class="btn" id="calMoveLeft" aria-label="Move light left">‹</button>' +
+      '<button class="btn" id="calMoveRight" aria-label="Move light right">›</button>' +
+      "</div>";
+  }
+  $("calBody").innerHTML = html;
+  if (showMoves) {
+    $("calMoveLeft").addEventListener("click", function () { calMove(-4); });
+    $("calMoveRight").addEventListener("click", function () { calMove(4); });
+  }
+}
+function calOnCapture(led, note) {
+  if (cal.step === "step1") {
+    var dup = (cal.dotIndex === 1 && cal.points[0] && cal.points[0].note === note);
+    cal.pendingCapture = { led: led, note: note, dupNote: dup };
+    cal.step = "confirm1";
+    calRender();
+  } else if (cal.step === "step3") {
+    calHandleVerifyCapture(note, led);
+  }
+}
+function calRenderConfirm1() {
+  var pc = cal.pendingCapture;
+  var html = '<div class="card"><div class="calprompt">';
+  html += pc.dupNote
+    ? "That’s the same key as the first light — the two lights need to be over different keys"
+    : ("Got it — " + noteName(pc.note));
+  html += '</div><div class="btnrow" style="margin-top:14px">';
+  if (!pc.dupNote) html += '<button class="btn accent" id="calConfirmYes">That’s right</button>';
+  html += '<button class="btn" id="calConfirmRetry">Try again</button></div></div>';
+  $("calBody").innerHTML = html;
+  if (!pc.dupNote) $("calConfirmYes").addEventListener("click", calAcceptDot);
+  $("calConfirmRetry").addEventListener("click", function () {
+    cal.step = "step1";
+    cal.quiet = false;
+    calRender();
+    calArm(cal.armedLed, 30000);
+  });
+}
+function calAcceptDot() {
+  cal.points[cal.dotIndex] = { led: cal.pendingCapture.led, note: cal.pendingCapture.note };
+  if (cal.dotIndex === 0) {
+    cal.dotIndex = 1;
+    cal.step = "step1";
+    calRender();
+    calArm(cal.ledB, 30000);
+  } else {
+    calSaveCoarse();
+  }
+}
+
+/* ---- step 2: save coarse ---- */
+function calSaveCoarse() {
+  cal.step = "saving2";
+  calRender();
+  var pts = cal.points.slice().sort(function (a, b) { return a.note - b.note; });
+  var landmarks = pts.map(function (p) { return { note: p.note, led: p.led }; });
+  api("PUT", "/api/calibration", { tier: "multiPoint", landmarks: landmarks })
+    .then(function (data) {
+      cal.putMade = true;
+      cal.landmarks = data.landmarks || landmarks;
+      cal.lastCalData = data;
+      calStartVerify(data);
+    })
+    .catch(function (e) {
+      toast(e.message || "Couldn't save — try again", true);
+      cal.dotIndex = 0;
+      cal.step = "step1";
+      calRender();
+      calArm(cal.ledA, 30000);
+    });
+}
+
+/* ---- step 3: check a key ---- */
+function calVerifyNoteFor(loNote, hiNote, toggle) {
+  var lo = Math.min(loNote, hiNote), hi = Math.max(loNote, hiNote);
+  var target = toggle === 0 ? (lo + (hi - lo) * 0.25) : (lo + (hi - lo) * 0.75);
+  return nearestWhiteNote(Math.round(target));
+}
+function calStartVerify(data) {
+  cal.spanLo = cal.landmarks[0].note;
+  cal.spanHi = cal.landmarks[cal.landmarks.length - 1].note;
+  cal.verifyToggle = 0;
+  calRunVerify(data);
+}
+function calRunVerify(data) {
+  var verifyNote = calVerifyNoteFor(cal.spanLo, cal.spanHi, cal.verifyToggle);
+  cal.verifyNote = verifyNote;
+  var entry = (data.keys || []).filter(function (k) { return k.note === verifyNote; })[0];
+  if (!entry) {
+    calGoToDone(data);
+    return;
+  }
+  cal.verifyLed = Math.round((entry.first + entry.last) / 2);
+  cal.step = "step3";
+  cal.quiet = false;
+  calRender();
+  calArm(cal.verifyLed, 30000);
+}
+function calHandleVerifyCapture(note, led) {
+  clearInterval(cal.pollTimer);
+  if (note === cal.verifyNote) {
+    calGoToDone(cal.lastCalData);
+    return;
+  }
+  cal.mismatch = { note: note, led: led };
+  cal.step = "confirmMismatch";
+  calRender();
+}
+function calRenderMismatch() {
+  $("calBody").innerHTML = '<div class="card"><div class="calprompt">' +
+    "Close, but not aligned yet — let’s add a guide point right here.</div>" +
+    '<div class="btnrow" style="margin-top:14px"><button class="btn accent" id="calMismatchContinue">Continue</button></div></div>';
+  $("calMismatchContinue").addEventListener("click", calApplyMismatchFix);
+}
+function calApplyMismatchFix() {
+  var newLandmarks = cal.landmarks.concat([{ note: cal.mismatch.note, led: cal.mismatch.led }])
+    .sort(function (a, b) { return a.note - b.note; });
+  cal.step = "saving2";
+  calRender();
+  api("PUT", "/api/calibration", { tier: "multiPoint", landmarks: newLandmarks })
+    .then(function (data) {
+      cal.putMade = true;
+      cal.landmarks = data.landmarks || newLandmarks;
+      cal.lastCalData = data;
+      cal.verifyToggle = cal.verifyToggle === 0 ? 1 : 0;
+      calRunVerify(data);
+    })
+    .catch(function (e) {
+      toast(e.message || "Couldn't save — try again", true);
+      cal.step = "confirmMismatch";
+      calRender();
+    });
+}
+
+/* ---- done ---- */
+function calGoToDone(data) {
+  cal.lastCalData = data || cal.lastCalData;
+  cal.step = "done";
+  calRender();
+}
+function calRenderDone() {
+  var data = cal.lastCalData || {};
+  var n = (data.landmarks || cal.landmarks || []).length;
+  var dir = data.reversed ? "reversed" : "normal";
+  var html = '<div class="card"><div class="calprompt">Lights aligned</div>';
+  html += '<div class="calquiet">' + n + " guide point" + (n === 1 ? "" : "s") + " · direction: " + dir + "</div></div>";
+  html += '<div class="btnrow"><button class="btn accent" id="calDoneBtn">Done</button>' +
+    '<button class="btn" id="calCheckAnotherBtn">Check another key</button>' +
+    '<button class="btn" id="calFineTuneBtn">Fine-tune keys</button></div>';
+  $("calBody").innerHTML = html;
+  $("calDoneBtn").addEventListener("click", finishWizard);
+  $("calCheckAnotherBtn").addEventListener("click", function () {
+    cal.verifyToggle = cal.verifyToggle === 0 ? 1 : 0;
+    calRunVerify(cal.lastCalData);
+  });
+  $("calFineTuneBtn").addEventListener("click", calEnterFineTune);
+}
+
+/* ---- fine-tune ---- */
+function calEnterFineTune() {
+  api("GET", "/api/calibration").then(function (data) {
+    cal.lastCalData = data;
+    cal.ftKeys = (data.keys || []).slice().sort(function (a, b) { return a.note - b.note; })
+      .map(function (k) { return { note: k.note, first: k.first, last: k.last }; });
+    if (!cal.ftKeys.length) { toast("No keys to fine-tune yet", true); return; }
+    cal.ftIndex = 0;
+    if (cal.verifyNote != null) {
+      var best = Infinity;
+      cal.ftKeys.forEach(function (k, i) {
+        var d = Math.abs(k.note - cal.verifyNote);
+        if (d < best) { best = d; cal.ftIndex = i; }
+      });
+    }
+    cal.step = "finetune";
+    calRender();
+  }).catch(function (e) { toast(e.message, true); });
+}
+function calRenderFineTune() {
+  var k = cal.ftKeys[cal.ftIndex];
+  var html = '<div class="card"><div class="calkeynav">' +
+    '<button class="btn" id="calFtPrev" aria-label="Previous key">‹</button>' +
+    '<div class="calprompt" style="font-size:1.1rem">' + noteName(k.note) + "</div>" +
+    '<button class="btn" id="calFtNext" aria-label="Next key">›</button></div>';
+  html += '<div class="calquiet" style="margin-top:10px;text-align:center">lights ' + k.first + '–' + k.last + "</div>";
+  html += '<div class="btnrow" style="margin-top:14px">' +
+    '<button class="btn" id="calFtShow">Show</button>' +
+    '<button class="btn" id="calFtNudgeLeft" aria-label="Nudge left">‹</button>' +
+    '<button class="btn" id="calFtNudgeRight" aria-label="Nudge right">›</button></div></div>';
+  html += '<div class="btnrow"><button class="btn" id="calFtBack">Back</button>' +
+    '<button class="btn accent" id="calFtSave">Save changes</button></div>';
+  $("calBody").innerHTML = html;
+  $("calFtPrev").disabled = cal.ftIndex === 0;
+  $("calFtNext").disabled = cal.ftIndex === cal.ftKeys.length - 1;
+  $("calFtPrev").addEventListener("click", function () { if (cal.ftIndex > 0) { cal.ftIndex--; calRender(); } });
+  $("calFtNext").addEventListener("click", function () { if (cal.ftIndex < cal.ftKeys.length - 1) { cal.ftIndex++; calRender(); } });
+  $("calFtShow").addEventListener("click", function () {
+    var mid = Math.round((k.first + k.last) / 2);
+    calProbePost(mid, 5000).catch(function (e) { toast(e.message || "Couldn't reach the device", true); });
+  });
+  $("calFtNudgeLeft").addEventListener("click", function () { calFtNudge(-1); });
+  $("calFtNudgeRight").addEventListener("click", function () { calFtNudge(1); });
+  $("calFtBack").addEventListener("click", function () { calGoToDone(cal.lastCalData); });
+  $("calFtSave").addEventListener("click", calFtSave);
+}
+function calFtNudge(delta) {
+  var k = cal.ftKeys[cal.ftIndex];
+  var nf = k.first + delta, nl = k.last + delta;
+  if (nf < 0 || nl > cal.ledCount - 1) return;
+  k.first = nf; k.last = nl;
+  calRender();
+}
+function calFtSave() {
+  api("PUT", "/api/calibration", { tier: "perKey", keys: cal.ftKeys })
+    .then(function (data) {
+      cal.putMade = true;
+      cal.lastCalData = data;
+      toast("Saved");
+      cal.ftKeys = (data.keys || []).slice().sort(function (a, b) { return a.note - b.note; })
+        .map(function (k) { return { note: k.note, first: k.first, last: k.last }; });
+      if (cal.ftIndex >= cal.ftKeys.length) cal.ftIndex = cal.ftKeys.length - 1;
+      calRender();
+    })
+    .catch(function (e) { toast(e.message || "Couldn't save", true); });
+}
 </script>
 </body>
 </html>

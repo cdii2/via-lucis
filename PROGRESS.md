@@ -272,11 +272,25 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
       ignored; explicit cancel route + auto-timeout. Named tests: garbage/partial/
       overlapping table PUTs ⇒ typed 400s; probe timeout; probe cancel; probe
       refused while Playing.
-- [ ] C4 — webui wizard (three tiers, one flow: coarse→fine) + docs: API.md routes,
+- [x] C4 — webui wizard (three tiers, one flow: coarse→fine) + docs: API.md routes,
       TROUBLESHOOTING "wrong key alignment" rewritten around the wizard, BRINGUP
       hardware-verify items appended (wizard walk on the real strip). Extend `tools/`
       mock server so the wizard is demoable with no hardware; wizard-abort mid-flow
       exercised against it.
+      *Design-reviewed 2026-07-10 (/plan-design-review, autonomous + Codex outside
+      voice, 18 findings folded). Hardened spec pins: snapshot-on-open commit model
+      (Cancel PUTs the snapshot back — cancel-discards with zero new firmware);
+      preflight gate (BLE connected + playback stopped, Stop button in place);
+      move-the-dot ‹ › controls as the PRIMARY interaction; explicit "Got it — C4"
+      Accept/Try-again per capture (bumped keys can't poison alignment); landmarks
+      sorted by NOTE before PUT (descending LEDs then encode reversal); verify key =
+      white key nearest the measured-span midpoint (never hardcoded middle C); verify
+      mismatch converts the user's press into the next landmark at exactly the wrong
+      spot; UI auto-re-arms the 30s device timeout (no dead ends); manual scalars
+      demoted behind "Advanced manual calibration"; user copy never says landmark/
+      LED/probe/tier; calibration UI is gold/white only (blue/green stay hand-
+      reserved); a11y: dialog semantics, focus trap, Escape=cancel, aria-live
+      prompts, ≥44px targets.*
 - [ ] closing /code-review over the wave diff.
 
 ### Q-wave — repeat cue (brief §2; the one sanctioned practice-visual delta)
