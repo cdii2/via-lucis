@@ -1,0 +1,3 @@
+# Baked show streams are binary — never CRLF-convert corpus fixtures.
+*.vls binary
+*.mid binary
