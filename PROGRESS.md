@@ -615,6 +615,19 @@ catalog curation, BOM scaling guidance.
   design session). A half-applied batch left one compile error (buildMask arg)
   found+fixed by running the native gate before layering the remaining edits —
   the lesson holds: verify the tree compiles before stacking new work.
+- 2026-07-10 architecture-review steps 1–2 (candidates 3+5): NEW
+  `test_show_player` suite hits `renderAt()` directly — backward-seek reset
+  determinism, bind-cursor rewind, positive scope-mask assertions (types 1/2),
+  mask × additive-blend compositing, bind off timing. The retrigger test
+  caught a REAL bug: bind events sorted ons-before-offs at a tie, so a
+  same-key onset landing exactly on the previous note's shortened off was
+  immediately released instead of held — fixed (offs before ons),
+  show_player.cpp. Editor: selftest fixtures baked "rainbow"/"confetti"/
+  "juggle" — names no firmware registers — now firmware-valid; added
+  FIRMWARE_STREAM_EFFECTS mirror + two selftest drift guards (EFFECTS ⊆
+  firmware set, compiled effects ⊆ EFFECTS). Editor selftest 24/24 PASS in
+  headless Chromium. **301 native tests ALL PASS** (294 baseline after the
+  demo_reel/Pride2015 removal + 7 new).
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

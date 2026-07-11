@@ -219,6 +219,11 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 
 const EMIT_MAJOR = 1, EMIT_MINOR = 0;
 const EFFECTS = ["fire2012","pacifica","twinklefox","colorwaves","notedriven"];
+/* SYNC NOTE: mirrors what the firmware's stream validator accepts —
+   fx::effectNames() in fx/effect_factory.cpp plus "notedriven"
+   (effectNameValid() in show.cpp). The selftest asserts EFFECTS is a
+   subset of this list; update both together. */
+const FIRMWARE_STREAM_EFFECTS = ["fire2012","pacifica","twinklefox","colorwaves","notedriven"];
 const STOCK_PALETTES = ["rainbow","ocean","forest","lava","party","cloud","heat"];
 const MIN_NOTE = 21, MAX_NOTE = 108;         // 88-key piano
 const LANE_COUNT = 8;
@@ -973,16 +978,16 @@ function runSelfTest(){
   song.durationMs = 1250;
 
   clips = [
-    // clip A: autonomous rainbow, all keys, stock palette, opacity blend
-    Object.assign(newClip(0,0,2000), { effect:"rainbow", scopeType:0, drive:0, blend:0,
+    // clip A: autonomous fire2012, all keys, stock palette, opacity blend
+    Object.assign(newClip(0,0,2000), { effect:"fire2012", scopeType:0, drive:0, blend:0,
       opacity:0.5, paletteKind:"stock", stockIdx:3, speed:2.0 }),
-    // clip B: note-driven confetti, pitch range, custom gradient, additive
-    Object.assign(newClip(1,500,4000), { effect:"confetti", scopeType:1, lo:60, hi:72, drive:1,
+    // clip B: note-driven twinklefox, pitch range, custom gradient, additive
+    Object.assign(newClip(1,500,4000), { effect:"twinklefox", scopeType:1, lo:60, hi:72, drive:1,
       blend:1, opacity:1.0, paletteKind:"custom", cA:"#ff0000", cB:"#0000ff", speed:0.5 }),
     // clip C: note-binding, exercises scope type 3 (u16 n, n x (u32,u8))
     Object.assign(newClip(2,0,1500), { effect:"pacifica", scopeType:3, drive:1, openEnded:false }),
     // clip D: note set (scope type 2)
-    Object.assign(newClip(3,0,1000), { effect:"juggle", scopeType:2, notes:[36,48,60] })
+    Object.assign(newClip(3,0,1000), { effect:"colorwaves", scopeType:2, notes:[36,48,60] })
   ];
   groups = [];
   el("showName").value = "selftest"; el("clockSource").value = "1";
@@ -1001,6 +1006,14 @@ function runSelfTest(){
   A(metaLen === 1 + 4 + ("selftest".length + 1), "freeRun META has no follow-track byte (len "+metaLen+")");
   A(back.cues.length===4, "4 cues ("+back.cues.length+")");
   A(JSON.stringify(back.effects)===JSON.stringify(m.effects), "effects table matches: "+m.effects.join(","));
+  // drift guards: the effect list the UI offers must be firmware-valid, and
+  // the compiled stream must never name an effect the device would reject
+  // (Show::parse -> UnknownEffect). Caught real drift once: the old fixtures
+  // baked "confetti"/"juggle"/"rainbow", which no firmware registers.
+  A(EFFECTS.every(e=>FIRMWARE_STREAM_EFFECTS.includes(e)),
+    "EFFECTS is a subset of firmware stream effects");
+  A(m.effects.every(e=>EFFECTS.includes(e)),
+    "compiled effects table only uses editor EFFECTS: "+m.effects.join(","));
   A(back.palettes.length===m.palettes.length, "palette count "+m.palettes.length);
 
   // deep field checks against the compiled model
@@ -1022,7 +1035,7 @@ function runSelfTest(){
   const setCue = back.cues.find(c=>c.scopeType===2);
   A(setCue && JSON.stringify(setCue.scope.notes)===JSON.stringify([36,48,60]), "scope2 note set [36,48,60]");
   // speed fixed-point
-  A(m.cues.find(c=>c.effectIndex===m.effects.indexOf("rainbow")).speed===32, "speed 2.0×16=32");
+  A(m.cues.find(c=>c.effectIndex===m.effects.indexOf("fire2012")).speed===32, "speed 2.0×16=32");
   // z-order: clips A(lane0), C(lane2), D(lane3) all start at 0 — stream order
   // must be descending lane (higher lane earlier, lower lane last/on-top).
   const zeroStart = m.cues.filter(c=>c.startMs===0);

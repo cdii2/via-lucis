@@ -116,7 +116,10 @@ void ShowPlayer::load(Show&& show, const KeyLedTable& table, uint32_t seed) {
         std::sort(evts.begin(), evts.end(),
                   [](const BindEvent& a, const BindEvent& b) {
                       if (a.clipMs != b.clipMs) return a.clipMs < b.clipMs;
-                      return a.off < b.off;  // ons before offs at a tie
+                      // Offs before ons at a tie: a shortened off lands
+                      // exactly on the next same-key onset and must not
+                      // release the re-struck note.
+                      return a.off > b.off;
                   });
     }
 
