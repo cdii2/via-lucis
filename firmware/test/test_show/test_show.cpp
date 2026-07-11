@@ -134,9 +134,9 @@ struct StreamBuilder {
 StreamBuilder standardStream() {
     StreamBuilder sb;
     sb.add(1, metaSection(0, 5000, "test"));
-    sb.add(2, effectsSection({"rainbow", "bpm", "notedriven"}));
+    sb.add(2, effectsSection({"fire2012", "pacifica", "notedriven"}));
     std::vector<CueSpec> cues;
-    CueSpec c0;  // whole-strip rainbow
+    CueSpec c0;  // whole-strip fire2012
     c0.startMs = 0;
     c0.endMs = 2000;
     c0.effectIndex = 0;
@@ -144,7 +144,7 @@ StreamBuilder standardStream() {
     c0.opacity = 200;
     c0.speed = 16;
     cues.push_back(c0);
-    CueSpec c1;  // pitch-range bpm, additive
+    CueSpec c1;  // pitch-range pacifica, additive
     c1.startMs = 1000;
     c1.endMs = 0xFFFFFFFFu;
     c1.effectIndex = 1;
@@ -207,8 +207,8 @@ void test_round_trip() {
     TEST_ASSERT_EQUAL_STRING("test", show.meta.name.c_str());
 
     TEST_ASSERT_EQUAL_size_t(3, show.effects.size());
-    TEST_ASSERT_EQUAL_STRING("rainbow", show.effects[0].c_str());
-    TEST_ASSERT_EQUAL_STRING("bpm", show.effects[1].c_str());
+    TEST_ASSERT_EQUAL_STRING("fire2012", show.effects[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("pacifica", show.effects[1].c_str());
     TEST_ASSERT_EQUAL_STRING("notedriven", show.effects[2].c_str());
 
     TEST_ASSERT_EQUAL_size_t(3, show.cues.size());  // sorted by startMs
@@ -284,7 +284,7 @@ void test_unknown_section_skipped() {
     StreamBuilder sb;
     sb.add(1, metaSection(1, 1234, "hi"));
     sb.add(0x4321, {1, 2, 3, 4, 5});  // unknown section — must be skipped
-    sb.add(2, effectsSection({"rainbow"}));
+    sb.add(2, effectsSection({"fire2012"}));
     std::vector<CueSpec> cues;
     CueSpec c;
     c.effectIndex = 0;
@@ -305,7 +305,7 @@ void test_unknown_section_skipped() {
 void test_unknown_effect() {
     StreamBuilder sb;
     sb.add(1, metaSection(0, 100, "x"));
-    sb.add(2, effectsSection({"rainbow", "nonsuch"}));
+    sb.add(2, effectsSection({"fire2012", "nonsuch"}));
     std::vector<uint8_t> bytes = sb.build();
     Show show;
     ShowResult r = Show::parse(bytes.data(), bytes.size(), show);
@@ -319,7 +319,7 @@ void test_score_follow_meta_parses() {
     // Absent trailing byte ⇒ followTrack = 0xFF (auto).
     StreamBuilder sb;
     sb.add(1, metaSection(2, 100, "x"));
-    sb.add(2, effectsSection({"rainbow"}));
+    sb.add(2, effectsSection({"fire2012"}));
     std::vector<uint8_t> bytes = sb.build();
     Show show;
     ShowResult r = Show::parse(bytes.data(), bytes.size(), show);
@@ -332,7 +332,7 @@ void test_score_follow_meta_parses() {
     std::vector<uint8_t> meta = metaSection(2, 100, "x");
     meta.push_back(1);  // followTrackIndex = 1
     sb2.add(1, std::move(meta));
-    sb2.add(2, effectsSection({"rainbow"}));
+    sb2.add(2, effectsSection({"fire2012"}));
     std::vector<uint8_t> bytes2 = sb2.build();
     Show show2;
     ShowResult r2 = Show::parse(bytes2.data(), bytes2.size(), show2);
@@ -345,7 +345,7 @@ void test_score_follow_meta_parses() {
     std::vector<uint8_t> meta3 = metaSection(2, 100, "x");
     meta3.push_back(0xFF);
     sb3.add(1, std::move(meta3));
-    sb3.add(2, effectsSection({"rainbow"}));
+    sb3.add(2, effectsSection({"fire2012"}));
     std::vector<uint8_t> bytes3 = sb3.build();
     Show show3;
     TEST_ASSERT_TRUE(Show::parse(bytes3.data(), bytes3.size(), show3).ok());
@@ -356,7 +356,7 @@ void test_score_follow_meta_parses() {
 void test_out_of_range_scope_dark() {
     StreamBuilder sb;
     sb.add(1, metaSection(0, 100, "x"));
-    sb.add(2, effectsSection({"rainbow"}));
+    sb.add(2, effectsSection({"fire2012"}));
     std::vector<CueSpec> cues;
     CueSpec c;
     c.effectIndex = 0;
@@ -378,7 +378,7 @@ void test_out_of_range_scope_dark() {
     // A pitch range wholly beyond 88 keys is likewise dark, no crash.
     StreamBuilder sb2;
     sb2.add(1, metaSection(0, 100, "x"));
-    sb2.add(2, effectsSection({"rainbow"}));
+    sb2.add(2, effectsSection({"fire2012"}));
     std::vector<CueSpec> cues2;
     CueSpec c2;
     c2.effectIndex = 0;
@@ -403,7 +403,7 @@ ShowPlayer soloPlayer(uint8_t effectIndex, uint8_t blend, uint8_t opacity,
                       uint8_t speed = 16) {
     StreamBuilder sb;
     sb.add(1, metaSection(0, 100000, "x"));
-    sb.add(2, effectsSection({"rainbow", "bpm"}));
+    sb.add(2, effectsSection({"fire2012", "pacifica"}));
     std::vector<CueSpec> cues;
     CueSpec c;
     c.effectIndex = effectIndex;
@@ -426,8 +426,8 @@ void test_compositor_blends() {
     const uint32_t songMs = 320;
 
     // Solo renders to derive the exact expected composites.
-    ShowPlayer s0 = soloPlayer(0, 0, 255);  // rainbow scratch
-    ShowPlayer s1 = soloPlayer(1, 0, 255);  // bpm scratch
+    ShowPlayer s0 = soloPlayer(0, 0, 255);  // fire2012 scratch
+    ShowPlayer s1 = soloPlayer(1, 0, 255);  // pacifica scratch
     std::vector<Rgb> base(360), over(360);
     s0.renderAt(songMs, base);
     s1.renderAt(songMs, over);
@@ -436,12 +436,12 @@ void test_compositor_blends() {
                           bool topFirst) {
         StreamBuilder sb;
         sb.add(1, metaSection(0, 100000, "x"));
-        sb.add(2, effectsSection({"rainbow", "bpm"}));
-        CueSpec bg;  // rainbow, whole strip, opaque base
+        sb.add(2, effectsSection({"fire2012", "pacifica"}));
+        CueSpec bg;  // fire2012, whole strip, opaque base
         bg.effectIndex = 0;
         bg.blend = 0;
         bg.opacity = 255;
-        CueSpec top;  // bpm on top
+        CueSpec top;  // pacifica on top
         top.effectIndex = 1;
         top.blend = topBlend;
         top.opacity = topOpacity;
@@ -490,8 +490,8 @@ void test_compositor_blends() {
         }
     }
 
-    // Later-over-earlier: bpm last with opaque opacity blend fully replaces
-    // the rainbow base ⇒ combo == bpm solo.
+    // Later-over-earlier: pacifica last with opaque opacity blend fully
+    // replaces the fire2012 base ⇒ combo == pacifica solo.
     {
         ShowPlayer p = buildCombo(0, 255, /*topFirst=*/false);
         std::vector<Rgb> out(360);
@@ -502,7 +502,7 @@ void test_compositor_blends() {
             TEST_ASSERT_EQUAL_UINT8(over[i].b, out[i].b);
         }
     }
-    // Reverse the stream order: rainbow now on top ⇒ combo == rainbow solo.
+    // Reverse the stream order: fire2012 now on top ⇒ combo == fire2012 solo.
     {
         ShowPlayer p = buildCombo(0, 255, /*topFirst=*/true);
         std::vector<Rgb> out(360);
@@ -570,7 +570,7 @@ void test_note_binding_drive() {
 void test_cue_count_dos() {
     StreamBuilder sb;
     sb.add(1, metaSection(0, 100, "x"));
-    sb.add(2, effectsSection({"rainbow"}));
+    sb.add(2, effectsSection({"fire2012"}));
     // CUES payload is JUST the u16 count = 0xFFFF, with zero cue bytes after.
     sb.add(4, std::vector<uint8_t>{0xFF, 0xFF});
     std::vector<uint8_t> bytes = sb.build();

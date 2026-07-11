@@ -110,10 +110,9 @@ own route). Tracks are effect configs played top→bottom→loop.
     "aboveKeysOnly": false
   }
   ```
-  Effects: `rainbow confetti sinelon juggle bpm fire2012 pacifica
-  twinklefox colorwaves pride2015`. Palettes: `rainbow ocean forest lava
-  party cloud heat` (`""` = the effect's default). An empty playlist falls
-  back to a gentle rainbow.
+  Effects: `fire2012 pacifica twinklefox colorwaves`. Palettes: `rainbow
+  ocean forest lava party cloud heat` (`""` = the effect's default). An
+  empty playlist falls back to a gentle color wave.
 - `PUT /api/afk` — same shape → `200` + the stored config, or
   `400 {"error": "unknown effect: X" | "unknown palette: X" |
   "too many tracks (max 16)" | "bad json"}`.

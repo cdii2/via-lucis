@@ -140,9 +140,10 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   from src/ of the SAME MIT release — OV3's target was gists/forums, not
   the library's own source; every file's header names its exact source
   paths. beat*/beatsin* take explicit ms (VL7 determinism). ColorWaves is
-  not in examples/ ⇒ shipped as a palette-driven derivation of the ported
-  Pride2015 wave math (idea reimplementation, no gist code). TwinkleFox's
-  palette rotation dropped in favor of the ONE setPalette primitive.
+  not in examples/ ⇒ shipped as a palette-driven derivation of the
+  Pride2015 example's wave math (idea reimplementation, no gist code).
+  TwinkleFox's palette rotation dropped in favor of the ONE setPalette
+  primitive.
   E3 player: dwell counts fixed frames (render cadence ≈ wall time only
   while AFK is actually rendering — dwell pauses with the mode, which is
   the right behavior for an ambient show); crossfade renders the incoming

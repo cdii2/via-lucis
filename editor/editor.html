@@ -218,8 +218,7 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
    ===================================================================== */
 
 const EMIT_MAJOR = 1, EMIT_MINOR = 0;
-const EFFECTS = ["rainbow","confetti","sinelon","juggle","bpm","fire2012",
-                 "pacifica","twinklefox","colorwaves","pride2015","notedriven"];
+const EFFECTS = ["fire2012","pacifica","twinklefox","colorwaves","notedriven"];
 const STOCK_PALETTES = ["rainbow","ocean","forest","lava","party","cloud","heat"];
 const MIN_NOTE = 21, MAX_NOTE = 108;         // 88-key piano
 const LANE_COUNT = 8;
@@ -588,8 +587,7 @@ const yOfNote = (n)=> RULER_H + (MAX_NOTE - n) * pxPerRow;
 function laneAt(y){ const L = layout(); if(y < L.lanesTop) return -1;
   return clamp(Math.floor((y - L.lanesTop)/LANE_H), 0, LANE_COUNT-1); }
 function laneY(lane){ return layout().lanesTop + lane*LANE_H; }
-const EFFECT_HUE = {rainbow:20,confetti:300,sinelon:200,juggle:120,bpm:40,fire2012:15,
-  pacifica:190,twinklefox:270,colorwaves:230,pride2015:330,notedriven:55};
+const EFFECT_HUE = {fire2012:15,pacifica:190,twinklefox:270,colorwaves:230,notedriven:55};
 
 function draw(){
   const L = layout();

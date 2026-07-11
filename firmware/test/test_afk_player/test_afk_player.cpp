@@ -42,7 +42,7 @@ void test_empty_playlist_falls_back_to_stub() {
     p.setConfig(AfkConfig{}, 7);  // no tracks
     std::vector<Rgb> f(kLeds);
     for (int i = 0; i < 5; ++i) p.render(f);
-    TEST_ASSERT_TRUE(litCount(f) > 0);  // the rainbow stub paints
+    TEST_ASSERT_TRUE(litCount(f) > 0);  // the fallback effect paints
 }
 
 void test_unknown_effect_name_renders_fallback_not_crash() {
@@ -58,7 +58,7 @@ void test_unknown_effect_name_renders_fallback_not_crash() {
 void test_dwell_zero_is_clamped() {
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.tracks.push_back({"fire2012", ""});
     c.dwellSec = 0;  // config bug: clamped to >= 5s, not instant flipping
     p.setConfig(c, 7);
@@ -71,7 +71,7 @@ void test_dwell_zero_is_clamped() {
 void test_shuffle_with_a_single_track_repeats_it() {
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.shuffle = true;
     c.dwellSec = 5;
     p.setConfig(c, 7);
@@ -88,7 +88,7 @@ void test_crossfade_has_no_snap_frame() {
     // sparky effect like fire2012 jumps by design — wrong yardstick.)
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.tracks.push_back({"pacifica", ""});
     c.dwellSec = 5;
     c.crossfadeMs = 2000;
@@ -121,7 +121,7 @@ void test_crossfade_has_no_snap_frame() {
 void test_brightness_cap_bounds_every_channel() {
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.brightnessCap = 64;
     p.setConfig(c, 7);
     std::vector<Rgb> f(kLeds);
@@ -140,7 +140,7 @@ void test_above_keys_only_masks_outside_the_span() {
     t.set(108, LedRange{78, 79, true});
     p.setTable(t);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.aboveKeysOnly = true;
     p.setConfig(c, 7);
     std::vector<Rgb> f(kLeds);
@@ -158,7 +158,7 @@ void test_above_keys_only_masks_outside_the_span() {
 void test_manual_next_previous_move_tracks() {
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.tracks.push_back({"fire2012", ""});
     c.tracks.push_back({"pacifica", ""});
     p.setConfig(c, 7);
@@ -175,7 +175,7 @@ void test_manual_next_previous_move_tracks() {
 void test_repeat_current_never_advances() {
     AfkPlayer p(kLeds);
     AfkConfig c;
-    c.tracks.push_back({"rainbow", ""});
+    c.tracks.push_back({"colorwaves", ""});
     c.tracks.push_back({"fire2012", ""});
     c.dwellSec = 5;
     c.repeatCurrent = true;

@@ -44,7 +44,7 @@ then sectionCount × section:
 | type | name | payload |
 | --- | --- | --- |
 | 1 | META | u8 clockSource (0=demo, 1=freeRun, 2=scoreFollow) · u32 durationMs · zero-terminated show name (≤48 bytes) · **[optional] u8 followTrackIndex*** |
-| 2 | EFFECTS | u8 count × zero-terminated factory name (the E-wave registry: `rainbow`…`pride2015`, plus `notedriven`) |
+| 2 | EFFECTS | u8 count × zero-terminated factory name (the E-wave registry: `fire2012`…`colorwaves`, plus `notedriven`) |
 | 3 | PALETTES | u8 count × 16×3 bytes RGB (custom palettes; stock ones ride effect params) |
 | 4 | CUES | u16 count × cue record (below) |
 | 0xFFFF | END | empty; must be last |

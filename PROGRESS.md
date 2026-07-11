@@ -376,7 +376,7 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 - [x] E1 — Effect seam (fixed timestep, injectable RNG, palette + params in, frame
       buffer out — VL7) + shared palette system + the classic ports, one commit each:
-      DemoReel100 set, Fire2012, Pacifica, TwinkleFox, ColorWaves, Pride2015. Each
+      Fire2012, Pacifica, TwinkleFox, ColorWaves. Each
       lands with determinism/bounds/zero-alloc native tests + MIT attribution header.
       Provenance rule (OV3): port ONLY from the FastLED repo `examples/` tree at a
       pinned commit (that tree is MIT) — never gists/forums; each port's header and

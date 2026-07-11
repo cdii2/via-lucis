@@ -61,7 +61,7 @@ void test_idle_timeout_arms_afk_with_no_song() {
     // structurally: there is no director call for a GET).
     r.tick(182 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(182 * kSec) == TopMode::Afk);
-    // AFK content: the rainbow stub paints, strip is NOT dark (VL5).
+    // AFK content: the fallback effect paints, strip is NOT dark (VL5).
     TEST_ASSERT_TRUE(litCount(r.director.renderFrame(182 * kSec)) > 0);
 }
 
@@ -199,8 +199,8 @@ void test_stale_presentation_never_survives_unload() {
 
 void test_afk_plays_the_configured_playlist_not_the_fallback() {
     // E3 end-to-end: a configured track must be what AFK renders. Pacifica
-    // is blue/green dominated; the empty-playlist rainbow fallback carries
-    // strong reds — the color balance tells them apart.
+    // is blue/green dominated, so a track that isn't blue/green dominant
+    // would mean the fallback (not the configured track) painted the strip.
     Rig r;
     fx::AfkConfig c;
     c.tracks.push_back({"pacifica", ""});
@@ -219,7 +219,7 @@ void test_afk_plays_the_configured_playlist_not_the_fallback() {
     }
     TEST_ASSERT_TRUE(gSum + bSum > 0);
     TEST_ASSERT_TRUE_MESSAGE(bSum + gSum > rSum * 3,
-                             "configured pacifica, not the rainbow stub");
+                             "configured pacifica, not the fallback");
 }
 
 void test_reactive_free_play_glows_and_decays() {
@@ -250,8 +250,8 @@ void test_presentation_plays_a_show_on_the_song_clock() {
     s.meta.clockSource = 1;  // free-run
     s.meta.durationMs = 5000;
     s.meta.name = "t";
-    s.effects.push_back("rainbow");
-    ShowCue cue;  // whole-strip autonomous rainbow, open-ended
+    s.effects.push_back("colorwaves");
+    ShowCue cue;  // whole-strip autonomous effect, open-ended
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);
     gOut.clear();
@@ -284,7 +284,7 @@ void test_show_dies_with_the_song() {
     r.tick(1 * kSec);
     r.load();
     Show s;
-    s.effects.push_back("rainbow");
+    s.effects.push_back("colorwaves");
     ShowCue cue;
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);
@@ -306,7 +306,7 @@ void test_leaving_presentation_midshow_clears_show_playing() {
     r.tick(1 * kSec);
     r.load();
     Show s;
-    s.effects.push_back("rainbow");
+    s.effects.push_back("colorwaves");
     ShowCue cue;
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);
@@ -332,7 +332,7 @@ Show scoreFollowShow(uint8_t clock) {
     s.meta.clockSource = clock;
     s.meta.durationMs = 5000;
     s.meta.name = "sf";
-    s.effects.push_back("rainbow");
+    s.effects.push_back("colorwaves");
     ShowCue cue;
     cue.endMs = 0xFFFFFFFFu;
     s.cues.push_back(cue);

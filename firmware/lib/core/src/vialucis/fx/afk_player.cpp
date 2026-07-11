@@ -4,7 +4,7 @@
 
 #include <algorithm>
 
-#include "vialucis/fx/demo_reel.h"
+#include "vialucis/fx/color_waves.h"
 #include "vialucis/fx/fx_color.h"
 
 namespace vialucis {
@@ -12,7 +12,7 @@ namespace fx {
 
 AfkPlayer::AfkPlayer(uint16_t ledCount)
     : ledCount_(ledCount), bufA_(ledCount), bufB_(ledCount) {
-    fallback_ = std::make_unique<RainbowFx>();
+    fallback_ = std::make_unique<ColorWavesFx>();
     fallback_->reset(1, ledCount);
 }
 

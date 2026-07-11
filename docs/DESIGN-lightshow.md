@@ -101,8 +101,7 @@ There is **one** effect engine underneath every aesthetic mode; the modes differ
 how they *sequence* it.
 
 - **Library:** port the classic **MIT-licensed FastLED** effects — Fire2012, Pacifica,
-  TwinkleFox, ColorWaves, Pride2015, the DemoReel100 set (rainbow, confetti, sinelon,
-  juggle, bpm). Plus a shared **palette** system (Rainbow/Ocean/Forest/Lava/Party/custom)
+  TwinkleFox, ColorWaves. Plus a shared **palette** system (Rainbow/Ocean/Forest/Lava/Party/custom)
   as the one color primitive most effects already accept.
   - **License discipline:** do **not** lift **WLED** wholesale — it is EUPL-1.2
     (copyleft) and is a whole firmware, not a library. Reimplement any effect *idea* we

@@ -62,9 +62,7 @@ afk = {
     "aboveKeysOnly": False,
 }
 # SYNC NOTE: mirrors effectNames() in fx/effect_factory.cpp (+ webui + API.md).
-AFK_EFFECTS = {"rainbow", "confetti", "sinelon", "juggle", "bpm",
-               "fire2012", "pacifica", "twinklefox", "colorwaves",
-               "pride2015"}
+AFK_EFFECTS = {"fire2012", "pacifica", "twinklefox", "colorwaves"}
 shows = {}  # name -> size (P2 mock: enough for the editor's flows)
 show_playing = [None]
 songs = [

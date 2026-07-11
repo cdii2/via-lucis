@@ -3,17 +3,16 @@
 // the same way: determinism, bounds, alloc-by-construction, non-black.
 //
 // This file is shared across multiple porting efforts — each new effect
-// (or effect family, e.g. demo_reel.h's five) adds its own "=== <Name> ==="
-// block using the shared helpers just below, and registers its RUN_TESTs in
-// main() under a matching comment banner. Please append, don't reorder or
-// rewrite existing blocks.
+// (or effect family) adds its own "=== <Name> ===" block using the shared
+// helpers just below, and registers its RUN_TESTs in main() under a
+// matching comment banner. Please append, don't reorder or rewrite
+// existing blocks.
 
 #include <unity.h>
 
 #include <vector>
 
 #include "vialucis/fx/color_waves.h"
-#include "vialucis/fx/demo_reel.h"
 #include "vialucis/fx/fire2012.h"
 #include "vialucis/fx/pacifica.h"
 #include "vialucis/fx/palette.h"
@@ -89,114 +88,6 @@ void assertRunsCleanAt(uint16_t ledCount, uint32_t frameCount) {
 }
 
 }  // namespace
-
-// ---------------------------------------------------------------------------
-// === RainbowFx === (fill_rainbow — no randomness; seed doesn't affect
-// output, only elapsed ms does)
-// ---------------------------------------------------------------------------
-
-void test_rainbow_same_seed_is_deterministic() {
-    auto a = runFrames<fx::RainbowFx>(1, 60, 50);
-    auto b = runFrames<fx::RainbowFx>(1, 60, 50);
-    TEST_ASSERT_TRUE(framesEqual(a, b));
-}
-
-void test_rainbow_bounds_60_and_360() {
-    assertRunsCleanAt<fx::RainbowFx>(60, 100);
-    assertRunsCleanAt<fx::RainbowFx>(360, 100);
-}
-
-void test_rainbow_lights_up() {
-    auto pixels = runFrames<fx::RainbowFx>(1, 60, 5);
-    TEST_ASSERT_TRUE(anyLit(pixels));
-}
-
-// ---------------------------------------------------------------------------
-// === ConfettiFx === (one random sparkle per frame — the one effect here
-// whose output depends on seed)
-// ---------------------------------------------------------------------------
-
-void test_confetti_same_seed_is_deterministic() {
-    auto a = runFrames<fx::ConfettiFx>(42, 60, 50);
-    auto b = runFrames<fx::ConfettiFx>(42, 60, 50);
-    TEST_ASSERT_TRUE(framesEqual(a, b));
-}
-
-void test_confetti_different_seeds_differ() {
-    auto a = runFrames<fx::ConfettiFx>(1, 60, 50);
-    auto b = runFrames<fx::ConfettiFx>(2, 60, 50);
-    TEST_ASSERT_FALSE(framesEqual(a, b));
-}
-
-void test_confetti_bounds_60_and_360() {
-    assertRunsCleanAt<fx::ConfettiFx>(60, 100);
-    assertRunsCleanAt<fx::ConfettiFx>(360, 100);
-}
-
-void test_confetti_lights_up() {
-    auto pixels = runFrames<fx::ConfettiFx>(1, 60, 10);
-    TEST_ASSERT_TRUE(anyLit(pixels));
-}
-
-// ---------------------------------------------------------------------------
-// === SinelonFx === (beatsin16-driven dot — no randomness)
-// ---------------------------------------------------------------------------
-
-void test_sinelon_same_seed_is_deterministic() {
-    auto a = runFrames<fx::SinelonFx>(1, 60, 50);
-    auto b = runFrames<fx::SinelonFx>(1, 60, 50);
-    TEST_ASSERT_TRUE(framesEqual(a, b));
-}
-
-void test_sinelon_bounds_60_and_360() {
-    assertRunsCleanAt<fx::SinelonFx>(60, 100);
-    assertRunsCleanAt<fx::SinelonFx>(360, 100);
-}
-
-void test_sinelon_lights_up() {
-    auto pixels = runFrames<fx::SinelonFx>(1, 60, 5);
-    TEST_ASSERT_TRUE(anyLit(pixels));
-}
-
-// ---------------------------------------------------------------------------
-// === JuggleFx === (eight beatsin16 dots — no randomness)
-// ---------------------------------------------------------------------------
-
-void test_juggle_same_seed_is_deterministic() {
-    auto a = runFrames<fx::JuggleFx>(1, 60, 50);
-    auto b = runFrames<fx::JuggleFx>(1, 60, 50);
-    TEST_ASSERT_TRUE(framesEqual(a, b));
-}
-
-void test_juggle_bounds_60_and_360() {
-    assertRunsCleanAt<fx::JuggleFx>(60, 100);
-    assertRunsCleanAt<fx::JuggleFx>(360, 100);
-}
-
-void test_juggle_lights_up() {
-    auto pixels = runFrames<fx::JuggleFx>(1, 60, 5);
-    TEST_ASSERT_TRUE(anyLit(pixels));
-}
-
-// ---------------------------------------------------------------------------
-// === BpmFx === (PartyColors pulse at 62 BPM — no randomness)
-// ---------------------------------------------------------------------------
-
-void test_bpm_same_seed_is_deterministic() {
-    auto a = runFrames<fx::BpmFx>(1, 60, 50);
-    auto b = runFrames<fx::BpmFx>(1, 60, 50);
-    TEST_ASSERT_TRUE(framesEqual(a, b));
-}
-
-void test_bpm_bounds_60_and_360() {
-    assertRunsCleanAt<fx::BpmFx>(60, 100);
-    assertRunsCleanAt<fx::BpmFx>(360, 100);
-}
-
-void test_bpm_lights_up() {
-    auto pixels = runFrames<fx::BpmFx>(1, 60, 5);
-    TEST_ASSERT_TRUE(anyLit(pixels));
-}
 
 // ---------------------------------------------------------------------------
 // === Fire2012Fx === (FastLED examples/Fire2012/Fire2012.ino — heat buffer +
@@ -439,32 +330,6 @@ void test_color_waves_set_palette_changes_output() {
 
 int main(int, char**) {
     UNITY_BEGIN();
-
-    // RainbowFx
-    RUN_TEST(test_rainbow_same_seed_is_deterministic);
-    RUN_TEST(test_rainbow_bounds_60_and_360);
-    RUN_TEST(test_rainbow_lights_up);
-
-    // ConfettiFx
-    RUN_TEST(test_confetti_same_seed_is_deterministic);
-    RUN_TEST(test_confetti_different_seeds_differ);
-    RUN_TEST(test_confetti_bounds_60_and_360);
-    RUN_TEST(test_confetti_lights_up);
-
-    // SinelonFx
-    RUN_TEST(test_sinelon_same_seed_is_deterministic);
-    RUN_TEST(test_sinelon_bounds_60_and_360);
-    RUN_TEST(test_sinelon_lights_up);
-
-    // JuggleFx
-    RUN_TEST(test_juggle_same_seed_is_deterministic);
-    RUN_TEST(test_juggle_bounds_60_and_360);
-    RUN_TEST(test_juggle_lights_up);
-
-    // BpmFx
-    RUN_TEST(test_bpm_same_seed_is_deterministic);
-    RUN_TEST(test_bpm_bounds_60_and_360);
-    RUN_TEST(test_bpm_lights_up);
 
     // Fire2012Fx
     RUN_TEST(test_fire2012_same_seed_is_deterministic);
