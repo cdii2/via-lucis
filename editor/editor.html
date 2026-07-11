@@ -356,7 +356,10 @@ let pxPerMs = 0.06, pxPerRow = 5;
 let deviceFormatVersion = null;  // number (major) or null
 
 function newClip(lane, startMs, endMs){
-  return { id: clipSeq++, name: "clip "+clipSeq, effect: "rainbow",
+  // Default effect MUST be firmware-valid (EFFECTS[0]): the inspector select
+  // silently DISPLAYS its first option for an unknown name while the model
+  // keeps it, so an invalid default bakes streams the device rejects.
+  return { id: clipSeq++, name: "clip "+clipSeq, effect: EFFECTS[0],
     startMs: Math.round(startMs), endMs: Math.round(endMs), openEnded: false,
     lane, scopeType: 0, lo: 60, hi: 72, notes: [60,64,67],
     drive: 0, blend: 0, opacity: 1.0,
@@ -1063,6 +1066,27 @@ function runSelfTest(){
   el("followTrack").value = "255";                      // Auto
   const backA = decodeVls(encodeVls(compile()));
   A(backA.followTrack===0xFF, "Auto follow track emits 0xFF");
+
+  // ---- golden corpus byte pin (corpus/shows/minimal.vls) ----
+  // The editor's half of the cross-artifact contract: rebuild the corpus
+  // "minimal" model (corpus/gen/minimal.setup.js) and require encodeVls to
+  // reproduce the committed fixture EXACTLY. If the encoder changes shape,
+  // this fails until the corpus is regenerated (corpus/README.md) — which
+  // re-gates firmware (test_show_corpus) and tools (check_corpus.py) too.
+  const CORPUS_MINIMAL_HEX =
+    "564c5331010005000100140000000060ea0000636f727075732d6d696e696d616c00"+
+    "02000a0000000166697265323031320003000100000000040012000000010000000000"+
+    "d00700000000ff0000ff1000ffff00000000";
+  song = null; clips = []; groups = []; selection = new Set();
+  el("showName").value = "corpus-minimal"; el("clockSource").value = "0";
+  clips = [Object.assign(newClip(0,0,2000), { effect:"fire2012" })];
+  const corpusBin = encodeVls(compile());
+  const corpusHex = Array.from(corpusBin, b=>b.toString(16).padStart(2,"0")).join("");
+  A(corpusHex === CORPUS_MINIMAL_HEX, "corpus byte pin: minimal.vls reproduced ("+corpusBin.length+" B)");
+  // newClip's default effect must be firmware-valid — an invalid default is
+  // invisible in the UI (the select displays its first option) but bakes
+  // streams the device rejects (the old "rainbow" default did exactly that).
+  A(EFFECTS.includes(newClip(0,0,1).effect), "newClip default effect is firmware-valid");
 
   box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
   console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);

@@ -1,0 +1,57 @@
+{
+  "magic": "VLS1",
+  "versionMajor": 1,
+  "versionMinor": 0,
+  "sections": [
+    {
+      "type": 1,
+      "name": "META",
+      "clockSource": 2,
+      "clockSourceName": "scoreFollow",
+      "durationMs": 1000,
+      "showName": "corpus-scorefollow-auto",
+      "followTrack": 255,
+      "followTrackName": "auto"
+    },
+    {
+      "type": 2,
+      "name": "EFFECTS",
+      "effects": [
+        "twinklefox"
+      ]
+    },
+    {
+      "type": 3,
+      "name": "PALETTES",
+      "palettes": []
+    },
+    {
+      "type": 4,
+      "name": "CUES",
+      "count": 1,
+      "cues": [
+        {
+          "startMs": 0,
+          "endMs": 250,
+          "effectIndex": 0,
+          "blend": "opacity",
+          "opacity": 255,
+          "drive": "autonomous",
+          "scopeType": 1,
+          "scopeName": "pitchRange",
+          "paletteRef": "default",
+          "speed": 1,
+          "flags": 0,
+          "scope": {
+            "lo": 48,
+            "hi": 84
+          }
+        }
+      ]
+    },
+    {
+      "type": 65535,
+      "name": "END"
+    }
+  ]
+}

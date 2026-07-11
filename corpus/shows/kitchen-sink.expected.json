@@ -1,0 +1,218 @@
+{
+  "magic": "VLS1",
+  "versionMajor": 1,
+  "versionMinor": 0,
+  "sections": [
+    {
+      "type": 1,
+      "name": "META",
+      "clockSource": 1,
+      "clockSourceName": "freeRun",
+      "durationMs": 4000,
+      "showName": "corpus-kitchen-sink"
+    },
+    {
+      "type": 2,
+      "name": "EFFECTS",
+      "effects": [
+        "fire2012",
+        "twinklefox",
+        "notedriven",
+        "colorwaves",
+        "pacifica"
+      ]
+    },
+    {
+      "type": 3,
+      "name": "PALETTES",
+      "palettes": [
+        [
+          [
+            255,
+            0,
+            0
+          ],
+          [
+            238,
+            0,
+            17
+          ],
+          [
+            221,
+            0,
+            34
+          ],
+          [
+            204,
+            0,
+            51
+          ],
+          [
+            187,
+            0,
+            68
+          ],
+          [
+            170,
+            0,
+            85
+          ],
+          [
+            153,
+            0,
+            102
+          ],
+          [
+            136,
+            0,
+            119
+          ],
+          [
+            119,
+            0,
+            136
+          ],
+          [
+            102,
+            0,
+            153
+          ],
+          [
+            85,
+            0,
+            170
+          ],
+          [
+            68,
+            0,
+            187
+          ],
+          [
+            51,
+            0,
+            204
+          ],
+          [
+            34,
+            0,
+            221
+          ],
+          [
+            17,
+            0,
+            238
+          ],
+          [
+            0,
+            0,
+            255
+          ]
+        ]
+      ]
+    },
+    {
+      "type": 4,
+      "name": "CUES",
+      "count": 5,
+      "cues": [
+        {
+          "startMs": 0,
+          "endMs": "open-ended",
+          "effectIndex": 4,
+          "blend": "opacity",
+          "opacity": 255,
+          "drive": "autonomous",
+          "scopeType": 0,
+          "scopeName": "all",
+          "paletteRef": "default",
+          "speed": 1.5,
+          "flags": 0
+        },
+        {
+          "startMs": 0,
+          "endMs": 1000,
+          "effectIndex": 3,
+          "blend": "opacity",
+          "opacity": 255,
+          "drive": "autonomous",
+          "scopeType": 2,
+          "scopeName": "noteSet",
+          "paletteRef": "default",
+          "speed": 1,
+          "flags": 0,
+          "scope": {
+            "notes": [
+              36,
+              48,
+              60
+            ]
+          }
+        },
+        {
+          "startMs": 0,
+          "endMs": 1500,
+          "effectIndex": 2,
+          "blend": "opacity",
+          "opacity": 255,
+          "drive": "note-driven",
+          "scopeType": 3,
+          "scopeName": "noteBinding",
+          "paletteRef": "default",
+          "speed": 1,
+          "flags": 0,
+          "scope": {
+            "boundCount": 3,
+            "bound": [
+              {
+                "onsetMs": 0,
+                "note": 60
+              },
+              {
+                "onsetMs": 500,
+                "note": 64
+              },
+              {
+                "onsetMs": 1000,
+                "note": 67
+              }
+            ]
+          }
+        },
+        {
+          "startMs": 0,
+          "endMs": 2000,
+          "effectIndex": 0,
+          "blend": "opacity",
+          "opacity": 128,
+          "drive": "autonomous",
+          "scopeType": 0,
+          "scopeName": "all",
+          "paletteRef": "stock#3",
+          "speed": 2,
+          "flags": 0
+        },
+        {
+          "startMs": 500,
+          "endMs": 4000,
+          "effectIndex": 1,
+          "blend": "additive",
+          "opacity": 255,
+          "drive": "note-driven",
+          "scopeType": 1,
+          "scopeName": "pitchRange",
+          "paletteRef": "custom#0",
+          "speed": 0.5,
+          "flags": 0,
+          "scope": {
+            "lo": 60,
+            "hi": 72
+          }
+        }
+      ]
+    },
+    {
+      "type": 65535,
+      "name": "END"
+    }
+  ]
+}

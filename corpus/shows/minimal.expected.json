@@ -1,0 +1,51 @@
+{
+  "magic": "VLS1",
+  "versionMajor": 1,
+  "versionMinor": 0,
+  "sections": [
+    {
+      "type": 1,
+      "name": "META",
+      "clockSource": 0,
+      "clockSourceName": "demo",
+      "durationMs": 60000,
+      "showName": "corpus-minimal"
+    },
+    {
+      "type": 2,
+      "name": "EFFECTS",
+      "effects": [
+        "fire2012"
+      ]
+    },
+    {
+      "type": 3,
+      "name": "PALETTES",
+      "palettes": []
+    },
+    {
+      "type": 4,
+      "name": "CUES",
+      "count": 1,
+      "cues": [
+        {
+          "startMs": 0,
+          "endMs": 2000,
+          "effectIndex": 0,
+          "blend": "opacity",
+          "opacity": 255,
+          "drive": "autonomous",
+          "scopeType": 0,
+          "scopeName": "all",
+          "paletteRef": "default",
+          "speed": 1,
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "type": 65535,
+      "name": "END"
+    }
+  ]
+}

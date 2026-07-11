@@ -188,6 +188,10 @@ below (marked 1A–7A) + Codex outside voice, 4 accepted tension packs (marked O
 
 - `pio test -e native` ALL PASS (grep output for FAIL/ERROR); native test count
   STRICTLY grows per item.
+- `python tools/check_corpus.py` PASS + editor selftest PASS whenever a change
+  touches the `.vls` format, the editor, show.cpp, or vls_dump.py (the golden
+  corpus, `corpus/README.md` — firmware half runs inside the native gate as
+  `test_show_corpus`).
 - `pio run -e esp32dev` clean **with size budgets (OV2): flash >70% or static RAM
   >35% in the build report FAILS the gate** (thresholds adjustable only by explicit
   A-entry; v1 close = 45.7%/19.6%).
@@ -628,6 +632,18 @@ catalog curation, BOM scaling guidance.
   firmware set, compiled effects ⊆ EFFECTS). Editor selftest 24/24 PASS in
   headless Chromium. **301 native tests ALL PASS** (294 baseline after the
   demo_reel/Pride2015 removal + 7 new).
+- 2026-07-10 architecture-review step 3 (candidate 1, the contract-test half):
+  **golden `.vls` corpus landed** (`corpus/` — 4 editor-baked fixtures + their
+  jsonTwin expected files; README documents the contract + regeneration).
+  Three consumers pinned: firmware `test_show_corpus` (field-by-field vs twin,
+  ArduinoJson, runs in the native gate), `tools/check_corpus.py` (vls_dump
+  semantic-equal), editor selftest byte pin (`CORPUS_MINIMAL_HEX` — encodeVls
+  must reproduce minimal.vls exactly). Fixed en route: `newClip` defaulted to
+  effect "rainbow" — invisible in the UI (the select displays its first
+  option) but baked device-rejected streams; default now EFFECTS[0] + a
+  selftest guard. A56 recorded (Christian's ruling): demo_reel/Pride2015
+  PERMANENTLY removed; effect set = fire2012/pacifica/twinklefox/colorwaves +
+  notedriven. **305 native tests ALL PASS; check_corpus 4/4; selftest 26/26.**
 - 2026-07-07 iter 9: **ALL W1–W6 COMPLETE.** Final gates: 81 native tests ALL PASS,
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only

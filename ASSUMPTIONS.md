@@ -3,6 +3,14 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A56 (2026-07-10, arch-review run): **CHRISTIAN'S RULING, not an assumption —
+  demo_reel and Pride2015 are removed PERMANENTLY (commit f160183); never
+  re-add them.** The effect set is now exactly: fire2012, pacifica,
+  twinklefox, colorwaves (AFK/registry, fx::effectNames()) plus notedriven
+  (stream-only, effectNameValid() in show.cpp). Everything that names
+  effects — editor EFFECTS/FIRMWARE_STREAM_EFFECTS, webui AFK_EFFECTS,
+  tools/mock_device.py, docs/API.md, the .vls golden corpus — builds on
+  this five-name set.
 - A55 (2026-07-10, P4 build): ScoreFollower decisions beyond §4a's letter,
   all as named test-tunable constants per Q15 — "enough" chord match =
   majority (n≤2 needs all, else n/2+1: inner voices tolerated, a bare single
