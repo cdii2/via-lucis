@@ -90,13 +90,15 @@ CaptureTake MidiCapture::stop() {
         uint8_t velocity;
         bool active;
     };
-    Open open[16][128] = {};
+    // Heap, not stack: 16×128 slots is ~16KB, more than an ESP32 FreeRTOS
+    // task stack. stop() runs on the REST path where allocation is fine.
+    std::vector<Open> open(16 * 128, Open{});
 
     for (const CaptureEvent& e : events_) {
         uint8_t ch = e.channel & 0x0F;
         switch (e.type) {
             case CaptureEventType::NoteOn: {
-                Open& o = open[ch][e.data1];
+                Open& o = open[ch * 128 + e.data1];
                 if (o.active)
                     take.notes.push_back(
                         {o.onMs, e.tMs, e.data1, o.velocity, ch});
@@ -104,7 +106,7 @@ CaptureTake MidiCapture::stop() {
                 break;
             }
             case CaptureEventType::NoteOff: {
-                Open& o = open[ch][e.data1];
+                Open& o = open[ch * 128 + e.data1];
                 if (o.active) {
                     take.notes.push_back(
                         {o.onMs, e.tMs, e.data1, o.velocity, ch});
@@ -120,10 +122,10 @@ CaptureTake MidiCapture::stop() {
     // Close everything still held at the final event time.
     for (int ch = 0; ch < 16; ++ch)
         for (int n = 0; n < 128; ++n)
-            if (open[ch][n].active)
-                take.notes.push_back({open[ch][n].onMs, lastEventMs_,
+            if (open[ch * 128 + n].active)
+                take.notes.push_back({open[ch * 128 + n].onMs, lastEventMs_,
                                       static_cast<uint8_t>(n),
-                                      open[ch][n].velocity,
+                                      open[ch * 128 + n].velocity,
                                       static_cast<uint8_t>(ch)});
 
     take.durationMs = lastEventMs_;
