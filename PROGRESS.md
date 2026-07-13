@@ -536,7 +536,21 @@ main.
 - [x] REC7 — **docs**: SPEC cross-ref (recording = producer at the upload seam), API.md
       routes, BRINGUP hardware-verify (real capture timing / BLE jitter on a take),
       TROUBLESHOOTING as needed.
-- [ ] closing `/code-review` over the wave diff — 8 angles — before it lands on main.
+- [x] closing `/code-review` over the wave diff — 8 angles — before it lands on main.
+      **DONE 2026-07-13**: 8 finder angles + verify pass over `6b8b4d2..HEAD`.
+      Confirmed + FIXED: held-note stop time (A79), pedal echo exclusion (A80),
+      webui count-in poll race + rename/format helpers (A81), editor hand
+      normalization on conductor-track files + pedals-only export + rAF drag
+      coalescing + Backspace guard (A82); earlier in-wave lead fixes: stop()
+      stack table, 64KB budget + low-memory arm guard (A75), pedal-only-track
+      audibility (A78). Review fast-follows (accepted, deliberately not landed
+      in-wave): share the note-pairing logic between midi_capture::stop and
+      midi_parser's NoteTracker; give web_server's onJsonBody an optional-body
+      mode and fold /api/record/arm's bespoke body reader into it; consider a
+      status-extras struct when /api/status next grows (statusJson is at three
+      nullable pointer params). Judged non-issues: smf_writer vs test
+      smf_builder duplication (independent encoder keeps round-trip tests
+      honest); core BadBudget guard (defends the raw API, not dead in core).
 
 Deferred fast-follows (sanctioned, not v1): overdub (R then L as a second take), count-in
 tap-tempo, editor compose features (add-note + per-note velocity), D1b BLE-packet-timestamp

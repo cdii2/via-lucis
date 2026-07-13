@@ -3,6 +3,22 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A82 (2026-07-13, closing review, CONFIRMED finding): **editor hand
+  normalization at load** — the roll/counters/export trusted the raw MTrk
+  index as the hand, but device recordings (and normal DAW files) carry a
+  conductor track at index 0, so a loaded take rendered wrong colors and
+  "Export .mid" SWAPPED hands unless Split-hands was clicked first. Fix:
+  `normalizeHands()` runs at the end of the editor's parseMidi — name
+  right/rh → 0, left/lh → 1, else file order among note-bearing tracks;
+  3-bucket hand model (0=Right, 1=Left, 2=Other/amber, editable per-note;
+  Other exports to Right by default); `song.tracks` becomes the synthetic
+  canonical list, and followTrack indices align with the exported track
+  order. Also: pedals-only takes export (refuse only when notes AND pedals
+  are empty; pedals always bake into one CC64 track regardless of source
+  track), note-drag/marquee repaints are rAF-coalesced, and Backspace is
+  swallowed when nothing is selected (history-back ate unsaved edits on
+  older browsers). Selftest grows to 55 assertions incl. a conductor+R+L
+  round-trip pin.
 - A81 (2026-07-13, closing review): webui fixes — count-in/BPM inputs are
   LOCAL while idle (the 2×/s poll no longer wipes the user's pending choice
   before Arm reads it; device state mirrors only once armed); one shared
