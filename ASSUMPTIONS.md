@@ -3,6 +3,95 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A88 (2026-07-13, arch C2 closing review, cleanups — no behavior change):
+  batch of verified-finding hardening across the MIDI corpus tooling.
+  (1) Generator replaces every invariant-guarding `assert` (the two
+  `tick_to_micros` exactness checks + the non-decreasing-tick `delta` guard)
+  with explicit `raise ValueError` — `python -O` strips asserts and would let
+  an inexact/corrupt golden twin commit silently. (2) Generator `channel_msg`
+  now range-validates the authored status/data bytes (status bit7 set + known
+  channel-status kind; d1/d2 0..127) and raises — an out-of-range byte
+  otherwise desyncs the MTrk stream with no generation-time error. (3) Deleted
+  the dead `js_number_list` helper. (4) `tools/midi_dump.py` `-o` opens with
+  `newline="\n"` so its output stays LF-exact (text-mode default emitted CRLF
+  on Windows). (5) Editor selftest's tempo pin is now UNCONDITIONAL (previously
+  skipped for expected-empty tempo, hiding a phantom entry). (6)
+  `tools/check_midi_corpus.py` gains a third `firmware-coverage` check: the
+  stems in `test_midi_corpus.cpp`'s `checkParse`/`checkHands` calls must equal
+  the committed `corpus/midi/*.mid` set, closing the last silent hole (a new
+  fixture missing its firmware tests). (7) The firmware suite guards each
+  `tickToMicros` value `<= 0xFFFFFFFF` before the uint32 cast (a future long
+  fixture would wrap). (8) README's stale "~line 3002" pointer replaced with a
+  grep command.
+- A87 (2026-07-13, arch C2 closing review, CONFIRMED bug): **editor
+  hand-precedence aligned to firmware (left/lh checked before right/rh).**
+  Firmware `TrackConfig::defaultsFor` (track_config.cpp) tests left/lh BEFORE
+  right/rh, but the editor's `handOfName` (and both python replicas — the
+  generator's `hand_of_name` and `tools/midi_dump.py`'s `_hand_of_name`) tested
+  right/rh FIRST. Since both use case-insensitive substring matching, a name
+  matching BOTH token sets — the realistic "Left Rhythm" ("rhythm" contains
+  "rh") — was assigned Left by firmware but canonical Right(0) by the editor:
+  exactly the A82-class firmware/editor hand disagreement this corpus exists to
+  prevent. Ruling: **left tokens win**, matching firmware (the older, on-device
+  contract; A82's intent was that the editor match it). Fixed all three editor-view
+  consumers to check left/lh first. New fixture `ambiguous-name` (TPQ 480, "Left
+  Rhythm" note-track FIRST in file order + a "Right" track) pins the ruling across
+  firmware, editor, and midi_dump; it also pins that the LEFT-named track's note
+  sorts FIRST (onTick tie, stable) even though the canonical track list is
+  [Right, Left]. Corpus is now 9 fixtures; firmware suite +2 tests (374 total).
+- A86 (2026-07-13, arch C2): **tools checker recomputes the FULL twin as an
+  independent 4th implementation, plus guards the editor's embedded fixture
+  hex.** `tools/midi_dump.py` reimplements the SMF parse, `tickToMicros`,
+  `TrackConfig::defaultsFor`, and the editor's `normalizeHands` hand rules
+  straight from the C++/JS contracts — it does not import the generator or
+  read its output, so it can catch a drift the generator's own reference
+  implementation and the two code consumers might share.
+  `tools/check_midi_corpus.py` (mirrors `check_corpus.py`) semantically
+  diffs every fixture's twin AND regex-extracts the `MIDI_CORPUS` block from
+  `editor.html` to byte-compare its embedded hex against the committed
+  `.mid` files (key-set equality too — an added fixture missing from the
+  embed fails). Rationale: the embed is hand-pasted from the generator's
+  printed snippet (A84/A85) with nothing else enforcing sync; undetected
+  drift there would silently hollow out the editor cross-pin, since the
+  selftest would keep passing against stale bytes that no longer match what
+  ships in `corpus/midi/`.
+- A85 (2026-07-13, arch C2): **editor selftest embeds the MIDI corpus.** The
+  `?selftest=1` block carries `MIDI_CORPUS` — each fixture's committed `.mid`
+  bytes as concatenated hex string literals plus the twin's editor-view `expect`
+  object — and re-parses the hex with the real `parseMidi`, asserting the
+  canonical-hands view (track names, per-note hand/pitch/vel/onUs/offUs, per-pedal
+  hand/value/us, tempo). This is the editor half of the A83 cross-pin: the
+  firmware suite pins the raw-index view of the SAME files, so the two
+  implementations disagreeing on hands fails a gate (the A82 hand-swap, caught a
+  wave earlier). The embedded hex is regenerated from the generator (which prints
+  the snippet) and guarded against the committed `.mid` files by
+  `tools/check_midi_corpus.py` (Builder B). Selftest grows 55 → 99 assertions.
+- A84 (2026-07-13, arch C2): **generator authority + writeSmf byte-pin.** The
+  MIDI corpus is authored by `corpus/gen/midi/gen_midi_fixtures.py`: each fixture
+  is one declarative python model from which the script emits BOTH the `.mid`
+  bytes AND the expected twin JSON — the twin is computed from the model by a
+  python reference implementation of the parser semantics, NEVER by parsing the
+  bytes it just wrote. The generator's models are therefore the authority;
+  regenerating (`python corpus/gen/midi/gen_midi_fixtures.py`) is a deliberate
+  contract event that re-gates all three consumers. The `recording-shaped`
+  fixture is emitted by a byte-for-byte python replica of firmware `writeSmf`;
+  `test_recording_shaped_writer_bytes` byte-compares the real `writeSmf` against
+  the committed file, so any replica drift fails the gate. The generator also
+  prints the editor `MIDI_CORPUS` snippet so regeneration stays copy-paste.
+- A83 (2026-07-13, arch C2): **golden MIDI corpus at `corpus/midi/`** — the
+  cross-artifact contract for the SMF parser, twinning the `.vls` show corpus
+  (A56/candidate-1) for MIDI. 8 fixtures (conductor-first, named-lh-rh,
+  anonymous-pair, three-hands, pedal-only-track, tie-order, vlq-tempo,
+  recording-shaped) each ship `<name>.mid` + `<name>.expected.json`. The twin
+  pins BOTH representations of the same file: the firmware RAW-INDEX view
+  (`note.track` = MTrk index, `TrackConfig::defaultsFor` hands) AND the editor
+  CANONICAL-HANDS view (`normalizeHands`, 0=Right/1=Left/2=Other) — with
+  exact-integer-microsecond times (the generator asserts every pinned tick
+  divides cleanly through `tickToMicros`, so firmware truncating integer
+  division equals editor `round(ms*1000)`). Rationale: the A82 hand-swap shipped
+  because no artifact pinned both views of the same file — three-hands and
+  named-lh-rh explicitly pin the firmware/editor divergence and the name-beats-
+  file-order rule. Firmware suite: `firmware/test/test_midi_corpus` (~18 tests).
 - A82 (2026-07-13, closing review, CONFIRMED finding): **editor hand
   normalization at load** — the roll/counters/export trusted the raw MTrk
   index as the hand, but device recordings (and normal DAW files) carry a

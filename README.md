@@ -57,8 +57,11 @@ engine itself is covered by the native test suite (see
 
 ## Status
 
-**Pre-hardware.** Design is locked ([docs/SPEC.md](docs/SPEC.md)), parts are ordered,
-firmware is being written against a simulator.
+**Pre-hardware, code-complete for v1–v3.** Design is locked ([docs/SPEC.md](docs/SPEC.md)),
+parts are ordered. v1 (core engine), v2 (lightshow/aesthetics), v3 (on-device recording +
+editor note-editing), and score-follow are all built against the simulator — 372 native
+tests, plus golden `.vls` and MIDI conformance corpora (`corpus/`) pinning the show-format
+and SMF parsers across firmware/editor/tools. Remaining work is hardware bring-up.
 
 ## License
 

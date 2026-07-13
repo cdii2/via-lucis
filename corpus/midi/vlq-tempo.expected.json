@@ -1,0 +1,88 @@
+{
+  "ticksPerQuarter": 480,
+  "tracks": [
+    "Right"
+  ],
+  "tempo": [
+    {
+      "tick": 0,
+      "usPerQuarter": 500000
+    },
+    {
+      "tick": 129,
+      "usPerQuarter": 480000
+    },
+    {
+      "tick": 16995,
+      "usPerQuarter": 240000
+    }
+  ],
+  "notes": [
+    {
+      "onTick": 0,
+      "offTick": 129,
+      "onUs": 0,
+      "offUs": 134375,
+      "note": 60,
+      "velocity": 100,
+      "channel": 0,
+      "track": 0
+    },
+    {
+      "onTick": 16515,
+      "offTick": 16995,
+      "onUs": 16520375,
+      "offUs": 17000375,
+      "note": 62,
+      "velocity": 90,
+      "channel": 0,
+      "track": 0
+    },
+    {
+      "onTick": 16995,
+      "offTick": 17955,
+      "onUs": 17000375,
+      "offUs": 17480375,
+      "note": 64,
+      "velocity": 80,
+      "channel": 0,
+      "track": 0
+    }
+  ],
+  "pedal": [],
+  "firmwareHands": [
+    {
+      "hand": "right",
+      "lights": true
+    }
+  ],
+  "editor": {
+    "tracks": [
+      "Right"
+    ],
+    "notes": [
+      {
+        "onUs": 0,
+        "offUs": 134375,
+        "note": 60,
+        "velocity": 100,
+        "hand": 0
+      },
+      {
+        "onUs": 16520375,
+        "offUs": 17000375,
+        "note": 62,
+        "velocity": 90,
+        "hand": 0
+      },
+      {
+        "onUs": 17000375,
+        "offUs": 17480375,
+        "note": 64,
+        "velocity": 80,
+        "hand": 0
+      }
+    ],
+    "pedals": []
+  }
+}

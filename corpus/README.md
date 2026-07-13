@@ -54,3 +54,6 @@ all three consumers. A regeneration is a format-version event — check
 
 Effect names in fixtures are governed by A56 (ASSUMPTIONS.md): exactly
 fire2012 / pacifica / twinklefox / colorwaves / notedriven.
+
+For the SMF-side twin of this same idea (MIDI parsing, not show baking), see
+[corpus/midi/README.md](midi/README.md).
