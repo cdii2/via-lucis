@@ -36,17 +36,72 @@ void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
         reactive_.noteOn(note, velocity);
         engine_.markFrameDirty();  // reactive glow appears within a frame
     }
+    // Recording tap (REC3) — AFTER the engine verdict/light, so it adds
+    // NOTHING between key press and light (iron rule). O(1) append into the
+    // pre-reserved buffer; a no-op when capture is Idle, and capture's OWN
+    // echo guard drops device echoes. Channel 0: the BLE note callback carries
+    // no channel, and the hand split is by pitch downstream, not by channel.
+    capture_.onNoteOn(note, velocity, 0, nowUs);
 }
 
 void ModeDirector::onKeyUp(uint8_t note, uint64_t nowUs) {
     lastActivityUs_ = nowUs;
     reactive_.noteOff(note);
     if (!engine_.songLoaded()) engine_.markFrameDirty();
+    capture_.onNoteOff(note, 0, nowUs);  // REC3 tap (no-op when Idle)
 }
 
-void ModeDirector::onPedal(bool down, uint64_t nowUs) {
+void ModeDirector::onPedal(uint8_t value, uint64_t nowUs) {
     lastActivityUs_ = nowUs;
-    reactive_.setPedal(down);
+    reactive_.setPedal(value >= 64);      // latch edge for the reactive layer
+    capture_.onPedal(value, 0, nowUs);    // REC3 tap: the raw CC64 value
+}
+
+ArmResult ModeDirector::armRecord(size_t budgetBytes, bool countIn,
+                                  uint16_t bpm, uint64_t nowUs) {
+    ArmResult r = capture_.arm(budgetBytes, kRecordMaxMs, nowUs);
+    if (r != ArmResult::Armed) return r;
+    // Arming is write activity: it resets the idle clock so AFK stays disarmed
+    // for the take (Record also outranks Afk in topMode, belt and braces).
+    lastActivityUs_ = nowUs;
+    // Count-in is Free-capture only — a loaded song already leads the tempo.
+    countIn_ = countIn && !engine_.songLoaded();
+    bpm_ = bpm < 20 ? 20 : (bpm > 300 ? 300 : bpm);
+    armUs_ = nowUs;
+    engine_.markFrameDirty();
+    return r;
+}
+
+CaptureTake ModeDirector::stopRecord() {
+    countIn_ = false;
+    engine_.markFrameDirty();
+    return capture_.stop();
+}
+
+void ModeDirector::discardRecord() {
+    countIn_ = false;
+    capture_.discard();
+    engine_.markFrameDirty();
+}
+
+uint16_t ModeDirector::computeHeartbeatLed(const KeyLedTable& t) const {
+    // One pixel outside the key span, so the heartbeat never sits on a key the
+    // Reactive monitor might light. Prefer just above the top key, then just
+    // below the bottom key; if the keys fill the whole strip, fall back to 0.
+    uint16_t minLed = ledCount_, maxLed = 0;
+    bool any = false;
+    for (uint8_t n = KeyLedTable::kFirstNote;
+         n < KeyLedTable::kFirstNote + KeyLedTable::kKeyCount; ++n) {
+        LedRange r = t.forNoteOrdered(n);
+        if (!r.valid) continue;
+        any = true;
+        if (r.first < minLed) minLed = r.first;
+        if (r.last > maxLed) maxLed = r.last;
+    }
+    if (!any) return ledCount_ ? static_cast<uint16_t>(ledCount_ - 1) : 0;
+    if (maxLed + 1 < ledCount_) return static_cast<uint16_t>(maxLed + 1);
+    if (minLed > 0) return static_cast<uint16_t>(minLed - 1);
+    return 0;
 }
 
 bool ModeDirector::setPresentation(bool on) {
@@ -63,6 +118,10 @@ bool ModeDirector::setPresentation(bool on) {
 TopMode ModeDirector::topMode(uint64_t nowUs) const {
     if (engine_.songLoaded())
         return presentation_ ? TopMode::Presentation : TopMode::Practice;
+    // Free capture (no song): an armed/recording take is the Record top-mode,
+    // ABOVE Afk and Reactive. Checked before the idle timeout so a take left
+    // armed past the timeout never drifts to AFK (§7a: arming disarms AFK).
+    if (capture_.state() != CaptureState::Idle) return TopMode::Record;
     // Same clock guard idleSec uses: an out-of-order timestamp must read
     // as zero idle, never wrap to instant-AFK.
     if (idleTimeoutSec_ > 0 && lastActivityUs_ != 0 &&
@@ -79,6 +138,7 @@ const char* ModeDirector::topModeName(TopMode m) {
         case TopMode::Afk: return "afk";
         case TopMode::Practice: return "practice";
         case TopMode::Presentation: return "presentation";
+        case TopMode::Record: return "record";
     }
     return "reactive";
 }
@@ -152,6 +212,15 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         showPlaying_ = false;
     }
     engine_.tick(nowUs, out);
+    // REC3 echo-feed: every note-on we emit to the piano this tick registers a
+    // credit in capture's OWN echo guard, so the piano's echo of it (arriving
+    // on a later BLE poll) is dropped from a Play-along take. REST-path
+    // emissions (stop / all-off) bypass this scan, but those are note-offs in
+    // practice and are never captured as presses (A65). No-op unless armed.
+    if (capture_.state() != CaptureState::Idle)
+        for (const MidiOutMsg& m : out)
+            if (m.type == MidiOutType::NoteOn)
+                capture_.noteSent(m.data1, nowUs);
     // P4: between key events the score-follow clock still moves (coast /
     // hold / free-run are functions of real time) — drive song time from
     // the follower's estimate every tick so the show breathes continuously.
@@ -179,6 +248,41 @@ void ModeDirector::paintRainbow(uint32_t nowMs) {
     for (size_t i = 0; i < frame_.size(); ++i)
         fx::hsv2rgbRainbow(
             fx::Hsv{static_cast<uint8_t>(base + i), 255, 255}, frame_[i]);
+}
+
+void ModeDirector::paintRecordFrame(uint64_t nowUs) {
+    // 1) The Reactive monitor is the base — in Free capture the lights follow
+    //    YOU as you press (DESIGN-record §9a), exactly the Reactive layer.
+    fx::FxFrame f{frame_, fxFrame_, fxFrame_ * fx::kFxStepMs};
+    ++fxFrame_;
+    reactive_.render(f);
+    // 2) Optional count-in (Free capture only): a 1-bar, 4-beat visual pulse
+    //    over the whole strip after arming (§3). It NEVER gates the take —
+    //    capture still starts on the first real note (leading silence trimmed).
+    //    A dim white flash decaying across each beat; no audio in v1.
+    if (countIn_ && capture_.state() == CaptureState::Armed && nowUs >= armUs_) {
+        uint32_t elapsedMs = static_cast<uint32_t>((nowUs - armUs_) / 1000);
+        uint32_t beatMs = bpm_ ? 60000u / bpm_ : 0;
+        if (beatMs > 0 && elapsedMs < 4u * beatMs) {
+            uint32_t intoBeat = elapsedMs % beatMs;
+            uint32_t level = 200u * (beatMs - intoBeat) / beatMs;  // bright→0
+            for (Rgb& px : frame_) {
+                px.r = static_cast<uint8_t>(std::min<uint32_t>(255, px.r + level));
+                px.g = static_cast<uint8_t>(std::min<uint32_t>(255, px.g + level));
+                px.b = static_cast<uint8_t>(std::min<uint32_t>(255, px.b + level));
+            }
+        }
+    }
+    // 3) The discreet recording heartbeat: ONE reserved pixel outside the key
+    //    range, a slow-breathing dim amber that avoids red/blue/green (§9a).
+    //    ~2s breath period. Painted last so it always shows.
+    if (heartbeatLed_ < frame_.size()) {
+        uint32_t phase = static_cast<uint32_t>(nowUs / 1000) % 2000;
+        uint32_t tri = phase < 1000 ? phase : (2000 - phase);   // 0..1000
+        uint8_t amp = static_cast<uint8_t>(20 + (40 * tri) / 1000);  // 20..60
+        frame_[heartbeatLed_] =
+            Rgb{amp, static_cast<uint8_t>(amp * 2 / 5), 0};  // warm amber
+    }
 }
 
 const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {
@@ -211,6 +315,9 @@ const std::vector<Rgb>& ModeDirector::renderFrame(uint64_t nowUs) {
             reactive_.render(f);
             return frame_;
         }
+        case TopMode::Record:  // REC3: Free-capture monitor + heartbeat
+            paintRecordFrame(nowUs);
+            return frame_;
         case TopMode::Presentation:
             if (showPlaying_) {  // P2: the show reads the song-time clock
                 showPlayer_.renderAt(

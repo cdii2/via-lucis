@@ -27,8 +27,9 @@ public:
     // AFK-wake signal (M2). Device-side only; not part of the core seam.
     void onActivity(std::function<void()> h);
 
-    // Sustain pedal (CC64) edges for the Reactive layer's latch (E2).
-    void onPedal(std::function<void(bool down)> h);
+    // Sustain pedal (CC64) — the RAW 0-127 value (REC3): the Reactive layer
+    // latches on value>=64, and a recording take stores the real value.
+    void onPedal(std::function<void(uint8_t value)> h);
 
     void send(const MidiOutMsg& msg) override;
     bool connected() const override;

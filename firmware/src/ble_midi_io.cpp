@@ -13,7 +13,7 @@ namespace {
 BleMidiIo::NoteHandler gOnNoteOn;
 BleMidiIo::NoteHandler gOnNoteOff;
 std::function<void()> gOnActivity;
-std::function<void(bool)> gOnPedal;
+std::function<void(uint8_t)> gOnPedal;
 volatile bool gConnected = false;
 
 void noteActivity() {
@@ -32,7 +32,7 @@ void handleNoteOff(byte /*channel*/, byte note, byte velocity) {
 
 void handleControlChange(byte /*channel*/, byte number, byte value) {
     noteActivity();  // pedal/CC count as activity too (M2 charter)
-    if (number == 64 && gOnPedal) gOnPedal(value >= 64);  // sustain (E2)
+    if (number == 64 && gOnPedal) gOnPedal(value);  // sustain, raw 0-127 (REC3)
 }
 
 }  // namespace
@@ -53,7 +53,7 @@ void BleMidiIo::onNoteOff(NoteHandler h) { gOnNoteOff = std::move(h); }
 void BleMidiIo::onActivity(std::function<void()> h) {
     gOnActivity = std::move(h);
 }
-void BleMidiIo::onPedal(std::function<void(bool)> h) {
+void BleMidiIo::onPedal(std::function<void(uint8_t)> h) {
     gOnPedal = std::move(h);
 }
 

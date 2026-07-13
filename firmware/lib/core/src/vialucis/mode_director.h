@@ -23,6 +23,7 @@
 #include "vialucis/calibration_probe.h"
 #include "vialucis/fx/afk_player.h"
 #include "vialucis/fx/note_driven.h"
+#include "vialucis/midi_capture.h"
 #include "vialucis/playback_engine.h"
 #include "vialucis/score_follower.h"
 #include "vialucis/settings.h"
@@ -30,7 +31,15 @@
 
 namespace vialucis {
 
-enum class TopMode : uint8_t { Reactive, Afk, Practice, Presentation };
+// Recording duration cap (REC3, docs/DESIGN-record.md §8): a compile-time
+// constant (~10 min), NOT a setting — the byte budget is the tunable bound.
+constexpr uint32_t kRecordMaxMs = 600000;
+
+// Record joins the top modes: entered only via arm with no song loaded (Free
+// capture); arming with a song loaded stays Practice (Play-along, capture runs
+// alongside and paints nothing). Record outranks Afk — arming IS write
+// activity, so AFK can never fire while a take is armed/recording.
+enum class TopMode : uint8_t { Reactive, Afk, Practice, Presentation, Record };
 
 class ModeDirector {
 public:
@@ -48,6 +57,7 @@ public:
         table_ = t;
         reactive_.setTable(t);
         afk_.setTable(t);
+        heartbeatLed_ = computeHeartbeatLed(t);  // reserved off-key pixel (REC3)
     }
 
     // --- presentation playback (P2, P4) ----------------------------------
@@ -140,7 +150,29 @@ public:
     // idle clock. Velocity rides through for the expressive mapping.
     void onKeyDown(uint8_t note, uint8_t velocity, uint64_t nowUs);
     void onKeyUp(uint8_t note, uint64_t nowUs);
-    void onPedal(bool down, uint64_t nowUs);
+    // Raw CC64 value 0-127 (REC3): reactive latches on value>=64, capture
+    // stores the raw value. BLE reduces to bool no longer — the pedal now
+    // carries its real value so a take records the pedal faithfully.
+    void onPedal(uint8_t value, uint64_t nowUs);
+
+    // --- recording (REC3, capture subsystem) ----------------------------
+    // The tape head lives here (core, native-testable). arm/stop/discard
+    // delegate to it; App owns save + free-space (REC4). Count-in is Free-
+    // capture only (ignored when a song is loaded); bpm clamps 20-300.
+    ArmResult armRecord(size_t budgetBytes, bool countIn, uint16_t bpm,
+                        uint64_t nowUs);
+    CaptureTake stopRecord();
+    void discardRecord();
+    CaptureState recordState() const { return capture_.state(); }
+    CaptureStatus recordStatus() const { return capture_.status(); }
+    uint32_t recordElapsedMs(uint64_t nowUs) const {
+        return capture_.elapsedMs(nowUs);
+    }
+    size_t recordUsedBytes() const { return capture_.usedBytes(); }
+    size_t recordBudgetBytes() const { return capture_.budgetBytes(); }
+    bool recordCountIn() const { return countIn_; }
+    uint16_t recordBpm() const { return bpm_; }
+    uint16_t recordHeartbeatLed() const { return heartbeatLed_; }
 
     // Reactive tuning (E2) — velocity curve / release decay / pedal latch.
     void setReactiveParams(const fx::NoteDriven::Params& p) {
@@ -180,6 +212,10 @@ public:
 private:
     void paintTestStrip(uint32_t nowMs);
     void paintRainbow(uint32_t nowMs);  // also the M2 AFK stub (VL5)
+    void paintRecordFrame(uint64_t nowUs);  // REC3: monitor + heartbeat + count-in
+    // The reserved heartbeat pixel: one LED outside every key's range so the
+    // recording indicator never collides with the Reactive monitor.
+    uint16_t computeHeartbeatLed(const KeyLedTable& t) const;
 
     PlaybackEngine& engine_;
     CalibrationProbe probe_;
@@ -200,6 +236,14 @@ private:
     uint32_t idleTimeoutSec_ = kDefaultAfkTimeoutSec;  // 0 = never
     uint64_t lastActivityUs_ = 0;    // 0 = baseline on first tick
     TopMode lastMode_ = TopMode::Reactive;
+
+    // Recording (REC3). The capture tape head + the Free-capture count-in
+    // state (armed timestamp, whether a count-in was requested, its BPM).
+    MidiCapture capture_;
+    bool countIn_ = false;
+    uint16_t bpm_ = 90;
+    uint64_t armUs_ = 0;
+    uint16_t heartbeatLed_ = ledCount_ ? static_cast<uint16_t>(ledCount_ - 1) : 0;
 };
 
 }  // namespace vialucis

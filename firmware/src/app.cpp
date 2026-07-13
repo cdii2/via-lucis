@@ -57,8 +57,8 @@ void App::begin() {
     ble_.onNoteOff([this](uint8_t note, uint8_t) {
         director_.onKeyUp(note, static_cast<uint64_t>(esp_timer_get_time()));
     });
-    ble_.onPedal([this](bool down) {
-        director_.onPedal(down, static_cast<uint64_t>(esp_timer_get_time()));
+    ble_.onPedal([this](uint8_t value) {
+        director_.onPedal(value, static_cast<uint64_t>(esp_timer_get_time()));
     });
     // ANY midi message wakes/holds off AFK (M2).
     ble_.onActivity([this]() {

@@ -3,6 +3,43 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A69 (2026-07-13, REC3): The recording **heartbeat** is one reserved pixel
+  OUTSIDE every key's LED range (§9a), chosen in `computeHeartbeatLed`: the LED
+  just above the top key if room, else just below the bottom key, else pixel 0
+  (keys fill the strip). Color = a slow-breathing **dim amber** `{amp, amp*2/5,
+  0}` with amp 20–60 over a ~2s triangle breath — deliberately R-dominant with
+  green present and NO blue, so it can never read as the pure red/blue/green of
+  a practice verdict. Painted LAST in the Record frame so it always shows.
+- A68 (2026-07-13, REC3): The Free-capture **count-in** is a 1-bar / 4-beat dim
+  **white** pulse ADDED (saturating) over the Reactive monitor for the first
+  `4*60000/bpm` ms after arming (bpm clamped 20–300 in `armRecord`), decaying
+  across each beat. It is Free-capture only (`countIn_ = countIn &&
+  !songLoaded()`) and NEVER gates the take — capture still starts on the first
+  real note. No audio, no continuing metronome in v1 (sanctioned fast-follow).
+- A67 (2026-07-13, REC3): **BLE pedal plumbing** now carries the raw 0–127 CC64
+  value end-to-end (`BleMidiIo::onPedal(uint8_t)` → `ModeDirector::onPedal(uint8_t
+  value, nowUs)`), replacing the old bool edge. The director computes the
+  reactive latch (`value>=64`) internally and feeds capture the raw value —
+  a trivial, cleaner deviation from the frozen "App maps down" wording (single
+  source of the down/raw split), functionally identical. Additive and small.
+- A66 (2026-07-13, REC3): The capture **tap** is a single `capture_.onNoteOn/
+  Off/onPedal` call at the END of `ModeDirector::onKeyDown/onKeyUp/onPedal`,
+  AFTER the engine verdict/light and the Reactive layer — so it adds nothing to
+  the key→light latency path (O(1), no-op when Idle). A probe-consumed press
+  early-returns before the tap, so calibration presses are never recorded.
+  Channel is always **0** (the BLE note callback carries no channel; the hand
+  split is by pitch downstream, not channel). Record top-mode outranks Afk and
+  is checked in `topMode` BEFORE the idle timeout, so a take left armed past the
+  timeout stays Record (arming disarms AFK, §7a); `armRecord` also resets the
+  idle clock for belt-and-braces.
+- A65 (2026-07-13, REC3): Capture's **echo guard is fed from the emission path**
+  by scanning the `out` vector after `engine_.tick` each director tick: every
+  note-on we transmit registers `capture_.noteSent`, so the piano's echo of a
+  Play-along accompaniment note (arriving on a later BLE poll, hence after the
+  credit is registered) is dropped from the take. The scan runs only when a take
+  is armed/recording. **REST-path emissions bypass this scan** (stop / all-off);
+  those are note-offs in practice and are never captured as presses, so the gap
+  is harmless — noted in a code comment at the scan site.
 - A64 (2026-07-13, REC2): MidiCapture `stop()` takes **no clock argument**;
   the take's `durationMs` is the last captured event's time, and notes still
   held at stop close there (mirrors the parser closing unreleased notes at
