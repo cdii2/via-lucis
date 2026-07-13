@@ -158,6 +158,24 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
         <button class="btn small" id="btnGroup">Group selected</button>
       </div>
       <div class="tgroup">
+        <span class="lbl">Notes</span>
+        <label class="inl">Tempo <input type="number" id="noteTempo" value="120" min="20" max="300" step="1" style="width:62px" title="Musical tempo assigned to the take. Defines the quantize grid and the exported .mid tempo."></label>
+        <label class="inl">Grid
+          <select id="noteGridSel" title="Snap grid subdivision at the assigned tempo.">
+            <option value="1">1/4</option>
+            <option value="2">1/8</option>
+            <option value="4" selected>1/16</option>
+            <option value="3">1/8&nbsp;triplet</option>
+          </select>
+        </label>
+        <label class="inl"><input type="checkbox" id="noteSnap" checked> snap</label>
+        <button class="btn small" id="btnQuantize" title="Snap the selected notes (or all notes) to the grid.">Quantize</button>
+        <label class="inl"><input type="checkbox" id="quantLen"> lengths</label>
+        <label class="inl">Split <input type="number" id="splitPt" value="60" min="21" max="108" step="1" style="width:54px" title="Hand-split point (MIDI note). 60 = middle C."></label>
+        <button class="btn small" id="btnSplit" title="Reassign every note to a hand by the split point (≥ split = right, below = left).">Split hands</button>
+        <button class="btn small accent" id="btnMid" title="Export a clean .mid at the assigned tempo (MidiWriterJS).">Export .mid</button>
+      </div>
+      <div class="tgroup">
         <span class="lbl">Export</span>
         <button class="btn small accent" id="btnVls">Download .vls</button>
         <button class="btn small" id="btnVlsJson">Download .vls.json</button>
@@ -185,13 +203,20 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
     <div class="card" style="padding:0;overflow:hidden">
       <div id="rollScroll"><canvas id="roll" width="800" height="520"></canvas></div>
       <div class="mini" style="padding:8px 12px">
-        Piano roll on top (notes = bars, vertical lines = beats, brighter = bar).
-        Drag in a <b>lane</b> below to create a clip; drag its body to move, its right edge to resize.
+        <b>Notes</b> (top): drag a note to move (pitch + time), drag its right edge to resize,
+        drag empty space to marquee-select, Shift-click to add/remove, Alt drags off-grid,
+        Ctrl/&#8984;+A selects all, Delete removes. Set <b>Tempo</b> then <b>Quantize</b> to clean a take.<br>
+        <b>Light show</b> (lanes below): drag in a lane to create a clip; drag its body to move, its right edge to resize.
         Click to select; Shift-click to multi-select for grouping.
       </div>
     </div>
 
     <div>
+      <!-- note editor -->
+      <div class="card panel" id="notePanel" style="display:none">
+        <h2 id="noteTitle">Note editor</h2>
+        <div id="noteBody"></div>
+      </div>
       <!-- inspector -->
       <div class="card panel" id="inspector">
         <h2 id="inspTitle">Clip inspector</h2>
@@ -207,6 +232,1403 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border-radius:50%;bac
 </div>
 
 <div id="toast"></div>
+
+<script>
+/* ============================================================================
+   Vendored: MidiWriterJS v3.1.1  -  https://github.com/grimmdude/MidiWriterJS
+   License: MIT  -  Copyright (c) 2018 Garrett Grimm
+   Full text: https://github.com/grimmdude/MidiWriterJS/blob/master/LICENSE
+   Inlined verbatim (CommonJS build) and wrapped so `MidiWriter` is a page
+   global, for offline / file:// SMF (.mid) export in the Via Lucis editor.
+   Used only for note EXPORT; the built-in parser above handles import.
+   To update: re-vendor the same-named build and re-wrap; do not hand-edit.
+
+   Permission is hereby granted, free of charge, to any person obtaining a copy
+   of this software and associated documentation files (the "Software"), to deal
+   in the Software without restriction, including without limitation the rights
+   to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+   copies of the Software, and to permit persons to whom the Software is
+   furnished to do so, subject to the following conditions:
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
+   ============================================================================ */
+var MidiWriter = (function(){
+var module = { exports: {} };
+'use strict';
+
+/**
+ * MIDI file format constants.
+ * @return {Constants}
+ */
+var Constants = {
+    VERSION: '3.1.1',
+    HEADER_CHUNK_TYPE: [0x4d, 0x54, 0x68, 0x64],
+    HEADER_CHUNK_LENGTH: [0x00, 0x00, 0x00, 0x06],
+    HEADER_CHUNK_FORMAT0: [0x00, 0x00],
+    HEADER_CHUNK_FORMAT1: [0x00, 0x01],
+    HEADER_CHUNK_DIVISION: [0x00, 0x80],
+    TRACK_CHUNK_TYPE: [0x4d, 0x54, 0x72, 0x6b],
+    META_EVENT_ID: 0xFF,
+    META_SMTPE_OFFSET: 0x54
+};
+
+// src/utils.ts
+var fillStr = (s, n) => Array(Math.abs(n) + 1).join(s);
+
+// src/named.ts
+function isNamed(src) {
+  return src !== null && typeof src === "object" && typeof src.name === "string" ? true : false;
+}
+
+// src/pitch.ts
+function isPitch(pitch) {
+  return pitch !== null && typeof pitch === "object" && typeof pitch.step === "number" && typeof pitch.alt === "number" ? true : false;
+}
+var FIFTHS = [0, 2, 4, -1, 1, 3, 5];
+var STEPS_TO_OCTS = FIFTHS.map(
+  (fifths) => Math.floor(fifths * 7 / 12)
+);
+function encode(pitch) {
+  const { step, alt, oct, dir = 1 } = pitch;
+  const f = FIFTHS[step] + 7 * alt;
+  if (oct === void 0) {
+    return [dir * f];
+  }
+  const o = oct - STEPS_TO_OCTS[step] - 4 * alt;
+  return [dir * f, dir * o];
+}
+
+// src/note.ts
+var NoNote = { empty: true, name: "", pc: "", acc: "" };
+var cache = /* @__PURE__ */ new Map();
+var stepToLetter = (step) => "CDEFGAB".charAt(step);
+var altToAcc = (alt) => alt < 0 ? fillStr("b", -alt) : fillStr("#", alt);
+var accToAlt = (acc) => acc[0] === "b" ? -acc.length : acc.length;
+function note(src) {
+  const stringSrc = JSON.stringify(src);
+  const cached = cache.get(stringSrc);
+  if (cached) {
+    return cached;
+  }
+  const value = typeof src === "string" ? parse(src) : isPitch(src) ? note(pitchName(src)) : isNamed(src) ? note(src.name) : NoNote;
+  cache.set(stringSrc, value);
+  return value;
+}
+var REGEX = /^([a-gA-G]?)(#{1,}|b{1,}|x{1,}|)(-?\d*)\s*(.*)$/;
+function tokenizeNote(str) {
+  const m = REGEX.exec(str);
+  return [m[1].toUpperCase(), m[2].replace(/x/g, "##"), m[3], m[4]];
+}
+var mod = (n, m) => (n % m + m) % m;
+var SEMI = [0, 2, 4, 5, 7, 9, 11];
+function parse(noteName) {
+  const tokens = tokenizeNote(noteName);
+  if (tokens[0] === "" || tokens[3] !== "") {
+    return NoNote;
+  }
+  const letter = tokens[0];
+  const acc = tokens[1];
+  const octStr = tokens[2];
+  const step = (letter.charCodeAt(0) + 3) % 7;
+  const alt = accToAlt(acc);
+  const oct = octStr.length ? +octStr : void 0;
+  const coord = encode({ step, alt, oct });
+  const name = letter + acc + octStr;
+  const pc = letter + acc;
+  const chroma = (SEMI[step] + alt + 120) % 12;
+  const height = oct === void 0 ? mod(SEMI[step] + alt, 12) - 12 * 99 : SEMI[step] + alt + 12 * (oct + 1);
+  const midi = height >= 0 && height <= 127 ? height : null;
+  const freq = oct === void 0 ? null : Math.pow(2, (height - 69) / 12) * 440;
+  return {
+    empty: false,
+    acc,
+    alt,
+    chroma,
+    coord,
+    freq,
+    height,
+    letter,
+    midi,
+    name,
+    oct,
+    pc,
+    step
+  };
+}
+function pitchName(props) {
+  const { step, alt, oct } = props;
+  const letter = stepToLetter(step);
+  if (!letter) {
+    return "";
+  }
+  const pc = letter + altToAcc(alt);
+  return oct || oct === 0 ? pc + oct : pc;
+}
+
+// index.ts
+function isMidi(arg) {
+  return +arg >= 0 && +arg <= 127;
+}
+function toMidi(note$1) {
+  if (isMidi(note$1)) {
+    return +note$1;
+  }
+  const n = note(note$1);
+  return n.empty ? null : n.midi;
+}
+
+/**
+ * Static utility functions used throughout the library.
+ */
+var Utils = /** @class */ (function () {
+    function Utils() {
+    }
+    /**
+     * Gets MidiWriterJS version number.
+     * @return {string}
+     */
+    Utils.version = function () {
+        return Constants.VERSION;
+    };
+    /**
+     * Convert a string to an array of bytes
+     * @param {string} string
+     * @return {array}
+     */
+    Utils.stringToBytes = function (string) {
+        return string.split('').map(function (char) { return char.charCodeAt(0); });
+    };
+    /**
+     * Checks if argument is a valid number.
+     * @param {*} n - Value to check
+     * @return {boolean}
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Utils.isNumeric = function (n) {
+        return !isNaN(parseFloat(n)) && isFinite(n);
+    };
+    /**
+     * Returns the correct MIDI number for the specified pitch.
+     * Uses Tonal Midi - https://github.com/danigb/tonal/tree/master/packages/midi
+     * @param {(string|number)} pitch - 'C#4' or midi note code
+     * @param {string} middleC
+     * @return {number}
+     */
+    Utils.getPitch = function (pitch, middleC) {
+        if (middleC === void 0) { middleC = 'C4'; }
+        return 60 - toMidi(middleC) + toMidi(pitch);
+    };
+    /**
+     * Translates number of ticks to MIDI timestamp format, returning an array of
+     * hex strings with the time values. Midi has a very particular time to express time,
+     * take a good look at the spec before ever touching this function.
+     * Thanks to https://github.com/sergi/jsmidi
+     *
+     * @param {number} ticks - Number of ticks to be translated
+     * @return {array} - Bytes that form the MIDI time value
+     */
+    Utils.numberToVariableLength = function (ticks) {
+        ticks = Math.round(ticks);
+        var buffer = ticks & 0x7F;
+        // eslint-disable-next-line no-cond-assign
+        while (ticks = ticks >> 7) {
+            buffer <<= 8;
+            buffer |= ((ticks & 0x7F) | 0x80);
+        }
+        var bList = [];
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            bList.push(buffer & 0xff);
+            if (buffer & 0x80)
+                buffer >>= 8;
+            else {
+                break;
+            }
+        }
+        return bList;
+    };
+    /**
+     * Counts number of bytes in string
+     * @param {string} s
+     * @return {number}
+     */
+    Utils.stringByteCount = function (s) {
+        return encodeURI(s).split(/%..|./).length - 1;
+    };
+    /**
+     * Get an int from an array of bytes.
+     * @param {array} bytes
+     * @return {number}
+     */
+    Utils.numberFromBytes = function (bytes) {
+        var hex = '';
+        var stringResult;
+        bytes.forEach(function (byte) {
+            stringResult = byte.toString(16);
+            // ensure string is 2 chars
+            if (stringResult.length == 1)
+                stringResult = "0" + stringResult;
+            hex += stringResult;
+        });
+        return parseInt(hex, 16);
+    };
+    /**
+     * Takes a number and splits it up into an array of bytes.  Can be padded by passing a number to bytesNeeded
+     * @param {number} number
+     * @param {number} bytesNeeded
+     * @return {array} - Array of bytes
+     */
+    Utils.numberToBytes = function (number, bytesNeeded) {
+        bytesNeeded = bytesNeeded || 1;
+        var hexString = number.toString(16);
+        if (hexString.length & 1) { // Make sure hex string is even number of chars
+            hexString = '0' + hexString;
+        }
+        // Split hex string into an array of two char elements
+        var hexArray = hexString.match(/.{2}/g);
+        // Now parse them out as integers
+        var intArray = hexArray.map(function (item) { return parseInt(item, 16); });
+        // Prepend empty bytes if we don't have enough
+        if (intArray.length < bytesNeeded) {
+            while (bytesNeeded - intArray.length > 0) {
+                intArray.unshift(0);
+            }
+        }
+        return intArray;
+    };
+    /**
+     * Converts value to array if needed.
+     * @param {any} value
+     * @return {array}
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    Utils.toArray = function (value) {
+        if (Array.isArray(value))
+            return value;
+        return [value];
+    };
+    /**
+     * Converts velocity to value 0-127
+     * @param {number} velocity - Velocity value 1-100
+     * @return {number}
+     */
+    Utils.convertVelocity = function (velocity) {
+        // Max passed value limited to 100
+        velocity = velocity > 100 ? 100 : velocity;
+        return Math.round(velocity / 100 * 127);
+    };
+    /**
+     * Gets the total number of ticks of a specified duration.
+     * Note: type=='note' defaults to quarter note, type==='rest' defaults to 0
+     * @param {(string|array)} duration
+     * @return {number}
+     */
+    Utils.getTickDuration = function (duration) {
+        if (Array.isArray(duration)) {
+            // Recursively execute this method for each item in the array and return the sum of tick durations.
+            return duration.map(function (value) {
+                return Utils.getTickDuration(value);
+            }).reduce(function (a, b) {
+                return a + b;
+            }, 0);
+        }
+        duration = duration.toString();
+        if (duration.toLowerCase().charAt(0) === 't') {
+            // If duration starts with 't' then the number that follows is an explicit tick count
+            var ticks = parseInt(duration.substring(1));
+            if (isNaN(ticks) || ticks < 0) {
+                throw new Error(duration + ' is not a valid duration.');
+            }
+            return ticks;
+        }
+        // Need to apply duration here.  Quarter note == Constants.HEADER_CHUNK_DIVISION
+        var quarterTicks = Utils.numberFromBytes(Constants.HEADER_CHUNK_DIVISION);
+        var tickDuration = quarterTicks * Utils.getDurationMultiplier(duration);
+        return Utils.getRoundedIfClose(tickDuration);
+    };
+    /**
+     * Due to rounding errors in JavaScript engines,
+     * it's safe to round when we're very close to the actual tick number
+     *
+     * @static
+     * @param {number} tick
+     * @return {number}
+     */
+    Utils.getRoundedIfClose = function (tick) {
+        var roundedTick = Math.round(tick);
+        return Math.abs(roundedTick - tick) < 0.000001 ? roundedTick : tick;
+    };
+    /**
+     * Due to low precision of MIDI,
+     * we need to keep track of rounding errors in deltas.
+     * This function will calculate the rounding error for a given duration.
+     *
+     * @static
+     * @param {number} tick
+     * @return {number}
+     */
+    Utils.getPrecisionLoss = function (tick) {
+        var roundedTick = Math.round(tick);
+        return roundedTick - tick;
+    };
+    /**
+     * Gets what to multiple ticks/quarter note by to get the specified duration.
+     * Note: type=='note' defaults to quarter note, type==='rest' defaults to 0
+     * @param {string} duration
+     * @return {number}
+     */
+    Utils.getDurationMultiplier = function (duration) {
+        // Need to apply duration here.
+        // Quarter note == Constants.HEADER_CHUNK_DIVISION ticks.
+        if (duration === '0')
+            return 0;
+        var match = duration.match(/^(?<dotted>d+)?(?<base>\d+)(?:t(?<tuplet>\d*))?/);
+        if (match) {
+            var base = Number(match.groups.base);
+            // 1 or any power of two:
+            var isValidBase = base === 1 || ((base & (base - 1)) === 0);
+            if (isValidBase) {
+                // how much faster or slower is this note compared to a quarter?
+                var ratio = base / 4;
+                var durationInQuarters = 1 / ratio;
+                var _a = match.groups, dotted = _a.dotted, tuplet = _a.tuplet;
+                if (dotted) {
+                    var thisManyDots = dotted.length;
+                    var divisor = Math.pow(2, thisManyDots);
+                    durationInQuarters = durationInQuarters + (durationInQuarters * ((divisor - 1) / divisor));
+                }
+                if (typeof tuplet === 'string') {
+                    var fitInto = durationInQuarters * 2;
+                    // default to triplet:
+                    var thisManyNotes = Number(tuplet || '3');
+                    durationInQuarters = fitInto / thisManyNotes;
+                }
+                return durationInQuarters;
+            }
+        }
+        throw new Error(duration + ' is not a valid duration.');
+    };
+    return Utils;
+}());
+
+/**
+ * Holds all data for a "controller change" MIDI event
+ * @param {object} fields {controllerNumber: integer, controllerValue: integer, delta: integer}
+ * @return {ControllerChangeEvent}
+ */
+var ControllerChangeEvent = /** @class */ (function () {
+    function ControllerChangeEvent(fields) {
+        this.channel = fields.channel - 1 || 0;
+        this.controllerValue = fields.controllerValue;
+        this.controllerNumber = fields.controllerNumber;
+        this.delta = fields.delta || 0x00;
+        this.name = 'ControllerChangeEvent';
+        this.status = 0xB0;
+        this.data = Utils.numberToVariableLength(fields.delta).concat(this.status | this.channel, this.controllerNumber, this.controllerValue);
+    }
+    return ControllerChangeEvent;
+}());
+
+/**
+ * Object representation of a tempo meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {CopyrightEvent}
+ */
+var CopyrightEvent = /** @class */ (function () {
+    function CopyrightEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'CopyrightEvent';
+        this.text = fields.text;
+        this.type = 0x02;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return CopyrightEvent;
+}());
+
+/**
+ * Object representation of a cue point meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {CuePointEvent}
+ */
+var CuePointEvent = /** @class */ (function () {
+    function CuePointEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'CuePointEvent';
+        this.text = fields.text;
+        this.type = 0x07;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return CuePointEvent;
+}());
+
+/**
+ * Object representation of a end track meta event.
+ * @param {object} fields {delta: integer}
+ * @return {EndTrackEvent}
+ */
+var EndTrackEvent = /** @class */ (function () {
+    function EndTrackEvent(fields) {
+        this.delta = (fields === null || fields === void 0 ? void 0 : fields.delta) || 0x00;
+        this.name = 'EndTrackEvent';
+        this.type = [0x2F, 0x00];
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type);
+    }
+    return EndTrackEvent;
+}());
+
+/**
+ * Object representation of an instrument name meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {InstrumentNameEvent}
+ */
+var InstrumentNameEvent = /** @class */ (function () {
+    function InstrumentNameEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'InstrumentNameEvent';
+        this.text = fields.text;
+        this.type = 0x04;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return InstrumentNameEvent;
+}());
+
+/**
+ * Object representation of a key signature meta event.
+ * @return {KeySignatureEvent}
+ */
+var KeySignatureEvent = /** @class */ (function () {
+    function KeySignatureEvent(sf, mi) {
+        this.name = 'KeySignatureEvent';
+        this.type = 0x59;
+        var mode = mi || 0;
+        sf = sf || 0;
+        //	Function called with string notation
+        if (typeof mi === 'undefined') {
+            var fifths = [
+                ['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#'],
+                ['ab', 'eb', 'bb', 'f', 'c', 'g', 'd', 'a', 'e', 'b', 'f#', 'c#', 'g#', 'd#', 'a#']
+            ];
+            var _sflen = sf.length;
+            var note = sf || 'C';
+            if (sf[0] === sf[0].toLowerCase())
+                mode = 1;
+            if (_sflen > 1) {
+                switch (sf.charAt(_sflen - 1)) {
+                    case 'm':
+                        mode = 1;
+                        note = sf.charAt(0).toLowerCase();
+                        note = note.concat(sf.substring(1, _sflen - 1));
+                        break;
+                    case '-':
+                        mode = 1;
+                        note = sf.charAt(0).toLowerCase();
+                        note = note.concat(sf.substring(1, _sflen - 1));
+                        break;
+                    case 'M':
+                        mode = 0;
+                        note = sf.charAt(0).toUpperCase();
+                        note = note.concat(sf.substring(1, _sflen - 1));
+                        break;
+                    case '+':
+                        mode = 0;
+                        note = sf.charAt(0).toUpperCase();
+                        note = note.concat(sf.substring(1, _sflen - 1));
+                        break;
+                }
+            }
+            var fifthindex = fifths[mode].indexOf(note);
+            sf = fifthindex === -1 ? 0 : fifthindex - 7;
+        }
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(0x00).concat(Constants.META_EVENT_ID, this.type, [0x02], // Size
+        Utils.numberToBytes(sf, 1), // Number of sharp or flats ( < 0 flat; > 0 sharp)
+        Utils.numberToBytes(mode, 1));
+    }
+    return KeySignatureEvent;
+}());
+
+/**
+ * Object representation of a lyric meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {LyricEvent}
+ */
+var LyricEvent = /** @class */ (function () {
+    function LyricEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'LyricEvent';
+        this.text = fields.text;
+        this.type = 0x05;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return LyricEvent;
+}());
+
+/**
+ * Object representation of a marker meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {MarkerEvent}
+ */
+var MarkerEvent = /** @class */ (function () {
+    function MarkerEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'MarkerEvent';
+        this.text = fields.text;
+        this.type = 0x06;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return MarkerEvent;
+}());
+
+/**
+ * Holds all data for a "note on" MIDI event
+ * @param {object} fields {data: []}
+ * @return {NoteOnEvent}
+ */
+var NoteOnEvent = /** @class */ (function () {
+    function NoteOnEvent(fields) {
+        this.name = 'NoteOnEvent';
+        this.channel = fields.channel || 1;
+        this.pitch = fields.pitch;
+        this.wait = fields.wait || 0;
+        this.velocity = fields.velocity || 50;
+        this.tick = fields.tick || null;
+        this.delta = null;
+        this.data = fields.data;
+        this.status = 0x90;
+    }
+    /**
+     * Builds int array for this event.
+     * @param {Track} track - parent track
+     * @return {NoteOnEvent}
+     */
+    NoteOnEvent.prototype.buildData = function (track, precisionDelta, options) {
+        if (options === void 0) { options = {}; }
+        this.data = [];
+        // Explicitly defined startTick event
+        if (this.tick) {
+            this.tick = Utils.getRoundedIfClose(this.tick);
+            // If this is the first event in the track then use event's starting tick as delta.
+            if (track.tickPointer == 0) {
+                this.delta = this.tick;
+            }
+        }
+        else {
+            this.delta = Utils.getTickDuration(this.wait);
+            this.tick = Utils.getRoundedIfClose(track.tickPointer + this.delta);
+        }
+        this.deltaWithPrecisionCorrection = Utils.getRoundedIfClose(this.delta - precisionDelta);
+        this.data = Utils.numberToVariableLength(this.deltaWithPrecisionCorrection)
+            .concat(this.status | this.channel - 1, Utils.getPitch(this.pitch, options.middleC), Utils.convertVelocity(this.velocity));
+        return this;
+    };
+    return NoteOnEvent;
+}());
+
+/**
+ * Holds all data for a "note off" MIDI event
+ * @param {object} fields {data: []}
+ * @return {NoteOffEvent}
+ */
+var NoteOffEvent = /** @class */ (function () {
+    function NoteOffEvent(fields) {
+        this.name = 'NoteOffEvent';
+        this.channel = fields.channel || 1;
+        this.pitch = fields.pitch;
+        this.velocity = fields.velocity || 50;
+        this.tick = fields.tick || null;
+        this.data = fields.data;
+        this.delta = fields.delta || Utils.getTickDuration(fields.duration);
+        this.status = 0x80;
+    }
+    /**
+     * Builds int array for this event.
+     * @param {Track} track - parent track
+     * @return {NoteOffEvent}
+     */
+    NoteOffEvent.prototype.buildData = function (track, precisionDelta, options) {
+        if (options === void 0) { options = {}; }
+        if (this.tick === null) {
+            this.tick = Utils.getRoundedIfClose(this.delta + track.tickPointer);
+        }
+        this.deltaWithPrecisionCorrection = Utils.getRoundedIfClose(this.delta - precisionDelta);
+        this.data = Utils.numberToVariableLength(this.deltaWithPrecisionCorrection)
+            .concat(this.status | this.channel - 1, Utils.getPitch(this.pitch, options.middleC), Utils.convertVelocity(this.velocity));
+        return this;
+    };
+    return NoteOffEvent;
+}());
+
+/**
+ * Wrapper for noteOnEvent/noteOffEvent objects that builds both events.
+ * @param {object} fields - {pitch: '[C4]', duration: '4', wait: '4', velocity: 1-100}
+ * @return {NoteEvent}
+ */
+var NoteEvent = /** @class */ (function () {
+    function NoteEvent(fields) {
+        this.data = [];
+        this.name = 'NoteEvent';
+        this.pitch = Utils.toArray(fields.pitch);
+        this.channel = fields.channel || 1;
+        this.duration = fields.duration || '4';
+        this.grace = fields.grace;
+        this.repeat = fields.repeat || 1;
+        this.sequential = fields.sequential || false;
+        this.tick = fields.startTick || fields.tick || null;
+        this.velocity = fields.velocity || 50;
+        this.wait = fields.wait || 0;
+        this.tickDuration = Utils.getTickDuration(this.duration);
+        this.restDuration = Utils.getTickDuration(this.wait);
+        this.events = []; // Hold actual NoteOn/NoteOff events
+    }
+    /**
+     * Builds int array for this event.
+     * @return {NoteEvent}
+     */
+    NoteEvent.prototype.buildData = function () {
+        var _this = this;
+        // Reset data array
+        this.data = [];
+        // Apply grace note(s) and subtract ticks (currently 1 tick per grace note) from tickDuration so net value is the same
+        if (this.grace) {
+            var graceDuration_1 = 1;
+            this.grace = Utils.toArray(this.grace);
+            this.grace.forEach(function () {
+                var noteEvent = new NoteEvent({ pitch: _this.grace, duration: 'T' + graceDuration_1 });
+                _this.data = _this.data.concat(noteEvent.data);
+            });
+        }
+        // fields.pitch could be an array of pitches.
+        // If so create note events for each and apply the same duration.
+        // By default this is a chord if it's an array of notes that requires one NoteOnEvent.
+        // If this.sequential === true then it's a sequential string of notes that requires separate NoteOnEvents.
+        if (!this.sequential) {
+            // Handle repeat
+            for (var j = 0; j < this.repeat; j++) {
+                // Note on
+                this.pitch.forEach(function (p, i) {
+                    var noteOnNew;
+                    if (i == 0) {
+                        noteOnNew = new NoteOnEvent({
+                            channel: _this.channel,
+                            wait: _this.wait,
+                            delta: Utils.getTickDuration(_this.wait),
+                            velocity: _this.velocity,
+                            pitch: p,
+                            tick: _this.tick,
+                        });
+                    }
+                    else {
+                        // Running status (can ommit the note on status)
+                        //noteOn = new NoteOnEvent({data: [0, Utils.getPitch(p), Utils.convertVelocity(this.velocity)]});
+                        noteOnNew = new NoteOnEvent({
+                            channel: _this.channel,
+                            wait: 0,
+                            delta: 0,
+                            velocity: _this.velocity,
+                            pitch: p,
+                            tick: _this.tick,
+                        });
+                    }
+                    _this.events.push(noteOnNew);
+                });
+                // Note off
+                this.pitch.forEach(function (p, i) {
+                    var noteOffNew;
+                    if (i == 0) {
+                        //noteOff = new NoteOffEvent({data: Utils.numberToVariableLength(tickDuration).concat(this.getNoteOffStatus(), Utils.getPitch(p), Utils.convertVelocity(this.velocity))});
+                        noteOffNew = new NoteOffEvent({
+                            channel: _this.channel,
+                            duration: _this.duration,
+                            velocity: _this.velocity,
+                            pitch: p,
+                            tick: _this.tick !== null ? Utils.getTickDuration(_this.duration) + _this.tick : null,
+                        });
+                    }
+                    else {
+                        // Running status (can omit the note off status)
+                        //noteOff = new NoteOffEvent({data: [0, Utils.getPitch(p), Utils.convertVelocity(this.velocity)]});
+                        noteOffNew = new NoteOffEvent({
+                            channel: _this.channel,
+                            duration: 0,
+                            velocity: _this.velocity,
+                            pitch: p,
+                            tick: _this.tick !== null ? Utils.getTickDuration(_this.duration) + _this.tick : null,
+                        });
+                    }
+                    _this.events.push(noteOffNew);
+                });
+            }
+        }
+        else {
+            // Handle repeat
+            for (var j = 0; j < this.repeat; j++) {
+                this.pitch.forEach(function (p, i) {
+                    var noteOnNew = new NoteOnEvent({
+                        channel: _this.channel,
+                        wait: (i > 0 ? 0 : _this.wait),
+                        delta: (i > 0 ? 0 : Utils.getTickDuration(_this.wait)),
+                        velocity: _this.velocity,
+                        pitch: p,
+                        tick: _this.tick,
+                    });
+                    var noteOffNew = new NoteOffEvent({
+                        channel: _this.channel,
+                        duration: _this.duration,
+                        velocity: _this.velocity,
+                        pitch: p,
+                    });
+                    _this.events.push(noteOnNew, noteOffNew);
+                });
+            }
+        }
+        return this;
+    };
+    return NoteEvent;
+}());
+
+/**
+ * Holds all data for a "Pitch Bend" MIDI event
+ * [ -1.0, 0, 1.0 ] ->  [ 0, 8192, 16383]
+ * @param {object} fields { bend : float, channel : int, delta: int }
+ * @return {PitchBendEvent}
+ */
+var PitchBendEvent = /** @class */ (function () {
+    function PitchBendEvent(fields) {
+        this.channel = fields.channel || 0;
+        this.delta = fields.delta || 0x00;
+        this.name = 'PitchBendEvent';
+        this.status = 0xE0;
+        var bend14 = this.scale14bits(fields.bend);
+        var lsbValue = bend14 & 0x7f;
+        var msbValue = (bend14 >> 7) & 0x7f;
+        this.data = Utils.numberToVariableLength(this.delta).concat(this.status | this.channel, lsbValue, msbValue);
+    }
+    PitchBendEvent.prototype.scale14bits = function (zeroOne) {
+        if (zeroOne <= 0) {
+            return Math.floor(16384 * (zeroOne + 1) / 2);
+        }
+        return Math.floor(16383 * (zeroOne + 1) / 2);
+    };
+    return PitchBendEvent;
+}());
+
+/**
+ * Holds all data for a "program change" MIDI event
+ * @param {object} fields {instrument: integer, delta: integer}
+ * @return {ProgramChangeEvent}
+ */
+var ProgramChangeEvent = /** @class */ (function () {
+    function ProgramChangeEvent(fields) {
+        this.channel = fields.channel || 0;
+        this.delta = fields.delta || 0x00;
+        this.instrument = fields.instrument;
+        this.status = 0xC0;
+        this.name = 'ProgramChangeEvent';
+        // delta time defaults to 0.
+        this.data = Utils.numberToVariableLength(this.delta).concat(this.status | this.channel, this.instrument);
+    }
+    return ProgramChangeEvent;
+}());
+
+/**
+ * Object representation of a tempo meta event.
+ * @param {object} fields {bpm: integer, delta: integer}
+ * @return {TempoEvent}
+ */
+var TempoEvent = /** @class */ (function () {
+    function TempoEvent(fields) {
+        this.bpm = fields.bpm;
+        this.delta = fields.delta || 0x00;
+        this.tick = fields.tick;
+        this.name = 'TempoEvent';
+        this.type = 0x51;
+        var tempo = Math.round(60000000 / this.bpm);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, [0x03], // Size
+        Utils.numberToBytes(tempo, 3));
+    }
+    return TempoEvent;
+}());
+
+/**
+ * Object representation of a tempo meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {TextEvent}
+ */
+var TextEvent = /** @class */ (function () {
+    function TextEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.text = fields.text;
+        this.name = 'TextEvent';
+        this.type = 0x01;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(fields.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return TextEvent;
+}());
+
+/**
+ * Object representation of a time signature meta event.
+ * @return {TimeSignatureEvent}
+ */
+var TimeSignatureEvent = /** @class */ (function () {
+    function TimeSignatureEvent(numerator, denominator, midiclockspertick, notespermidiclock) {
+        this.name = 'TimeSignatureEvent';
+        this.type = 0x58;
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(0x00).concat(Constants.META_EVENT_ID, this.type, [0x04], // Size
+        Utils.numberToBytes(numerator, 1), // Numerator, 1 bytes
+        Utils.numberToBytes(Math.log2(denominator), 1), // Denominator is expressed as pow of 2, 1 bytes
+        Utils.numberToBytes(midiclockspertick || 24, 1), // MIDI Clocks per tick, 1 bytes
+        Utils.numberToBytes(notespermidiclock || 8, 1));
+    }
+    return TimeSignatureEvent;
+}());
+
+/**
+ * Object representation of a tempo meta event.
+ * @param {object} fields {text: string, delta: integer}
+ * @return {TrackNameEvent}
+ */
+var TrackNameEvent = /** @class */ (function () {
+    function TrackNameEvent(fields) {
+        this.delta = fields.delta || 0x00;
+        this.name = 'TrackNameEvent';
+        this.text = fields.text;
+        this.type = 0x03;
+        var textBytes = Utils.stringToBytes(this.text);
+        // Start with zero time delta
+        this.data = Utils.numberToVariableLength(this.delta).concat(Constants.META_EVENT_ID, this.type, Utils.numberToVariableLength(textBytes.length), // Size
+        textBytes);
+    }
+    return TrackNameEvent;
+}());
+
+/**
+ * Holds all data for a track.
+ * @param {object} fields {type: number, data: array, size: array, events: array}
+ * @return {Track}
+ */
+var Track = /** @class */ (function () {
+    function Track() {
+        this.type = Constants.TRACK_CHUNK_TYPE;
+        this.data = [];
+        this.size = [];
+        this.events = [];
+        this.explicitTickEvents = [];
+        // If there are any events with an explicit tick defined then we will create a "sub" track for those
+        // and merge them in and the end.
+        this.tickPointer = 0; // Each time an event is added this will increase
+    }
+    /**
+     * Adds any event type to the track.
+     * Events without a specific startTick property are assumed to be added in order of how they should output.
+     * Events with a specific startTick property are set aside for now will be merged in during build process.
+     *
+     * TODO: Don't put startTick events in their own array.  Just lump everything together and sort it out during buildData();
+     * @param {(NoteEvent|ProgramChangeEvent)} events - Event object or array of Event objects.
+     * @param {Function} mapFunction - Callback which can be used to apply specific properties to all events.
+     * @return {Track}
+     */
+    Track.prototype.addEvent = function (events, mapFunction) {
+        var _this = this;
+        Utils.toArray(events).forEach(function (event, i) {
+            if (event instanceof NoteEvent) {
+                // Handle map function if provided
+                if (typeof mapFunction === 'function') {
+                    var properties = mapFunction(i, event);
+                    if (typeof properties === 'object') {
+                        Object.assign(event, properties);
+                    }
+                }
+                // If this note event has an explicit startTick then we need to set aside for now
+                if (event.tick !== null) {
+                    _this.explicitTickEvents.push(event);
+                }
+                else {
+                    // Push each on/off event to track's event stack
+                    event.buildData().events.forEach(function (e) { return _this.events.push(e); });
+                }
+            }
+            else {
+                _this.events.push(event);
+            }
+        });
+        return this;
+    };
+    /**
+     * Builds int array of all events.
+     * @param {object} options
+     * @return {Track}
+     */
+    Track.prototype.buildData = function (options) {
+        var _this = this;
+        if (options === void 0) { options = {}; }
+        // Reset
+        this.data = [];
+        this.size = [];
+        this.tickPointer = 0;
+        var precisionLoss = 0;
+        this.events.forEach(function (event) {
+            // Build event & add to total tick duration
+            if (event instanceof NoteOnEvent || event instanceof NoteOffEvent) {
+                var built = event.buildData(_this, precisionLoss, options);
+                precisionLoss = Utils.getPrecisionLoss(event.deltaWithPrecisionCorrection || 0);
+                _this.data = _this.data.concat(built.data);
+                _this.tickPointer = Utils.getRoundedIfClose(event.tick);
+            }
+            else if (event instanceof TempoEvent) {
+                _this.tickPointer = Utils.getRoundedIfClose(event.tick);
+                _this.data = _this.data.concat(event.data);
+            }
+            else {
+                _this.data = _this.data.concat(event.data);
+            }
+        });
+        this.mergeExplicitTickEvents();
+        // If the last event isn't EndTrackEvent, then tack it onto the data.
+        if (!this.events.length || !(this.events[this.events.length - 1] instanceof EndTrackEvent)) {
+            this.data = this.data.concat((new EndTrackEvent).data);
+        }
+        this.size = Utils.numberToBytes(this.data.length, 4); // 4 bytes long
+        return this;
+    };
+    Track.prototype.mergeExplicitTickEvents = function () {
+        var _this = this;
+        if (!this.explicitTickEvents.length)
+            return;
+        // First sort asc list of events by startTick
+        this.explicitTickEvents.sort(function (a, b) { return a.tick - b.tick; });
+        // Now this.explicitTickEvents is in correct order, and so is this.events naturally.
+        // For each explicit tick event, splice it into the main list of events and
+        // adjust the delta on the following events so they still play normally.
+        this.explicitTickEvents.forEach(function (noteEvent) {
+            // Convert NoteEvent to it's respective NoteOn/NoteOff events
+            // Note that as we splice in events the delta for the NoteOff ones will
+            // Need to change based on what comes before them after the splice.
+            noteEvent.buildData().events.forEach(function (e) { return e.buildData(_this); });
+            // Merge each event individually into this track's event list.
+            noteEvent.events.forEach(function (event) { return _this.mergeSingleEvent(event); });
+        });
+        // Hacky way to rebuild track with newly spliced events.  Need better solution.
+        this.explicitTickEvents = [];
+        this.buildData();
+    };
+    /**
+     * Merges another track's events with this track.
+     * @param {Track} track
+     * @return {Track}
+     */
+    Track.prototype.mergeTrack = function (track) {
+        var _this = this;
+        // First build this track to populate each event's tick property
+        this.buildData();
+        // Then build track to be merged so that tick property is populated on all events & merge each event.
+        track.buildData().events.forEach(function (event) { return _this.mergeSingleEvent(event); });
+        return this;
+    };
+    /**
+     * Merges a single event into this track's list of events based on event.tick property.
+     * @param {AbstractEvent} - event
+     * @return {Track}
+     */
+    Track.prototype.mergeSingleEvent = function (event) {
+        // There are no events yet, so just add it in.
+        if (!this.events.length) {
+            this.addEvent(event);
+            return;
+        }
+        // Find index of existing event we need to follow with
+        var lastEventIndex;
+        for (var i = 0; i < this.events.length; i++) {
+            if (this.events[i].tick > event.tick)
+                break;
+            lastEventIndex = i;
+        }
+        var splicedEventIndex = lastEventIndex + 1;
+        // Need to adjust the delta of this event to ensure it falls on the correct tick.
+        event.delta = event.tick - this.events[lastEventIndex].tick;
+        // Splice this event at lastEventIndex + 1
+        this.events.splice(splicedEventIndex, 0, event);
+        // Now adjust delta of all following events
+        for (var i = splicedEventIndex + 1; i < this.events.length; i++) {
+            // Since each existing event should have a tick value at this point we just need to
+            // adjust delta to that the event still falls on the correct tick.
+            this.events[i].delta = this.events[i].tick - this.events[i - 1].tick;
+        }
+    };
+    /**
+     * Removes all events matching specified type.
+     * @param {string} eventName - Event type
+     * @return {Track}
+     */
+    Track.prototype.removeEventsByName = function (eventName) {
+        var _this = this;
+        this.events.forEach(function (event, index) {
+            if (event.name === eventName) {
+                _this.events.splice(index, 1);
+            }
+        });
+        return this;
+    };
+    /**
+     * Sets tempo of the MIDI file.
+     * @param {number} bpm - Tempo in beats per minute.
+     * @param {number} tick - Start tick.
+     * @return {Track}
+     */
+    Track.prototype.setTempo = function (bpm, tick) {
+        if (tick === void 0) { tick = 0; }
+        return this.addEvent(new TempoEvent({ bpm: bpm, tick: tick }));
+    };
+    /**
+     * Sets time signature.
+     * @param {number} numerator - Top number of the time signature.
+     * @param {number} denominator - Bottom number of the time signature.
+     * @param {number} midiclockspertick - Defaults to 24.
+     * @param {number} notespermidiclock - Defaults to 8.
+     * @return {Track}
+     */
+    Track.prototype.setTimeSignature = function (numerator, denominator, midiclockspertick, notespermidiclock) {
+        return this.addEvent(new TimeSignatureEvent(numerator, denominator, midiclockspertick, notespermidiclock));
+    };
+    /**
+     * Sets key signature.
+     * @param {*} sf -
+     * @param {*} mi -
+     * @return {Track}
+     */
+    Track.prototype.setKeySignature = function (sf, mi) {
+        return this.addEvent(new KeySignatureEvent(sf, mi));
+    };
+    /**
+     * Adds text to MIDI file.
+     * @param {string} text - Text to add.
+     * @return {Track}
+     */
+    Track.prototype.addText = function (text) {
+        return this.addEvent(new TextEvent({ text: text }));
+    };
+    /**
+     * Adds copyright to MIDI file.
+     * @param {string} text - Text of copyright line.
+     * @return {Track}
+     */
+    Track.prototype.addCopyright = function (text) {
+        return this.addEvent(new CopyrightEvent({ text: text }));
+    };
+    /**
+     * Adds Sequence/Track Name.
+     * @param {string} text - Text of track name.
+     * @return {Track}
+     */
+    Track.prototype.addTrackName = function (text) {
+        return this.addEvent(new TrackNameEvent({ text: text }));
+    };
+    /**
+     * Sets instrument name of track.
+     * @param {string} text - Name of instrument.
+     * @return {Track}
+     */
+    Track.prototype.addInstrumentName = function (text) {
+        return this.addEvent(new InstrumentNameEvent({ text: text }));
+    };
+    /**
+     * Adds marker to MIDI file.
+     * @param {string} text - Marker text.
+     * @return {Track}
+     */
+    Track.prototype.addMarker = function (text) {
+        return this.addEvent(new MarkerEvent({ text: text }));
+    };
+    /**
+     * Adds cue point to MIDI file.
+     * @param {string} text - Text of cue point.
+     * @return {Track}
+     */
+    Track.prototype.addCuePoint = function (text) {
+        return this.addEvent(new CuePointEvent({ text: text }));
+    };
+    /**
+     * Adds lyric to MIDI file.
+     * @param {string} text - Lyric text to add.
+     * @return {Track}
+     */
+    Track.prototype.addLyric = function (text) {
+        return this.addEvent(new LyricEvent({ text: text }));
+    };
+    /**
+     * Channel mode messages
+     * @return {Track}
+     */
+    Track.prototype.polyModeOn = function () {
+        var event = new NoteOnEvent({ data: [0x00, 0xB0, 0x7E, 0x00] });
+        return this.addEvent(event);
+    };
+    /**
+     * Sets a pitch bend.
+     * @param {float} bend - Bend value ranging [-1,1], zero meaning no bend.
+     * @return {Track}
+     */
+    Track.prototype.setPitchBend = function (bend) {
+        return this.addEvent(new PitchBendEvent({ bend: bend }));
+    };
+    /**
+     * Adds a controller change event
+     * @param {number} number - Control number.
+     * @param {number} value - Control value.
+     * @param {number} channel - Channel to send controller change event on (1-based).
+     * @param {number} delta - Track tick offset for cc event.
+     * @return {Track}
+     */
+    Track.prototype.controllerChange = function (number, value, channel, delta) {
+        return this.addEvent(new ControllerChangeEvent({ controllerNumber: number, controllerValue: value, channel: channel, delta: delta }));
+    };
+    return Track;
+}());
+
+var VexFlow = /** @class */ (function () {
+    function VexFlow() {
+    }
+    /**
+     * Support for converting VexFlow voice into MidiWriterJS track
+     * @return MidiWriter.Track object
+     */
+    VexFlow.prototype.trackFromVoice = function (voice, options) {
+        var _this = this;
+        if (options === void 0) { options = { addRenderedAccidentals: false }; }
+        var track = new Track;
+        var wait = [];
+        voice.tickables.forEach(function (tickable) {
+            if (tickable.noteType === 'n') {
+                track.addEvent(new NoteEvent({
+                    pitch: tickable.keys.map(function (pitch, index) { return _this.convertPitch(pitch, index, tickable, options.addRenderedAccidentals); }),
+                    duration: _this.convertDuration(tickable),
+                    wait: wait
+                }));
+                // reset wait
+                wait = [];
+            }
+            else if (tickable.noteType === 'r') {
+                // move on to the next tickable and add this to the stack
+                // of the `wait` property for the next note event
+                wait.push(_this.convertDuration(tickable));
+            }
+        });
+        // There may be outstanding rests at the end of the track,
+        // pad with a ghost note (zero duration and velocity), just to capture the wait.
+        if (wait.length > 0) {
+            track.addEvent(new NoteEvent({ pitch: '[c4]', duration: '0', wait: wait, velocity: '0' }));
+        }
+        return track;
+    };
+    /**
+     * Converts VexFlow pitch syntax to MidiWriterJS syntax
+     * @param pitch string
+     * @param index pitch index
+     * @param note struct from Vexflow
+     * @param addRenderedAccidentals adds Vexflow rendered accidentals
+     */
+    VexFlow.prototype.convertPitch = function (pitch, index, note, addRenderedAccidentals) {
+        var _a;
+        if (addRenderedAccidentals === void 0) { addRenderedAccidentals = false; }
+        // Splits note name from octave
+        var pitchParts = pitch.split('/');
+        // Retrieves accidentals from pitch
+        // Removes natural accidentals since they are not accepted in Tonal Midi
+        var accidentals = pitchParts[0].substring(1).replace('n', '');
+        if (addRenderedAccidentals) {
+            (_a = note.getAccidentals()) === null || _a === void 0 ? void 0 : _a.forEach(function (accidental) {
+                if (accidental.index === index) {
+                    if (accidental.type === 'n') {
+                        accidentals = '';
+                    }
+                    else {
+                        accidentals += accidental.type;
+                    }
+                }
+            });
+        }
+        return pitchParts[0][0] + accidentals + pitchParts[1];
+    };
+    /**
+     * Converts VexFlow duration syntax to MidiWriterJS syntax
+     * @param note struct from VexFlow
+     */
+    VexFlow.prototype.convertDuration = function (note) {
+        return 'd'.repeat(note.dots) + this.convertBaseDuration(note.duration) + (note.tuplet ? 't' + note.tuplet.num_notes : '');
+    };
+    /**
+     * Converts VexFlow base duration syntax to MidiWriterJS syntax
+     * @param duration Vexflow duration
+     * @returns MidiWriterJS duration
+     */
+    VexFlow.prototype.convertBaseDuration = function (duration) {
+        switch (duration) {
+            case 'w':
+                return '1';
+            case 'h':
+                return '2';
+            case 'q':
+                return '4';
+            default:
+                return duration;
+        }
+    };
+    return VexFlow;
+}());
+
+/**
+ * Object representation of a header chunk section of a MIDI file.
+ * @param {number} numberOfTracks - Number of tracks
+ * @return {Header}
+ */
+var Header = /** @class */ (function () {
+    function Header(numberOfTracks) {
+        this.type = Constants.HEADER_CHUNK_TYPE;
+        var trackType = numberOfTracks > 1 ? Constants.HEADER_CHUNK_FORMAT1 : Constants.HEADER_CHUNK_FORMAT0;
+        this.data = trackType.concat(Utils.numberToBytes(numberOfTracks, 2), // two bytes long,
+        Constants.HEADER_CHUNK_DIVISION);
+        this.size = [0, 0, 0, this.data.length];
+    }
+    return Header;
+}());
+
+/**
+ * Object that puts together tracks and provides methods for file output.
+ * @param {array|Track} tracks - A single {Track} object or an array of {Track} objects.
+ * @param {object} options - {middleC: 'C4'}
+ * @return {Writer}
+ */
+var Writer = /** @class */ (function () {
+    function Writer(tracks, options) {
+        if (options === void 0) { options = {}; }
+        // Ensure tracks is an array
+        this.tracks = Utils.toArray(tracks);
+        this.options = options;
+    }
+    /**
+     * Builds array of data from chunkschunks.
+     * @return {array}
+     */
+    Writer.prototype.buildData = function () {
+        var _this = this;
+        var data = [];
+        data.push(new Header(this.tracks.length));
+        // For each track add final end of track event and build data
+        this.tracks.forEach(function (track) {
+            data.push(track.buildData(_this.options));
+        });
+        return data;
+    };
+    /**
+     * Builds the file into a Uint8Array
+     * @return {Uint8Array}
+     */
+    Writer.prototype.buildFile = function () {
+        var build = [];
+        // Data consists of chunks which consists of data
+        this.buildData().forEach(function (d) { return build = build.concat(d.type, d.size, d.data); });
+        return new Uint8Array(build);
+    };
+    /**
+     * Convert file buffer to a base64 string.  Different methods depending on if browser or node.
+     * @return {string}
+     */
+    Writer.prototype.base64 = function () {
+        if (typeof btoa === 'function') {
+            var binary = '';
+            var bytes = this.buildFile();
+            var len = bytes.byteLength;
+            for (var i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary);
+        }
+        return Buffer.from(this.buildFile()).toString('base64');
+    };
+    /**
+     * Get the data URI.
+     * @return {string}
+     */
+    Writer.prototype.dataUri = function () {
+        return 'data:audio/midi;base64,' + this.base64();
+    };
+    /**
+     * Set option on instantiated Writer.
+     * @param {string} key
+     * @param {any} value
+     * @return {Writer}
+     */
+    Writer.prototype.setOption = function (key, value) {
+        this.options[key] = value;
+        return this;
+    };
+    /**
+     * Output to stdout
+     * @return {string}
+     */
+    Writer.prototype.stdout = function () {
+        return process.stdout.write(Buffer.from(this.buildFile()));
+    };
+    return Writer;
+}());
+
+var main = {
+    Constants: Constants,
+    ControllerChangeEvent: ControllerChangeEvent,
+    CopyrightEvent: CopyrightEvent,
+    CuePointEvent: CuePointEvent,
+    EndTrackEvent: EndTrackEvent,
+    InstrumentNameEvent: InstrumentNameEvent,
+    KeySignatureEvent: KeySignatureEvent,
+    LyricEvent: LyricEvent,
+    MarkerEvent: MarkerEvent,
+    NoteOnEvent: NoteOnEvent,
+    NoteOffEvent: NoteOffEvent,
+    NoteEvent: NoteEvent,
+    PitchBendEvent: PitchBendEvent,
+    ProgramChangeEvent: ProgramChangeEvent,
+    TempoEvent: TempoEvent,
+    TextEvent: TextEvent,
+    TimeSignatureEvent: TimeSignatureEvent,
+    Track: Track,
+    TrackNameEvent: TrackNameEvent,
+    Utils: Utils,
+    VexFlow: VexFlow,
+    Writer: Writer
+};
+
+module.exports = main;
+
+return module.exports;
+})();
+</script>
 
 <script>
 "use strict";
@@ -274,7 +1696,7 @@ function parseMidi(u8){
   const division = r.u16();
   r.skip(headerLen - 6);
   if(division & 0x8000) throw new Error("SMPTE time division not supported");
-  const song = { ticksPerQuarter: division || 480, tracks: [], tempo: [], notes: [] };
+  const song = { ticksPerQuarter: division || 480, tracks: [], tempo: [], notes: [], pedals: [] };
 
   for(let ti=0; ti<ntrks; ti++){
     if(!r.match4("MTrk")) throw new Error("bad track");
@@ -309,7 +1731,8 @@ function parseMidi(u8){
         else { const key = ch+":"+ (data1&0x7f);
           if(open[key]) noteOff(open, song, ch, data1&0x7f, tick, ti);
           open[key] = { onTick: tick, vel }; } }
-      else if(kind === 0xB0){ r.u8(); }        // control change (CC64 ignored here)
+      else if(kind === 0xB0){ const val = r.u8();  // control change
+        if((data1 & 0x7f) === 64) song.pedals.push({ tick, value: val & 0x7f, track: ti, ch }); }  // CC64 sustain — preserved through edit/export
       else if(kind === 0xA0 || kind === 0xE0){ r.u8(); }
       else if(kind === 0xC0 || kind === 0xD0){ /* 1 data byte already read */ }
       else throw new Error("unknown MIDI status");
@@ -323,6 +1746,8 @@ function parseMidi(u8){
   song.tempo.sort((a,b)=>a.tick-b.tick);
   // resolve ms for every note & compute duration
   for(const n of song.notes){ n.onMs = tickToMs(song, n.onTick); n.offMs = tickToMs(song, n.offTick); }
+  song.pedals.sort((a,b)=>a.tick-b.tick);
+  for(const p of song.pedals){ p.ms = tickToMs(song, p.tick); }
   song.durationMs = song.notes.reduce((m,n)=>Math.max(m,n.offMs),0);
   return song;
 }
@@ -354,6 +1779,70 @@ let clipSeq = 1, groupSeq = 1;
 
 let pxPerMs = 0.06, pxPerRow = 5;
 let deviceFormatVersion = null;  // number (major) or null
+
+/* ------------------------- note-editing state (REC6) ------------------ *
+ * The piano roll is now editable. Editing mutates `song.notes` (onMs/offMs
+ * /note/track are the source of truth — MIDI ticks go stale and are ignored
+ * after load; export re-derives ticks from ms + the assigned tempo). The RAW
+ * take on the device is never written: this in-memory song is a PROJECT copy,
+ * persisted as .vlp; export produces a NEW clean .mid + the baked .vls.
+ *
+ * ===== .vlp project format (v2) =====================================
+ *  {
+ *    vialucisProject: 2,              // >=1 accepted; v1 files lack the note fields (defaults fill in)
+ *    showName, clockSource, followTrack,   // light-show settings (unchanged from v1)
+ *    editTempoBpm, splitPoint, gridDiv, noteSnapOn, quantLengths,  // note-edit settings (v2)
+ *    clips, groups, clipSeq, groupSeq, pxPerMs, pxPerRow,          // authoring model (unchanged)
+ *    song: {                         // the editable copy of the take, or null
+ *      ticksPerQuarter, tempo:[{tick,usPerQuarter}], durationMs,
+ *      tracks:[{name}],
+ *      notes:[{onMs,offMs,note,velocity,track, onTick?,offTick?}],  // ms is authoritative
+ *      pedals:[{ms,value,track,ch, tick?}]                         // CC64 sustain, ride-along
+ *    }
+ *  }
+ *  gridDiv = grid subdivisions per quarter note: 1=1/4, 2=1/8, 4=1/16, 3=1/8-triplet.
+ * ==================================================================== */
+let noteSel = new Set();         // selected note objects (references into song.notes)
+let noteDrag = null;             // {mode:"nmove"|"nresize"|"marquee", ...}
+let editTempoBpm = 120;          // musical tempo assigned in the editor (grid + export)
+let splitPoint = 60;             // hand-split point (middle C)
+let gridDiv = 4;                 // grid subdivisions per quarter (see above)
+let noteSnapOn = true;           // snap-to-grid default ON
+let quantLengths = false;        // quantize note lengths too, not just starts
+
+/* Pure note-edit helpers (DOM-free so the selftest can assert them). */
+function noteGridMs(bpm, div){ return (60000 / bpm) / div; }
+function snapMs(ms, bpm, div, off){                        // off => no snap (Alt / snap toggle)
+  if(off) return Math.round(ms);
+  const g = noteGridMs(bpm, div); return Math.round(Math.round(ms / g) * g);
+}
+function quantizeNotes(notes, bpm, div, lengths){
+  const g = noteGridMs(bpm, div);
+  for(const n of notes){
+    const on = Math.round(Math.round(n.onMs / g) * g);
+    let dur = n.offMs - n.onMs;
+    if(lengths) dur = Math.max(g, Math.round(Math.round(dur / g) * g));
+    n.onMs = on; n.offMs = on + Math.max(10, Math.round(dur));
+  }
+  return notes;
+}
+function assignHands(notes, sp){ for(const n of notes) n.track = (n.note >= sp) ? 0 : 1; return notes; }
+function setHand(notes, hand){ for(const n of notes) n.track = hand; return notes; }
+function moveNotes(notes, dMs, dSemi){
+  for(const n of notes){
+    n.onMs = Math.max(0, Math.round(n.onMs + dMs));
+    n.offMs = Math.max(n.onMs + 10, Math.round(n.offMs + dMs));
+    n.note = clamp(n.note + dSemi, MIN_NOTE, MAX_NOTE);
+  }
+  return notes;
+}
+function resizeNotes(notes, dMs){
+  for(const n of notes) n.offMs = Math.max(n.onMs + 10, Math.round(n.offMs + dMs));
+  return notes;
+}
+function notesInBox(notes, msLo, msHi, pLo, pHi){
+  return notes.filter(n => n.note >= pLo && n.note <= pHi && n.onMs <= msHi && n.offMs >= msLo);
+}
 
 function newClip(lane, startMs, endMs){
   // Default effect MUST be firmware-valid (EFFECTS[0]): the inspector select
@@ -594,6 +2083,21 @@ const msOf = (x)=> x / pxPerMs;
 const yOfNote = (n)=> RULER_H + (MAX_NOTE - n) * pxPerRow;
 function laneAt(y){ const L = layout(); if(y < L.lanesTop) return -1;
   return clamp(Math.floor((y - L.lanesTop)/LANE_H), 0, LANE_COUNT-1); }
+function inRoll(y){ const L = layout(); return y >= RULER_H && y < RULER_H + L.rollH; }
+function pitchAtY(y){ return MAX_NOTE - Math.floor((y - RULER_H)/pxPerRow); }
+// topmost note at a canvas point (pitch row is unique, so match note + time span)
+function noteAt(x,y){
+  if(!song) return null;
+  const p = pitchAtY(y); if(p < MIN_NOTE || p > MAX_NOTE) return null;
+  let best = null;
+  for(const n of song.notes){
+    if(n.note !== p) continue;
+    const x0 = xOf(n.onMs), x1 = xOf(n.offMs);
+    if(x >= x0-1 && x <= x1+4) best = n;   // +4 px right pad so the resize edge is grabbable
+  }
+  return best;
+}
+function nearNoteEnd(n, x){ const x0 = xOf(n.onMs), x1 = xOf(n.offMs); return (x1 - x0) > 12 && x > x1 - 6; }
 function laneY(lane){ return layout().lanesTop + lane*LANE_H; }
 const EFFECT_HUE = {fire2012:15,pacifica:190,twinklefox:270,colorwaves:230,notedriven:55};
 
@@ -623,13 +2127,34 @@ function draw(){
   for(let i=0;i<beats.length;i+=4){ const x=xOf(beats[i]); if(x>L.w) break;
     ctx.fillText((beats[i]/1000).toFixed(1)+"s", x+3, 14); }
 
+  // musical note-editing grid (assigned tempo) — roll region only, subtle
+  if(song){
+    const rollBot = RULER_H + L.rollH, gm = noteGridMs(editTempoBpm, gridDiv);
+    ctx.lineWidth = 1;
+    for(let i=0, ms=0; ms<=L.dur; i++, ms=i*gm){
+      const x = xOf(ms); if(x>L.w) break;
+      const onBeat = (i % gridDiv)===0;
+      ctx.strokeStyle = onBeat ? "rgba(240,180,76,0.12)" : "rgba(255,255,255,0.045)";
+      ctx.beginPath(); ctx.moveTo(x+0.5, RULER_H); ctx.lineTo(x+0.5, rollBot); ctx.stroke();
+    }
+  }
   // notes
   if(song){
+    const cR = getComputedStyle(document.documentElement).getPropertyValue("--right").trim() || "#37c871";
+    const cL = getComputedStyle(document.documentElement).getPropertyValue("--left").trim() || "#4f8ef7";
+    const cX = getComputedStyle(document.documentElement).getPropertyValue("--lux").trim() || "#f0b44c";
+    const nh = Math.max(2, pxPerRow-1);
     for(const n of song.notes){
       const x = xOf(n.onMs), w = Math.max(2, xOf(n.offMs)-xOf(n.onMs)), y = yOfNote(n.note);
-      const hue = n.track===1 ? "--left" : n.track===0 ? "--right" : "--lux";
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(hue).trim() || "#f0b44c";
-      ctx.globalAlpha = 0.85; ctx.fillRect(x, y+0.5, w, Math.max(2,pxPerRow-1)); ctx.globalAlpha = 1;
+      ctx.fillStyle = n.track===1 ? cL : n.track===0 ? cR : cX;
+      ctx.globalAlpha = 0.85; ctx.fillRect(x, y+0.5, w, nh); ctx.globalAlpha = 1;
+    }
+    // selected-note outline (gold)
+    ctx.strokeStyle = "#f0b44c"; ctx.lineWidth = 1.5;
+    for(const n of noteSel){
+      if(song.notes.indexOf(n) < 0) continue;
+      const x = xOf(n.onMs), w = Math.max(2, xOf(n.offMs)-xOf(n.onMs)), y = yOfNote(n.note);
+      ctx.strokeRect(x-0.5, y, w+1, nh+1);
     }
   }
   // sticky C labels (stay in view)
@@ -676,8 +2201,28 @@ let drag = null;   // {mode, clip, startX, origStart, origEnd}
 cvs.addEventListener("mousedown", (e)=>{
   const rect = cvs.getBoundingClientRect();
   const x = e.clientX - rect.left, y = e.clientY - rect.top;
+
+  // ---- note editing (piano-roll region) ----
+  if(inRoll(y) && song){
+    const nh = noteAt(x,y);
+    if(nh){
+      if(e.shiftKey){ if(noteSel.has(nh)) noteSel.delete(nh); else noteSel.add(nh); }
+      else if(!noteSel.has(nh)) noteSel = new Set([nh]);   // fresh single-select; keep group if already in it
+      selection = new Set();                                // note focus clears clip focus
+      if(noteSel.has(nh)){
+        noteDrag = { mode: nearNoteEnd(nh, x) ? "nresize" : "nmove", anchor: nh, ax: x, ay: y,
+          orig: new Map([...noteSel].map(n => [n, { onMs:n.onMs, offMs:n.offMs, note:n.note }])) };
+      }
+      renderAll(); return;
+    }
+    // empty roll → marquee box-select
+    noteDrag = { mode: "marquee", x0: x, y0: y, x1: x, y1: y, shift: e.shiftKey, moved: false };
+    return;
+  }
+
   const hit = clipAt(x,y);
   if(hit){
+    noteSel = new Set();                                    // clip focus clears note focus
     if(e.shiftKey){ if(selection.has(hit.id)) selection.delete(hit.id); else selection.add(hit.id); }
     else { selection = new Set([hit.id]); }
     // resize if near right edge
@@ -691,6 +2236,7 @@ cvs.addEventListener("mousedown", (e)=>{
   } else { selection = new Set(); renderAll(); }
 });
 window.addEventListener("mousemove", (e)=>{
+  if(noteDrag){ handleNoteMove(e); return; }
   if(!drag) return;
   const rect = cvs.getBoundingClientRect();
   const x = e.clientX - rect.left;
@@ -708,6 +2254,7 @@ window.addEventListener("mousemove", (e)=>{
   }
 });
 window.addEventListener("mouseup", (e)=>{
+  if(noteDrag){ finishNoteDrag(e); noteDrag = null; renderAll(); return; }
   if(!drag) return;
   if(drag.mode === "create"){
     const rect = cvs.getBoundingClientRect(); const x = e.clientX - rect.left;
@@ -723,12 +2270,90 @@ function clipAt(x,y){
   for(let i=clips.length-1;i>=0;i--){ const r=clips[i]._rect; if(r && x>=r.x && x<=r.x+r.w && y>=r.y && y<=r.y+r.h) return clips[i]; }
   return null;
 }
+
+/* ------------------------- note drag/marquee -------------------------- */
+function handleNoteMove(e){
+  const rect = cvs.getBoundingClientRect();
+  const x = e.clientX - rect.left, y = e.clientY - rect.top;
+  const off = e.altKey || !noteSnapOn;                 // Alt (or snap toggle) suspends the grid
+  if(noteDrag.mode === "marquee"){
+    noteDrag.x1 = x; noteDrag.y1 = y; noteDrag.moved = true;
+    draw(); drawMarquee(); return;
+  }
+  const a = noteDrag.anchor, oa = noteDrag.orig.get(a);
+  if(noteDrag.mode === "nmove"){
+    // snap the ANCHOR; the whole selection follows by the same delta (relative timing preserved)
+    const newOn = snapMs(oa.onMs + msOf(x - noteDrag.ax), editTempoBpm, gridDiv, off);
+    let dMs = newOn - oa.onMs;
+    let dSemi = -Math.round((y - noteDrag.ay) / pxPerRow);
+    // clamp so no selected note leaves the keyboard or goes before 0
+    let hi = -Infinity, lo = Infinity, minOn = Infinity;
+    for(const [,o] of noteDrag.orig){ hi = Math.max(hi, o.note); lo = Math.min(lo, o.note); minOn = Math.min(minOn, o.onMs); }
+    dSemi = clamp(dSemi, MIN_NOTE - lo, MAX_NOTE - hi);
+    if(minOn + dMs < 0) dMs = -minOn;
+    for(const [n,o] of noteDrag.orig){
+      n.onMs = Math.round(o.onMs + dMs); n.offMs = Math.round(o.offMs + dMs); n.note = o.note + dSemi;
+    }
+    draw(); return;
+  }
+  if(noteDrag.mode === "nresize"){
+    const newOff = snapMs(oa.offMs + msOf(x - noteDrag.ax), editTempoBpm, gridDiv, off);
+    const dMs = newOff - oa.offMs;
+    for(const [n,o] of noteDrag.orig) n.offMs = Math.max(n.onMs + 10, Math.round(o.offMs + dMs));
+    draw(); return;
+  }
+}
+function finishNoteDrag(e){
+  if(noteDrag.mode !== "marquee") return;               // move/resize already applied live
+  if(!noteDrag.moved){                                  // a plain click on empty roll
+    if(!noteDrag.shift) noteSel = new Set();
+    return;
+  }
+  const xa = Math.min(noteDrag.x0, noteDrag.x1), xb = Math.max(noteDrag.x0, noteDrag.x1);
+  const ya = Math.min(noteDrag.y0, noteDrag.y1), yb = Math.max(noteDrag.y0, noteDrag.y1);
+  const msLo = msOf(xa), msHi = msOf(xb);
+  const pHi = pitchAtY(ya), pLo = pitchAtY(yb);          // top y = higher pitch
+  const hits = notesInBox(song ? song.notes : [], msLo, msHi, pLo, pHi);
+  if(!noteDrag.shift) noteSel = new Set();
+  for(const n of hits) noteSel.add(n);
+}
+function drawMarquee(){
+  const xa = Math.min(noteDrag.x0, noteDrag.x1), ya = Math.min(noteDrag.y0, noteDrag.y1);
+  const w = Math.abs(noteDrag.x1 - noteDrag.x0), h = Math.abs(noteDrag.y1 - noteDrag.y0);
+  ctx.fillStyle = "rgba(240,180,76,0.12)"; ctx.fillRect(xa, ya, w, h);
+  ctx.strokeStyle = "rgba(240,180,76,0.6)"; ctx.lineWidth = 1; ctx.strokeRect(xa+0.5, ya+0.5, w, h);
+}
 el("rollScroll").addEventListener("scroll", draw);
 
 /* ===================================================================== *
  * 5. INSPECTOR + GROUPS UI
  * ===================================================================== */
-function renderAll(){ draw(); renderInspector(); renderGroups(); }
+function renderAll(){ draw(); renderNotePanel(); renderInspector(); renderGroups(); }
+
+function renderNotePanel(){
+  const panel = el("notePanel"), body = el("noteBody");
+  // prune any selected notes that were deleted
+  if(song) for(const n of [...noteSel]) if(song.notes.indexOf(n) < 0) noteSel.delete(n); else void 0;
+  else noteSel.clear();
+  if(noteSel.size === 0){ panel.style.display = "none"; return; }
+  panel.style.display = "";
+  const sel = [...noteSel];
+  const nR = sel.filter(n => n.track !== 1).length, nL = sel.filter(n => n.track === 1).length;
+  el("noteTitle").textContent = sel.length + " note" + (sel.length>1?"s":"") + " selected";
+  body.innerHTML = `
+    <div class="row"><span class="k">Hands</span><span class="v"><span class="mini"><b style="color:var(--right)">${nR} R</b> · <b style="color:var(--left)">${nL} L</b></span></span></div>
+    <div class="row"><span class="k">Assign hand</span><span class="v"><button class="btn small" id="n_right">Right</button><button class="btn small" id="n_left">Left</button></span></div>
+    <div class="row"><span class="k"></span><span class="v"><button class="btn small danger" id="n_del">Delete notes</button></span></div>
+    <div class="hint">Move: drag. Resize: drag right edge. Marquee: drag empty roll. Alt = off-grid. Delete/Backspace removes; Ctrl/&#8984;+A selects all.</div>`;
+  el("n_right").onclick = ()=>{ setHand(sel, 0); renderAll(); };
+  el("n_left").onclick  = ()=>{ setHand(sel, 1); renderAll(); };
+  el("n_del").onclick   = ()=>{ deleteSelectedNotes(); };
+}
+function deleteSelectedNotes(){
+  if(!song || noteSel.size === 0) return;
+  song.notes = song.notes.filter(n => !noteSel.has(n));
+  noteSel.clear(); renderAll();
+}
 
 function renderInspector(){
   const body = el("inspBody");
@@ -854,9 +2479,13 @@ el("btnLoadMidi").onclick = ()=> el("fileMidi").click();
 el("fileMidi").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader(); rd.onload=()=>{ try{
     song = parseMidi(new Uint8Array(rd.result));
-    el("songInfo").textContent = `Loaded ${f.name}: ${song.notes.length} notes, ${song.tracks.length} track(s), ${(song.durationMs/1000).toFixed(1)}s, ${song.tempo.length} tempo change(s).`;
+    noteSel = new Set();
+    // seed the editable tempo from the take's nominal tempo (raw takes = 120 BPM)
+    editTempoBpm = clamp(Math.round(60000000 / ((song.tempo[0] && song.tempo[0].usPerQuarter) || 500000)), 20, 300);
+    syncNoteControls();
+    el("songInfo").textContent = `Loaded ${f.name}: ${song.notes.length} notes, ${song.tracks.length} track(s), ${song.pedals.length} pedal event(s), ${(song.durationMs/1000).toFixed(1)}s. Editing this copy — the raw take is untouched.`;
     populateFollowTrack();
-    renderAll(); toast("MIDI loaded","ok");
+    renderAll(); toast("MIDI loaded — notes are editable","ok");
   }catch(err){ toast("MIDI error: "+err.message,"err"); } };
   rd.readAsArrayBuffer(f); e.target.value=""; };
 
@@ -874,24 +2503,115 @@ el("tzOut").onclick=()=>{ pxPerMs=Math.max(0.005, pxPerMs/1.5); draw(); };
 el("pzIn").onclick=()=>{ pxPerRow=Math.min(14, pxPerRow+1); renderAll(); };
 el("pzOut").onclick=()=>{ pxPerRow=Math.max(2, pxPerRow-1); renderAll(); };
 
-/* ---- project save/load (.vlp) ---- */
-el("btnSaveVlp").onclick = ()=>{
-  const proj = { vialucisProject:1, showName:el("showName").value, clockSource:parseInt(el("clockSource").value),
-    followTrack:parseInt(el("followTrack").value),
+/* ---- note-editing toolbar ---- */
+function syncNoteControls(){
+  el("noteTempo").value = editTempoBpm;
+  el("noteGridSel").value = String(gridDiv);
+  el("noteSnap").checked = noteSnapOn;
+  el("quantLen").checked = quantLengths;
+  el("splitPt").value = splitPoint;
+}
+el("noteTempo").addEventListener("change", e=>{
+  editTempoBpm = clamp(parseInt(e.target.value)||120, 20, 300); e.target.value = editTempoBpm; draw(); });
+el("noteGridSel").addEventListener("change", e=>{ gridDiv = parseInt(e.target.value)||4; draw(); });
+el("noteSnap").addEventListener("change", e=>{ noteSnapOn = e.target.checked; });
+el("quantLen").addEventListener("change", e=>{ quantLengths = e.target.checked; });
+el("splitPt").addEventListener("change", e=>{
+  splitPoint = clamp(parseInt(e.target.value)||60, MIN_NOTE, MAX_NOTE); e.target.value = splitPoint; });
+el("btnQuantize").onclick = ()=>{
+  if(!song){ toast("Load a take first","err"); return; }
+  const target = noteSel.size ? [...noteSel] : song.notes;
+  quantizeNotes(target, editTempoBpm, gridDiv, quantLengths);
+  toast(`Quantized ${target.length} note(s) to ${el("noteGridSel").options[el("noteGridSel").selectedIndex].text} @ ${editTempoBpm} BPM`,"ok");
+  renderAll();
+};
+el("btnSplit").onclick = ()=>{
+  if(!song){ toast("Load a take first","err"); return; }
+  assignHands(song.notes, splitPoint);
+  toast(`Re-split hands at ${splitPoint} (middle C = 60)`,"ok"); renderAll();
+};
+el("btnMid").onclick = ()=>{
+  if(!song || song.notes.length === 0){ toast("Nothing to export — load a take with notes","err"); return; }
+  const bin = buildMidiBytes(song, editTempoBpm);
+  download(showNameSan()+".mid", bin, "audio/midi");
+  toast(`Exported ${song.notes.length} note(s) @ ${editTempoBpm} BPM (${bin.length} B)`,"ok");
+};
+
+/* ---- clean .mid export via vendored MidiWriterJS ----
+   Tracks: [0]=Right (tempo + right-hand notes), [1]=Left, [2]=Pedal (CC64, only if any).
+   MidiWriter TPQ=128; tick = round(ms * 128 * bpm / 60000) so playback at `bpm`
+   reproduces the edited ms timing, and grid-quantized notes land on clean ticks. */
+function buildMidiBytes(sng, bpm){
+  const TPQ = 128;
+  const msToTick = (ms)=> Math.round(ms * TPQ * bpm / 60000);
+  const vScale = (v)=> Math.max(1, Math.min(100, Math.round((v || 64) / 127 * 100)));
+  const right = new MidiWriter.Track(); right.addTrackName("Right"); right.setTempo(bpm);
+  const left  = new MidiWriter.Track(); left.addTrackName("Left");
+  const ordered = sng.notes.slice().sort((a,b)=> a.onMs - b.onMs || a.note - b.note);
+  for(const n of ordered){
+    const st = msToTick(n.onMs), du = Math.max(1, msToTick(n.offMs) - st);
+    // startTick:0 is falsy in MidiWriter (would fall back to sequential placement);
+    // a sub-tick epsilon keeps it explicit and rounds back to 0 (getRoundedIfClose).
+    const ev = new MidiWriter.NoteEvent({ pitch:[n.note], startTick: st === 0 ? 1e-7 : st,
+      duration: "T" + du, velocity: vScale(n.velocity) });
+    (n.track === 1 ? left : right).addEvent(ev);
+  }
+  const tracks = [right, left];
+  const peds = (sng.pedals || []).slice().sort((a,b)=> a.ms - b.ms);
+  if(peds.length){
+    const pt = new MidiWriter.Track(); pt.addTrackName("Pedal"); let prev = 0;
+    for(const p of peds){ const t = msToTick(p.ms); pt.controllerChange(64, p.value & 0x7f, 1, t - prev); prev = t; }
+    tracks.push(pt);
+  }
+  return new MidiWriter.Writer(tracks).buildFile();
+}
+
+/* ---- keyboard: Delete/Backspace remove selection · Ctrl/Cmd+A select all ---- */
+document.addEventListener("keydown", (e)=>{
+  const t = e.target;
+  if(t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if((e.key === "Delete" || e.key === "Backspace")){
+    if(noteSel.size){ e.preventDefault(); deleteSelectedNotes(); return; }
+    if(selection.size){ e.preventDefault();
+      clips = clips.filter(c => !selection.has(c.id));
+      for(const g of groups) g.members = g.members.filter(id => !selection.has(id));
+      selection = new Set(); renderAll(); return; }
+  }
+  if((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")){
+    if(song && song.notes.length){ e.preventDefault(); noteSel = new Set(song.notes); selection = new Set(); renderAll(); }
+  }
+});
+
+/* ---- project save/load (.vlp) — see the .vlp format comment block above ---- */
+function serializeProject(){
+  return { vialucisProject:2,
+    showName:el("showName").value, clockSource:parseInt(el("clockSource").value)||0,
+    followTrack:parseInt(el("followTrack").value)||255,
+    editTempoBpm, splitPoint, gridDiv, noteSnapOn, quantLengths,
     clips, groups, clipSeq, groupSeq, pxPerMs, pxPerRow,
-    song: song ? { ticksPerQuarter:song.ticksPerQuarter, tempo:song.tempo, notes:song.notes, tracks:song.tracks, durationMs:song.durationMs } : null };
-  download(showNameSan()+".vlp", JSON.stringify(proj,null,2), "application/json");
+    song: song ? { ticksPerQuarter:song.ticksPerQuarter, tempo:song.tempo, notes:song.notes,
+      tracks:song.tracks, pedals:song.pedals||[], durationMs:song.durationMs } : null };
+}
+function applyProject(p){
+  if(!p.vialucisProject) throw new Error("not a .vlp project");
+  el("showName").value=p.showName||"my-show"; el("clockSource").value=p.clockSource||0;
+  clips=p.clips||[]; groups=p.groups||[]; clipSeq=p.clipSeq||1; groupSeq=p.groupSeq||1;
+  pxPerMs=p.pxPerMs||0.06; pxPerRow=p.pxPerRow||5; song=p.song||null;
+  selection=new Set(); noteSel=new Set();
+  editTempoBpm=clamp(p.editTempoBpm||120,20,300); splitPoint=clamp(p.splitPoint||60,MIN_NOTE,MAX_NOTE);
+  gridDiv=p.gridDiv||4; noteSnapOn=p.noteSnapOn!==false; quantLengths=!!p.quantLengths;
+  if(song && !song.pedals) song.pedals=[];
+  syncNoteControls(); populateFollowTrack(p.followTrack); updateFollowTrackVis();
+}
+el("btnSaveVlp").onclick = ()=>{
+  download(showNameSan()+".vlp", JSON.stringify(serializeProject(),null,2), "application/json");
   toast("Project saved","ok");
 };
 el("btnLoadVlp").onclick = ()=> el("fileVlp").click();
 el("fileVlp").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
   const rd=new FileReader(); rd.onload=()=>{ try{
-    const p=JSON.parse(rd.result); if(!p.vialucisProject) throw new Error("not a .vlp project");
-    el("showName").value=p.showName||"my-show"; el("clockSource").value=p.clockSource||0;
-    clips=p.clips||[]; groups=p.groups||[]; clipSeq=p.clipSeq||1; groupSeq=p.groupSeq||1;
-    pxPerMs=p.pxPerMs||0.06; pxPerRow=p.pxPerRow||5; song=p.song||null; selection=new Set();
-    populateFollowTrack(p.followTrack); updateFollowTrackVis();
-    if(song){ el("songInfo").textContent=`Project song: ${song.notes.length} notes.`; }
+    applyProject(JSON.parse(rd.result));
+    if(song){ el("songInfo").textContent=`Project song: ${song.notes.length} notes, ${(song.pedals||[]).length} pedal event(s).`; }
     renderAll(); toast("Project loaded","ok");
   }catch(err){ toast("Project error: "+err.message,"err"); } };
   rd.readAsText(f); e.target.value=""; };
@@ -1088,10 +2808,75 @@ function runSelfTest(){
   // streams the device rejects (the old "rainbow" default did exactly that).
   A(EFFECTS.includes(newClip(0,0,1).effect), "newClip default effect is firmware-valid");
 
+  // ===================================================================== //
+  // REC6: real MIDI note editing — pure-function + round-trip assertions   //
+  // ===================================================================== //
+  // grid + snap math
+  A(noteGridMs(120,4)===125, "1/16 grid @120 BPM = 125 ms");
+  A(snapMs(130,120,4,false)===125 && snapMs(190,120,4,false)===250, "snapMs rounds to nearest 1/16");
+  A(snapMs(130,120,4,true)===130, "snapMs off (Alt) leaves value unsnapped");
+  A(snapMs(300,90,2,false)===333, "tempo reassignment: 1/8 @90 BPM snaps 300->333");
+
+  // quantize: starts snap; lengths optional
+  let qn = [{onMs:130,offMs:300,note:60,track:0,velocity:80}];
+  quantizeNotes(qn,120,4,false);
+  A(qn[0].onMs===125 && qn[0].offMs===295, "quantize snaps starts only (length preserved)");
+  qn = [{onMs:130,offMs:300,note:60,track:0,velocity:80}];
+  quantizeNotes(qn,120,4,true);
+  A(qn[0].onMs===125 && (qn[0].offMs-qn[0].onMs)===125, "quantize lengths snaps duration to grid");
+
+  // hand assignment + per-note reassignment
+  let hn = [{note:72,track:1},{note:59,track:0},{note:60,track:1}];
+  assignHands(hn,60);
+  A(hn[0].track===0 && hn[1].track===1 && hn[2].track===0, "assignHands splits at 60 (>=right, <left)");
+  setHand([hn[0]],1); A(hn[0].track===1, "setHand reassigns one note's hand");
+
+  // move / resize / delete
+  let mn = [{onMs:500,offMs:750,note:60,track:0,velocity:80},{onMs:1000,offMs:1200,note:64,track:0,velocity:80}];
+  moveNotes(mn,250,2);
+  A(mn[0].onMs===750 && mn[0].offMs===1000 && mn[0].note===62 && mn[1].onMs===1250 && mn[1].note===66,
+    "moveNotes shifts time+pitch, relative timing preserved");
+  resizeNotes([mn[0]],100); A(mn[0].offMs===1100, "resizeNotes extends note end");
+  moveNotes([mn[0]],-99999,0); A(mn[0].onMs===0, "moveNotes clamps start at 0");
+
+  // marquee hit-test
+  let bn = [{onMs:0,offMs:200,note:60},{onMs:1000,offMs:1200,note:72},{onMs:100,offMs:300,note:48}];
+  let inbox = notesInBox(bn,0,400,55,65);
+  A(inbox.length===1 && inbox[0].note===60, "notesInBox selects only notes inside the box");
+
+  // .vlp round-trip: note-edit settings + notes + CC64 pedals survive JSON
+  song = { ticksPerQuarter:500, tempo:[{tick:0,usPerQuarter:500000}], tracks:[{name:"Right"},{name:"Left"}],
+    notes:[{onMs:0,offMs:250,note:72,track:0,velocity:100},{onMs:500,offMs:1000,note:60,track:0,velocity:80},
+           {onMs:250,offMs:500,note:48,track:1,velocity:90}],
+    pedals:[{ms:0,value:127,track:0,ch:0},{ms:750,value:0,track:0,ch:0}], durationMs:1000 };
+  editTempoBpm=90; splitPoint=64; gridDiv=2; noteSnapOn=false; quantLengths=true; clips=[]; groups=[];
+  const proj = JSON.parse(JSON.stringify(serializeProject()));
+  song=null; editTempoBpm=120; splitPoint=60; gridDiv=4; noteSnapOn=true; quantLengths=false;
+  applyProject(proj);
+  A(editTempoBpm===90 && splitPoint===64 && gridDiv===2 && noteSnapOn===false && quantLengths===true,
+    ".vlp round-trips note-edit settings");
+  A(song && song.notes.length===3 && song.pedals.length===2 && song.pedals[1].value===0,
+    ".vlp round-trips notes + CC64 pedals");
+
+  // MidiWriterJS export -> parseMidi round-trip (notes, tempo, track names, pedals)
+  const midi = buildMidiBytes(song, editTempoBpm);      // editTempoBpm == 90 after applyProject
+  const reparsed = parseMidi(midi);
+  A(reparsed.notes.length===3, "export->parse: 3 notes ("+reparsed.notes.length+")");
+  A(reparsed.tracks[0].name==="Right" && reparsed.tracks[1].name==="Left", "export->parse: Right/Left track names");
+  A(Math.round(60000000/reparsed.tempo[0].usPerQuarter)===90, "export->parse: tempo = assigned 90 BPM");
+  const rn = reparsed.notes.slice().sort((a,b)=>a.onMs-b.onMs);
+  A(rn[0].note===72 && rn[0].track===0, "export->parse: first note pitch 72 on right track");
+  A(reparsed.notes.some(n=>n.note===48 && n.track===1), "export->parse: left-hand note 48 on track 1 (Left)");
+  A(reparsed.pedals.length===2 && reparsed.pedals[0].value===127 && reparsed.pedals[1].value===0,
+    "export->parse: CC64 pedals preserved (127 down, 0 up)");
+  A(Math.abs(rn[1].onMs-250)<=2 && Math.abs(rn[2].onMs-500)<=2, "export->parse: onsets preserved (±2 ms)");
+
   box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
   console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);
   // reset editor to empty after the test
-  song=null; clips=[]; groups=[]; selection=new Set(); el("showName").value="my-show"; el("clockSource").value="0";
+  song=null; clips=[]; groups=[]; selection=new Set(); noteSel=new Set();
+  el("showName").value="my-show"; el("clockSource").value="0";
+  editTempoBpm=120; splitPoint=60; gridDiv=4; noteSnapOn=true; quantLengths=false; syncNoteControls();
   populateFollowTrack(255); updateFollowTrackVis();
   renderAll();
 }
@@ -1100,6 +2885,7 @@ function runSelfTest(){
  * 9. BOOT
  * ===================================================================== */
 updateFollowTrackVis();          // sync in case the browser restored the clock <select> on reload
+syncNoteControls();
 renderAll();
 if(new URLSearchParams(location.search).get("selftest")==="1") runSelfTest();
 </script>
