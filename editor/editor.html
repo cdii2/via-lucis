@@ -1749,6 +1749,48 @@ function parseMidi(u8){
   song.pedals.sort((a,b)=>a.tick-b.tick);
   for(const p of song.pedals){ p.ms = tickToMs(song, p.tick); }
   song.durationMs = song.notes.reduce((m,n)=>Math.max(m,n.offMs),0);
+  normalizeHands(song);
+  return song;
+}
+/* Finding 1: canonicalize hands at load. parseMidi tags notes/pedals with the raw
+   MTrk index, but device recordings (and normal DAW files) carry a conductor/meta
+   track at index 0, so "Right"@MTrk1 would render LEFT-blue, counters swap, and
+   export ships the hands reversed. Remap once here so 0=Right, 1=Left, 2=Other
+   (the amber, editable-per-note bucket) regardless of file layout — every consumer
+   reads note.track, so roll colors, R/L counters, export routing and the follow-
+   track dropdown all follow. Rule: a note-bearing track named right/rh -> 0,
+   left/lh -> 1; otherwise file order among note-bearing tracks (first=Right/0,
+   second=Left/1, third+ -> Other/2). */
+function handOfName(name){
+  const nm = (name || "").toLowerCase();
+  if(nm.includes("right") || nm.includes("rh")) return 0;
+  if(nm.includes("left")  || nm.includes("lh")) return 1;
+  return null;
+}
+function normalizeHands(song){
+  const nTracks = song.tracks.length;
+  const bears = new Array(nTracks).fill(false);
+  for(const n of song.notes) if(n.track >= 0 && n.track < nTracks) bears[n.track] = true;
+  const bearing = [];
+  for(let ti = 0; ti < nTracks; ti++) if(bears[ti]) bearing.push(ti);
+  const map = new Map();                          // raw MTrk index -> canonical hand
+  bearing.forEach((ti, k)=>{
+    const named = handOfName(song.tracks[ti] && song.tracks[ti].name);
+    map.set(ti, named !== null ? named : (k === 0 ? 0 : k === 1 ? 1 : 2));
+  });
+  for(const n of song.notes) if(map.has(n.track)) n.track = map.get(n.track);
+  // Pedals ride along: a pedal on a note-bearing track inherits that hand; a pedal
+  // on a conductor/pedal-only track has no hand -> bucket to Right(0). Export bakes
+  // every pedal into its own CC64 track regardless, so none are dropped (Finding 2).
+  for(const p of song.pedals) p.track = map.has(p.track) ? map.get(p.track) : 0;
+  // Rebuild track metadata so consumers (follow-track dropdown, status text) stay
+  // consistent with note.track: contiguous canonical hands, so index === note.track.
+  const NAMES = ["Right", "Left", "Other"];
+  let maxHand = 0;
+  for(const n of song.notes) if(n.track > maxHand) maxHand = n.track;
+  for(const p of song.pedals) if(p.track > maxHand) maxHand = p.track;
+  song.tracks = [];
+  for(let h = 0; h <= maxHand; h++) song.tracks.push({ name: NAMES[h] || ("hand " + h) });
   return song;
 }
 function noteOff(open, song, ch, note, tick, track){
@@ -2196,6 +2238,25 @@ function roundRect(x,y,w,h,r){ r=Math.min(r,w/2,h/2); ctx.beginPath();
   ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
+/* Finding 3: coalesce per-mousemove redraws onto one animation frame. draw()
+   resets the canvas size and iterates every note, so calling it raw on each
+   mousemove janks real takes (hundreds of notes). scheduleDraw runs at most one
+   draw per frame; an optional overlay (marquee box / clip-create preview) paints
+   right after the draw. It is drag-only sugar — direct draw()/renderAll() calls
+   elsewhere are unchanged. */
+let _drawPending = false, _drawOverlay = null;
+function scheduleDraw(overlay){
+  if(overlay) _drawOverlay = overlay;
+  if(_drawPending) return;
+  _drawPending = true;
+  requestAnimationFrame(()=>{
+    _drawPending = false;
+    const ov = _drawOverlay; _drawOverlay = null;
+    draw();
+    if(ov) ov();
+  });
+}
+
 /* ------------------------- canvas interaction ------------------------- */
 let drag = null;   // {mode, clip, startX, origStart, origEnd}
 cvs.addEventListener("mousedown", (e)=>{
@@ -2240,17 +2301,17 @@ window.addEventListener("mousemove", (e)=>{
   if(!drag) return;
   const rect = cvs.getBoundingClientRect();
   const x = e.clientX - rect.left;
-  if(drag.mode === "create"){ drag.x1 = x; draw();
-    const a = Math.min(drag.x0, x), b = Math.max(drag.x0, x);
-    ctx.fillStyle="rgba(240,180,76,0.3)"; ctx.fillRect(a, laneY(drag.lane)+3, b-a, LANE_H-6);
+  if(drag.mode === "create"){ drag.x1 = x;
+    scheduleDraw(()=>{ const a = Math.min(drag.x0, drag.x1), b = Math.max(drag.x0, drag.x1);
+      ctx.fillStyle="rgba(240,180,76,0.3)"; ctx.fillRect(a, laneY(drag.lane)+3, b-a, LANE_H-6); });
   } else if(drag.mode === "move"){
     const dms = msOf(x - drag.startX); const len = drag.origEnd - drag.origStart;
     drag.clip.startMs = Math.max(0, Math.round(drag.origStart + dms));
     if(!drag.clip.openEnded) drag.clip.endMs = drag.clip.startMs + len;
-    draw();
+    scheduleDraw();
   } else if(drag.mode === "resize"){
     drag.clip.endMs = Math.max(drag.clip.startMs+50, Math.round(drag.origEnd + msOf(x-drag.startX)));
-    draw();
+    scheduleDraw();
   }
 });
 window.addEventListener("mouseup", (e)=>{
@@ -2278,7 +2339,7 @@ function handleNoteMove(e){
   const off = e.altKey || !noteSnapOn;                 // Alt (or snap toggle) suspends the grid
   if(noteDrag.mode === "marquee"){
     noteDrag.x1 = x; noteDrag.y1 = y; noteDrag.moved = true;
-    draw(); drawMarquee(); return;
+    scheduleDraw(drawMarquee); return;
   }
   const a = noteDrag.anchor, oa = noteDrag.orig.get(a);
   if(noteDrag.mode === "nmove"){
@@ -2294,13 +2355,13 @@ function handleNoteMove(e){
     for(const [n,o] of noteDrag.orig){
       n.onMs = Math.round(o.onMs + dMs); n.offMs = Math.round(o.offMs + dMs); n.note = o.note + dSemi;
     }
-    draw(); return;
+    scheduleDraw(); return;
   }
   if(noteDrag.mode === "nresize"){
     const newOff = snapMs(oa.offMs + msOf(x - noteDrag.ax), editTempoBpm, gridDiv, off);
     const dMs = newOff - oa.offMs;
     for(const [n,o] of noteDrag.orig) n.offMs = Math.max(n.onMs + 10, Math.round(o.offMs + dMs));
-    draw(); return;
+    scheduleDraw(); return;
   }
 }
 function finishNoteDrag(e){
@@ -2531,10 +2592,13 @@ el("btnSplit").onclick = ()=>{
   toast(`Re-split hands at ${splitPoint} (middle C = 60)`,"ok"); renderAll();
 };
 el("btnMid").onclick = ()=>{
-  if(!song || song.notes.length === 0){ toast("Nothing to export — load a take with notes","err"); return; }
+  // Finding 2: a pedals-only take is a valid document (the model + device support
+  // it). Only refuse when there is genuinely nothing to write — no notes AND no pedals.
+  const nPed = song ? (song.pedals || []).length : 0;
+  if(!song || (song.notes.length === 0 && nPed === 0)){ toast("Nothing to export — load a take with notes or pedals","err"); return; }
   const bin = buildMidiBytes(song, editTempoBpm);
   download(showNameSan()+".mid", bin, "audio/midi");
-  toast(`Exported ${song.notes.length} note(s) @ ${editTempoBpm} BPM (${bin.length} B)`,"ok");
+  toast(`Exported ${song.notes.length} note(s), ${nPed} pedal event(s) @ ${editTempoBpm} BPM (${bin.length} B)`,"ok");
 };
 
 /* ---- clean .mid export via vendored MidiWriterJS ----
@@ -2576,6 +2640,10 @@ document.addEventListener("keydown", (e)=>{
       clips = clips.filter(c => !selection.has(c.id));
       for(const g of groups) g.members = g.members.filter(id => !selection.has(id));
       selection = new Set(); renderAll(); return; }
+    // Finding 4: nothing selected. The target is already known non-editable (the
+    // guard above returned for inputs), so swallow Backspace anyway — on old/embedded
+    // browsers it navigates history-back and loses the unsaved edits.
+    if(e.key === "Backspace") e.preventDefault();
   }
   if((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A")){
     if(song && song.notes.length){ e.preventDefault(); noteSel = new Set(song.notes); selection = new Set(); renderAll(); }
@@ -2870,6 +2938,51 @@ function runSelfTest(){
   A(reparsed.pedals.length===2 && reparsed.pedals[0].value===127 && reparsed.pedals[1].value===0,
     "export->parse: CC64 pedals preserved (127 down, 0 up)");
   A(Math.abs(rn[1].onMs-250)<=2 && Math.abs(rn[2].onMs-500)<=2, "export->parse: onsets preserved (±2 ms)");
+
+  // ===================================================================== //
+  // Finding 1: hand assignment ignores the raw MTrk index (conductor@0)    //
+  // ===================================================================== //
+  // Build a device-shaped SMF: conductor@MTrk0 (tempo only, no notes),
+  // "Right"@MTrk1 (pitch 72), "Left"@MTrk2 (pitch 48). Pre-fix, Right rendered
+  // LEFT-blue and export shipped the hands swapped.
+  (function(){
+    const cond = new MidiWriter.Track(); cond.addTrackName("Conductor"); cond.setTempo(120);
+    const rt = new MidiWriter.Track(); rt.addTrackName("Right");
+    rt.addEvent(new MidiWriter.NoteEvent({ pitch:[72], startTick:1e-7, duration:"T128" }));
+    const lt = new MidiWriter.Track(); lt.addTrackName("Left");
+    lt.addEvent(new MidiWriter.NoteEvent({ pitch:[48], startTick:1e-7, duration:"T128" }));
+    const cs = parseMidi(new MidiWriter.Writer([cond, rt, lt]).buildFile());
+    A(cs.notes.find(n=>n.note===72).track===0, "Finding1: named Right track normalizes to hand 0 (was MTrk1)");
+    A(cs.notes.find(n=>n.note===48).track===1, "Finding1: named Left track normalizes to hand 1 (was MTrk2)");
+    // R/L counters (renderNotePanel logic: track!==1 is Right, ===1 is Left) not swapped
+    A(cs.notes.filter(n=>n.track!==1).length===1 && cs.notes.filter(n=>n.track===1).length===1,
+      "Finding1: R/L counters correct (1 R, 1 L)");
+    // export routing: parse the exported .mid back; Right track holds the right note
+    const back1 = parseMidi(buildMidiBytes(cs, 120));
+    A(back1.tracks[0].name==="Right" && back1.notes.find(n=>n.note===72).track===0,
+      "Finding1: export routes right-hand note to the Right track (not swapped)");
+    A(back1.notes.find(n=>n.note===48).track===1, "Finding1: export routes left-hand note to the Left track");
+    // unnamed fallback: conductor + two unnamed note tracks -> file order (first=Right, second=Left)
+    const cx = new MidiWriter.Track(); cx.setTempo(120);
+    const u1 = new MidiWriter.Track(); u1.addEvent(new MidiWriter.NoteEvent({ pitch:[70], startTick:1e-7, duration:"T128" }));
+    const u2 = new MidiWriter.Track(); u2.addEvent(new MidiWriter.NoteEvent({ pitch:[50], startTick:1e-7, duration:"T128" }));
+    const fb = parseMidi(new MidiWriter.Writer([cx, u1, u2]).buildFile());
+    A(fb.notes.find(n=>n.note===70).track===0 && fb.notes.find(n=>n.note===50).track===1,
+      "Finding1: unnamed note-bearing tracks fall back to file order (first=Right/0, second=Left/1)");
+  })();
+
+  // ===================================================================== //
+  // Finding 2: a pedals-only take exports (notes empty, pedals present)    //
+  // ===================================================================== //
+  (function(){
+    const pedOnly = { ticksPerQuarter:480, tempo:[{tick:0,usPerQuarter:500000}], tracks:[{name:"Right"}],
+      notes:[], pedals:[{ms:0,value:127,track:0,ch:0},{ms:500,value:0,track:0,ch:0}], durationMs:500 };
+    const pedBin = buildMidiBytes(pedOnly, 120);
+    A(pedBin && pedBin.length>0, "Finding2: pedals-only take builds MIDI bytes (no notes required)");
+    const pedBack = parseMidi(pedBin);
+    A(pedBack.pedals.length===2 && pedBack.pedals[0].value===127 && pedBack.pedals[1].value===0,
+      "Finding2: pedals-only export round-trips both CC64 events");
+  })();
 
   box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
   console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);
