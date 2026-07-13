@@ -323,7 +323,9 @@ App::RecordStop App::recordStop(std::string* nameOut) {
         touchWriteActivity();
         if (director_.recordState() == CaptureState::Idle)
             return RecordStop::NotArmed;
-        take = director_.stopRecord();  // FENCED: state mutation only
+        // Stop time = now: notes still held close here, not at the last event.
+        take = director_.stopRecord(
+            static_cast<uint64_t>(esp_timer_get_time()));  // FENCED
     }
     // Empty take: save nothing (DESIGN-record — a stop with no events discards).
     if (take.empty) {

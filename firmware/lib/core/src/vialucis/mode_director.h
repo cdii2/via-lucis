@@ -161,7 +161,7 @@ public:
     // capture only (ignored when a song is loaded); bpm clamps 20-300.
     ArmResult armRecord(size_t budgetBytes, bool countIn, uint16_t bpm,
                         uint64_t nowUs);
-    CaptureTake stopRecord();
+    CaptureTake stopRecord(uint64_t nowUs);
     void discardRecord();
     CaptureState recordState() const { return capture_.state(); }
     CaptureStatus recordStatus() const { return capture_.status(); }

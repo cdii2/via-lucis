@@ -82,7 +82,7 @@ void test_arm_song_loaded_stays_practice_and_captures() {
     r.director.onKeyUp(55, 2 * kSec + 100000);
     r.director.onKeyDown(57, 90, 2 * kSec + 200000);
     r.director.onKeyUp(57, 2 * kSec + 300000);
-    CaptureTake take = r.director.stopRecord();
+    CaptureTake take = r.director.stopRecord(2 * kSec + 300000);
     TEST_ASSERT_FALSE(take.empty);
     TEST_ASSERT_EQUAL_INT(1, countNote(take, 55));
     TEST_ASSERT_EQUAL_INT(1, countNote(take, 57));
@@ -99,7 +99,7 @@ void test_afk_disarmed_while_armed() {
     // Stop (empty take) → back to the no-song states. The REST layer (App)
     // resets the idle clock on the stop route just like unload does; drive
     // that write-activity and the strip is back in the Reactive monitor.
-    r.director.stopRecord();
+    r.director.stopRecord(3 * kSec);
     r.director.onWriteActivity(400 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(400 * kSec) == TopMode::Reactive);
 }
@@ -112,7 +112,7 @@ void test_stop_finalizes_take_with_pressed_notes() {
     r.director.onKeyUp(60, 1 * kSec + 500000);
     r.director.onKeyDown(64, 90, 1 * kSec + 600000);
     r.director.onKeyUp(64, 1 * kSec + 900000);
-    CaptureTake take = r.director.stopRecord();
+    CaptureTake take = r.director.stopRecord(1 * kSec + 900000);
     TEST_ASSERT_FALSE(take.empty);
     TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
     TEST_ASSERT_EQUAL_INT(1, countNote(take, 60));
@@ -143,7 +143,7 @@ void test_emitted_note_echo_excluded_through_director() {
     r.director.onKeyDown(60, 90, 1 * kSec + 120000);
     TEST_ASSERT_EQUAL(CaptureState::Recording, r.director.recordState());
     r.director.onKeyUp(60, 1 * kSec + 300000);
-    CaptureTake take = r.director.stopRecord();
+    CaptureTake take = r.director.stopRecord(1 * kSec + 300000);
     TEST_ASSERT_EQUAL_INT(1, countNote(take, 60));  // the genuine press only
 }
 

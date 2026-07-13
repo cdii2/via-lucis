@@ -72,10 +72,10 @@ ArmResult ModeDirector::armRecord(size_t budgetBytes, bool countIn,
     return r;
 }
 
-CaptureTake ModeDirector::stopRecord() {
+CaptureTake ModeDirector::stopRecord(uint64_t nowUs) {
     countIn_ = false;
     engine_.markFrameDirty();
-    return capture_.stop();
+    return capture_.stop(nowUs);
 }
 
 void ModeDirector::discardRecord() {
@@ -218,9 +218,14 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     // emissions (stop / all-off) bypass this scan, but those are note-offs in
     // practice and are never captured as presses (A65). No-op unless armed.
     if (capture_.state() != CaptureState::Idle)
-        for (const MidiOutMsg& m : out)
+        for (const MidiOutMsg& m : out) {
             if (m.type == MidiOutType::NoteOn)
                 capture_.noteSent(m.data1, nowUs);
+            // The CC64 pass-through echoes too (§5a covers the pedal as much
+            // as the notes) — credit capture's pedal-echo window per send.
+            else if (m.type == MidiOutType::Cc && m.data1 == 64)
+                capture_.pedalSent(nowUs);
+        }
     // P4: between key events the score-follow clock still moves (coast /
     // hold / free-run are functions of real time) — drive song time from
     // the follower's estimate every tick so the show breathes continuously.

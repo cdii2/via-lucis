@@ -5,15 +5,10 @@ namespace vialucis {
 ArmResult MidiCapture::arm(size_t budgetBytes, uint32_t maxDurationMs,
                            uint64_t nowUs) {
     (void)nowUs;
-    if (state_ != CaptureState::Idle) {
-        lastArm_ = ArmResult::AlreadyArmed;
-        return lastArm_;
-    }
+    if (state_ != CaptureState::Idle) return ArmResult::AlreadyArmed;
     size_t maxEvents = budgetBytes / sizeof(CaptureEvent);
-    if (maxEvents == 0) {  // can't hold even one event
-        lastArm_ = ArmResult::BadBudget;
-        return lastArm_;
-    }
+    if (maxEvents == 0)  // can't hold even one event
+        return ArmResult::BadBudget;
     // The single allocation of a take: reserve exactly the budget once. size()
     // never exceeds this (append drops at the cap), so no reallocation follows
     // — data() and capacity() are stable from here through stop().
@@ -27,8 +22,7 @@ ArmResult MidiCapture::arm(size_t budgetBytes, uint32_t maxDurationMs,
     firstNoteUs_ = 0;
     lastEventMs_ = 0;
     state_ = CaptureState::Armed;
-    lastArm_ = ArmResult::Armed;
-    return lastArm_;
+    return ArmResult::Armed;
 }
 
 void MidiCapture::append(CaptureEventType type, uint8_t d1, uint8_t d2,
@@ -68,6 +62,15 @@ void MidiCapture::onNoteOff(uint8_t note, uint8_t channel, uint64_t nowUs) {
 }
 
 void MidiCapture::onPedal(uint8_t value, uint8_t channel, uint64_t nowUs) {
+    // Exclude the piano's echo of a CC64 WE sent (demo/accompaniment pedal
+    // pass-through) — same §5a rule as note echoes, pedal-credit keyed.
+    if (pedalCredits_ > 0) {
+        if (nowUs <= pedalExpiryUs_) {
+            --pedalCredits_;
+            return;
+        }
+        pedalCredits_ = 0;  // stale credits die
+    }
     if (state_ != CaptureState::Recording) return;
     append(CaptureEventType::Pedal, 0, static_cast<uint8_t>(value & 0x7F),
            channel, nowUs);
@@ -78,13 +81,24 @@ uint32_t MidiCapture::elapsedMs(uint64_t nowUs) const {
     return static_cast<uint32_t>((nowUs - firstNoteUs_) / 1000);
 }
 
-CaptureTake MidiCapture::stop() {
+CaptureTake MidiCapture::stop(uint64_t nowUs) {
     CaptureTake take;
     take.status = status_;
 
+    // Notes still held when Stop is pressed close at the STOP time, not the
+    // last captured event — a performance ending on a sustained chord keeps
+    // that chord's real duration (closing review). Clamped to the duration
+    // cap so an overflowed take can't grow past its own truncation point.
+    uint32_t stopMs = lastEventMs_;
+    if (state_ == CaptureState::Recording && nowUs >= firstNoteUs_) {
+        uint64_t elapsed = (nowUs - firstNoteUs_) / 1000;
+        if (elapsed > maxDurationMs_) elapsed = maxDurationMs_;
+        if (elapsed > stopMs) stopMs = static_cast<uint32_t>(elapsed);
+    }
+
     // Pair note-ons with their offs, mirroring the parser: a re-trigger of an
     // already-open (channel,note) closes the previous instance first; anything
-    // still open at the end closes at the last event time.
+    // still open at the end closes at the stop time.
     struct Open {
         uint32_t onMs;
         uint8_t velocity;
@@ -119,16 +133,21 @@ CaptureTake MidiCapture::stop() {
                 break;
         }
     }
-    // Close everything still held at the final event time.
+    // Close everything still held at the stop time. Trailing SILENCE stays
+    // trimmed (like the leading kind): only a note actually held through
+    // Stop extends the take past its last event.
+    bool heldAny = false;
     for (int ch = 0; ch < 16; ++ch)
         for (int n = 0; n < 128; ++n)
-            if (open[ch * 128 + n].active)
-                take.notes.push_back({open[ch * 128 + n].onMs, lastEventMs_,
+            if (open[ch * 128 + n].active) {
+                heldAny = true;
+                take.notes.push_back({open[ch * 128 + n].onMs, stopMs,
                                       static_cast<uint8_t>(n),
                                       open[ch * 128 + n].velocity,
                                       static_cast<uint8_t>(ch)});
+            }
 
-    take.durationMs = lastEventMs_;
+    take.durationMs = heldAny ? stopMs : lastEventMs_;
     take.empty = take.notes.empty() && take.pedals.empty();
 
     state_ = CaptureState::Idle;

@@ -3,6 +3,29 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A81 (2026-07-13, closing review): webui fixes — count-in/BPM inputs are
+  LOCAL while idle (the 2×/s poll no longer wipes the user's pending choice
+  before Arm reads it; device state mirrors only once armed); one shared
+  `renameSong()` + `humanBytes()` used by both the Record panel and the song
+  list (the two rename flows / size formats must never drift). Firmware
+  cleanups: dead `lastArm_` removed; `nextRecordingName` digit-length guard
+  (rename could construct an 11-digit `recording-<n>.mid` that overflowed the
+  int accumulator — UB).
+- A80 (2026-07-13, closing review, CONFIRMED finding): **pedal echo
+  exclusion** — §5a covers CC64, but only note echoes were guarded. The
+  device's demo/accompaniment CC64 pass-through echoing back from the piano
+  would have been captured as the player's own pedal press. Fix: capture
+  gains a value-agnostic pedal-echo credit window (EchoGuard is note-keyed,
+  so pedal credits are a separate count+expiry sharing the same window); the
+  director's tick echo-feed scan now also registers `Cc`/64 sends. Native
+  tests: echo excluded, credit expiry never eats a real press.
+- A79 (2026-07-13, closing review, supersedes the A64 tail): `stop()` takes
+  the stop TIME — notes still held when Stop is pressed close at stop time
+  (clamped to the duration cap), so a performance ending on a sustained
+  chord keeps its real duration instead of collapsing to the last discrete
+  event (worst case offMs=0). Trailing SILENCE stays trimmed: durationMs
+  extends past the last event only when something was actually held through
+  Stop.
 - A78 (2026-07-13, REC6 + lead integration fix): the editor's exported `.mid`
   layout = format-1, track "Right" (tempo + right-hand notes), "Left", and a
   separate **"Pedal" track for CC64** (emitted only when pedal events exist —

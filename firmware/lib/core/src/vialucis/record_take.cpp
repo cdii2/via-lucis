@@ -41,7 +41,9 @@ std::string nextRecordingName(const std::vector<std::string>& existing) {
             continue;
         std::string mid = name.substr(
             prefix.size(), name.size() - prefix.size() - suffix.size());
-        if (mid.empty()) continue;
+        // Length guard: rename can create ANY *.mid name, and an 11-digit
+        // "recording-<n>" would overflow the int accumulator below (UB).
+        if (mid.empty() || mid.size() > 8) continue;
         int n = 0;
         bool digits = true;
         for (char c : mid) {

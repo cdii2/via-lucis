@@ -1022,12 +1022,18 @@ function renderRecord(s) {
   $("btnRecStop").disabled = idle;
   $("btnRecDiscard").disabled = idle;
 
-  // count-in / BPM: Free-capture only, and only settable before arming
+  // count-in / BPM: Free-capture only, and only settable before arming.
+  // While IDLE these are the user's pending choices — the device reports its
+  // reset defaults then, and mirroring them would wipe the selection between
+  // ticking the box and pressing Arm (a 2x/s poll always lands in that gap).
+  // Mirror device state only once armed/recording.
   var countInEditable = idle && !hasSong;
   $("recCountIn").disabled = !countInEditable;
   $("recBpm").disabled = !countInEditable;
-  if (document.activeElement !== $("recCountIn")) $("recCountIn").checked = !!rec.countIn;
-  if (document.activeElement !== $("recBpm")) $("recBpm").value = rec.bpm;
+  if (!idle) {
+    if (document.activeElement !== $("recCountIn")) $("recCountIn").checked = !!rec.countIn;
+    if (document.activeElement !== $("recBpm")) $("recBpm").value = rec.bpm;
+  }
 
   $("recNote").textContent = hasSong
     ? "Play-along capture — Practice keeps the strip; the take records quietly in the background."
@@ -1059,19 +1065,27 @@ $("btnRecDiscard").addEventListener("click", function () {
     $("recRenameRow").style.display = "none";
   }).catch(function () {});
 });
-$("btnRecRename").addEventListener("click", function () {
-  if (!lastTakeName) return;
-  var next = prompt("Rename recording", lastTakeName);
-  if (!next || next === lastTakeName) return;
+// One rename flow for both the Record panel and the song list (they must
+// never drift): prompt, force .mid, POST rename, then done(finalName).
+function renameSong(name, done) {
+  var next = prompt("Rename " + name + " to:", name);
+  if (!next || next === name) return;
   if (!/\.mid$/i.test(next)) next += ".mid";
-  api("POST", "/api/songs/" + encodeURIComponent(lastTakeName) + "/rename", { name: next })
+  api("POST", "/api/songs/" + encodeURIComponent(name) + "/rename", { name: next })
     .then(function (d) {
-      lastTakeName = (d && d.name) || next;
-      toast("Renamed to " + lastTakeName);
-      $("btnRecRename").textContent = "Rename " + lastTakeName + "…";
+      var finalName = (d && d.name) || next;
+      toast("Renamed to " + finalName);
       refreshSongs();
+      if (done) done(finalName);
     })
     .catch(function (e) { toast(e.message, true); });
+}
+$("btnRecRename").addEventListener("click", function () {
+  if (!lastTakeName) return;
+  renameSong(lastTakeName, function (finalName) {
+    lastTakeName = finalName;
+    $("btnRecRename").textContent = "Rename " + finalName + "…";
+  });
 });
 
 /* =========================================================
@@ -1096,7 +1110,7 @@ function refreshSongs() {
       nm.textContent = s.name;
       var sz = document.createElement("div");
       sz.className = "sz";
-      sz.textContent = (s.size / 1024).toFixed(1) + " KB";
+      sz.textContent = humanBytes(s.size);
       meta.appendChild(nm);
       meta.appendChild(sz);
       item.appendChild(meta);
@@ -1113,14 +1127,7 @@ function refreshSongs() {
       var renBtn = document.createElement("button");
       renBtn.className = "btn small";
       renBtn.textContent = "Rename";
-      renBtn.addEventListener("click", function () {
-        var next = prompt("Rename " + s.name + " to:", s.name);
-        if (!next || next === s.name) return;
-        if (!/\.mid$/i.test(next)) next += ".mid";
-        api("POST", "/api/songs/" + encodeURIComponent(s.name) + "/rename", { name: next })
-          .then(function () { toast("Renamed to " + next); refreshSongs(); })
-          .catch(function (e) { toast(e.message, true); });
-      });
+      renBtn.addEventListener("click", function () { renameSong(s.name); });
       item.appendChild(renBtn);
 
       var delBtn = document.createElement("button");

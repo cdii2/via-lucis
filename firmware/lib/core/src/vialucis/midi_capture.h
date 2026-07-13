@@ -74,16 +74,27 @@ public:
     void noteSent(uint8_t note, uint64_t nowUs) { guard_.noteSent(note, nowUs); }
     EchoGuard& echoGuard() { return guard_; }
 
-    // Finalize → immutable take (pairs on/off; unreleased notes close at the
-    // last event). Returns to Idle. A take with no notes is flagged empty.
-    CaptureTake stop();
+    // Register a CC64 WE transmitted (demo/accompaniment pedal pass-through) —
+    // its echo must be excluded from the take exactly like a note echo (§5a:
+    // a take contains only YOUR presses). EchoGuard is note-keyed, so pedal
+    // credits get their own count+expiry, value-agnostic within the window.
+    void pedalSent(uint64_t nowUs) {
+        if (nowUs > pedalExpiryUs_) pedalCredits_ = 0;
+        if (pedalCredits_ < 255) ++pedalCredits_;
+        pedalExpiryUs_ = nowUs + guard_.windowUs();
+    }
+
+    // Finalize → immutable take (pairs on/off; notes still held when Stop is
+    // pressed close at the stop time — a take ending on a sustained chord
+    // keeps its real duration; trailing silence is trimmed). Returns to Idle.
+    // A take with no notes is flagged empty.
+    CaptureTake stop(uint64_t nowUs);
 
     // Drop armed/recording state, keep nothing. Returns to Idle.
     void discard();
 
     CaptureState state() const { return state_; }
     CaptureStatus status() const { return status_; }
-    ArmResult lastArm() const { return lastArm_; }
 
     // 0 until the clock starts; then nowUs - firstNoteUs in ms.
     uint32_t elapsedMs(uint64_t nowUs) const;
@@ -100,7 +111,6 @@ private:
 
     CaptureState state_ = CaptureState::Idle;
     CaptureStatus status_ = CaptureStatus::Ok;
-    ArmResult lastArm_ = ArmResult::Armed;
 
     std::vector<CaptureEvent> events_;
     size_t maxEvents_ = 0;       // budget-derived cap (never exceeded → no realloc)
@@ -111,6 +121,8 @@ private:
     uint32_t lastEventMs_ = 0;   // most recent captured event time
 
     EchoGuard guard_;            // capture's OWN guard (never the engine's)
+    uint8_t pedalCredits_ = 0;   // CC64 echo credits (value-agnostic window)
+    uint64_t pedalExpiryUs_ = 0;
 };
 
 }  // namespace vialucis
