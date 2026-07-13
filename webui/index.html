@@ -69,6 +69,11 @@ header .logo span { color: var(--lux); }
 .chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
 .chip.on .dot { background: var(--right); box-shadow: 0 0 6px var(--right); }
 .chip.off .dot { background: var(--red); }
+/* record chip: unmissable regardless of page/scroll — armed = lux, recording = pulsing red */
+.chip.armed .dot { background: var(--lux); box-shadow: 0 0 6px var(--lux); }
+.chip.rec .dot { background: var(--red); box-shadow: 0 0 6px var(--red); animation: recblink 1s ease-in-out infinite; }
+.chip.rec { border-color: rgba(229,72,77,0.5); color: #ff8b8e; }
+@keyframes recblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 /* ============ layout / cards ============ */
 main { padding: 12px 12px 0; max-width: 640px; margin: 0 auto; }
@@ -104,6 +109,8 @@ nav button.active { color: var(--lux); }
 .badge.playing { color: var(--right); background: rgba(55,200,113,0.12); }
 .badge.waiting { color: var(--lux); background: rgba(240,180,76,0.12); }
 .badge.finished { color: var(--left); background: rgba(79,142,247,0.12); }
+.badge.rec { color: #ff8b8e; background: rgba(229,72,77,0.14); }
+.badge.armed { color: var(--lux); background: rgba(240,180,76,0.12); }
 .timerow { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .tbtns { display: flex; gap: 12px; justify-content: center; align-items: center; margin: 14px 0 4px; }
 .tbtn {
@@ -308,6 +315,7 @@ input[type=color] {
 
 <header>
   <div class="logo">Via <span>Lucis</span></div>
+  <div class="chip" id="recChip" style="display:none"><span class="dot"></span><span id="recChipTxt">REC</span></div>
   <div class="chip off" id="bleChip"><span class="dot"></span><span id="bleTxt">BLE</span></div>
   <div class="chip" id="wifiChip"><span class="dot"></span><span id="wifiTxt">WiFi</span></div>
 </header>
@@ -315,6 +323,31 @@ input[type=color] {
 <main>
 <!-- ================= PLAY PAGE ================= -->
 <section class="page active" id="page-play">
+
+  <div class="card" id="recordCard">
+    <div class="row" style="min-height:auto">
+      <h2 class="grow" style="margin-bottom:0">Record</h2>
+      <span class="badge" id="recBadge">idle</span>
+    </div>
+    <div class="timerow"><span id="recElapsed">0:00</span><span id="recBudgetTxt">0 B / 64 KB</span></div>
+    <div class="row">
+      <label class="name" for="recCountIn">Count-in click</label>
+      <span class="tog"><input type="checkbox" id="recCountIn" aria-label="Count-in click"><span class="tr"></span></span>
+    </div>
+    <div class="row">
+      <label for="recBpm">BPM</label>
+      <input type="number" id="recBpm" min="20" max="300" step="1" value="90">
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <button class="btn accent" id="btnRecArm">Arm</button>
+      <button class="btn danger" id="btnRecStop">Stop</button>
+      <button class="btn" id="btnRecDiscard">Discard</button>
+    </div>
+    <div class="btnrow" id="recRenameRow" style="display:none;margin-top:8px">
+      <button class="btn small" id="btnRecRename">Rename…</button>
+    </div>
+    <div class="note-txt" id="recNote">Free capture — the strip follows your playing.</div>
+  </div>
 
   <div class="card">
     <div class="songline">
@@ -473,6 +506,12 @@ input[type=color] {
       <div class="row"><label for="s_repeatFloorMs">Minimum visible gap (ms)</label><input type="number" id="s_repeatFloorMs" data-key="repeatFloorMs" step="5" min="0" max="1000"></div>
       <div class="row"><label for="s_repeatWaitPulseMs">Wait-mode pulse (ms)</label><input type="number" id="s_repeatWaitPulseMs" data-key="repeatWaitPulseMs" step="10" min="0" max="1000"></div>
     </details>
+  </div>
+
+  <div class="card set-grid">
+    <h2>Recording</h2>
+    <div class="row"><label for="s_recordBudgetKB">Recording budget (KB)</label><input type="number" id="s_recordBudgetKB" data-key="recordBudgetKB" step="16" min="16" max="1024"></div>
+    <div class="note-txt">Bounds how much of a take fits in memory while armed (16–1024 KB, default 64 — arm reserves the whole budget as one block, so a stock ESP32 wants ≤64). Lower this if arming refuses with "low memory".</div>
   </div>
 
   <div class="card set-grid">
@@ -642,6 +681,8 @@ var offline = true;
 var pollTimer = null;
 var blePollCounter = 0;
 var lastTracksSig = "";
+var prevRecState = "idle";
+var lastTakeName = "";
 
 function setOffline(off) {
   if (off === offline) return;
@@ -685,7 +726,11 @@ function renderStatus(s) {
   $("songName").textContent = hasSong ? s.song : "No song loaded";
   $("btnUnload").style.display = hasSong ? "" : "none";
   var badge = $("stateBadge");
-  if (!hasSong && s.topMode === "afk") {
+  if (!hasSong && s.topMode === "record") {
+    var rec0 = s.record || {};
+    badge.textContent = rec0.state === "recording" ? "recording" : "armed";
+    badge.className = "badge " + (rec0.state === "recording" ? "rec" : "armed");
+  } else if (!hasSong && s.topMode === "afk") {
     badge.textContent = "ambient";
     badge.className = "badge";
   } else if (s.topMode === "presentation") {
@@ -753,6 +798,9 @@ function renderStatus(s) {
 
   // tracks
   renderTracks(s.tracks || []);
+
+  // record
+  renderRecord(s);
 }
 
 /* =========================================================
@@ -932,6 +980,101 @@ function renderTracks(tracks) {
 }
 
 /* =========================================================
+   RECORD (v3 REC5)
+   ========================================================= */
+function humanBytes(n) {
+  n = n || 0;
+  if (n < 1024) return n + " B";
+  return (n / 1024).toFixed(1) + " KB";
+}
+function clampBpm(n) {
+  n = Math.round(n);
+  if (isNaN(n)) return 90;
+  return Math.max(20, Math.min(300, n));
+}
+function renderRecord(s) {
+  var rec = s.record || { state: "idle", elapsedMs: 0, usedBytes: 0, budgetBytes: 65536, countIn: false, bpm: 90 };
+  var hasSong = !!s.song;
+  var idle = rec.state === "idle";
+
+  // header chip: visible on every page, no scrolling required
+  var chip = $("recChip");
+  if (idle) {
+    chip.style.display = "none";
+  } else {
+    chip.style.display = "";
+    chip.className = "chip " + (rec.state === "recording" ? "rec" : "armed");
+    $("recChipTxt").textContent = rec.state === "recording" ? ("REC " + fmtTime(rec.elapsedMs)) : "ARMED";
+  }
+
+  // fresh arm cycle: drop any leftover rename offer from a previous take
+  if (!idle && prevRecState === "idle") $("recRenameRow").style.display = "none";
+  prevRecState = rec.state;
+
+  // record card
+  var badge = $("recBadge");
+  badge.textContent = rec.state;
+  badge.className = "badge" + (rec.state === "recording" ? " rec" : rec.state === "armed" ? " armed" : "");
+  $("recElapsed").textContent = fmtTime(rec.elapsedMs);
+  $("recBudgetTxt").textContent = humanBytes(rec.usedBytes) + " / " + humanBytes(rec.budgetBytes);
+
+  $("btnRecArm").disabled = !idle;
+  $("btnRecStop").disabled = idle;
+  $("btnRecDiscard").disabled = idle;
+
+  // count-in / BPM: Free-capture only, and only settable before arming
+  var countInEditable = idle && !hasSong;
+  $("recCountIn").disabled = !countInEditable;
+  $("recBpm").disabled = !countInEditable;
+  if (document.activeElement !== $("recCountIn")) $("recCountIn").checked = !!rec.countIn;
+  if (document.activeElement !== $("recBpm")) $("recBpm").value = rec.bpm;
+
+  $("recNote").textContent = hasSong
+    ? "Play-along capture — Practice keeps the strip; the take records quietly in the background."
+    : "Free capture — the strip follows your playing.";
+}
+
+$("btnRecArm").addEventListener("click", function () {
+  if ($("btnRecArm").disabled) return;
+  $("btnRecArm").disabled = true;
+  var body = { countIn: $("recCountIn").checked, bpm: clampBpm(+$("recBpm").value || 90) };
+  send("POST", "/api/record/arm", body).catch(function () {}).then(function () { pollNow(); });
+});
+$("btnRecStop").addEventListener("click", function () {
+  send("POST", "/api/record/stop").then(function (d) {
+    if (d && d.name) {
+      lastTakeName = d.name;
+      toast("Saved " + d.name);
+      refreshSongs();
+      $("btnRecRename").textContent = "Rename " + d.name + "…";
+      $("recRenameRow").style.display = "";
+    } else {
+      toast("Nothing captured");
+    }
+  }).catch(function () {});
+});
+$("btnRecDiscard").addEventListener("click", function () {
+  send("POST", "/api/record/discard").then(function () {
+    toast("Recording discarded");
+    $("recRenameRow").style.display = "none";
+  }).catch(function () {});
+});
+$("btnRecRename").addEventListener("click", function () {
+  if (!lastTakeName) return;
+  var next = prompt("Rename recording", lastTakeName);
+  if (!next || next === lastTakeName) return;
+  if (!/\.mid$/i.test(next)) next += ".mid";
+  api("POST", "/api/songs/" + encodeURIComponent(lastTakeName) + "/rename", { name: next })
+    .then(function (d) {
+      lastTakeName = (d && d.name) || next;
+      toast("Renamed to " + lastTakeName);
+      $("btnRecRename").textContent = "Rename " + lastTakeName + "…";
+      refreshSongs();
+    })
+    .catch(function (e) { toast(e.message, true); });
+});
+
+/* =========================================================
    SONGS
    ========================================================= */
 function refreshSongs() {
@@ -966,6 +1109,19 @@ function refreshSongs() {
           .then(function () { toast("Loaded " + s.name); refreshSongs(); });
       });
       item.appendChild(loadBtn);
+
+      var renBtn = document.createElement("button");
+      renBtn.className = "btn small";
+      renBtn.textContent = "Rename";
+      renBtn.addEventListener("click", function () {
+        var next = prompt("Rename " + s.name + " to:", s.name);
+        if (!next || next === s.name) return;
+        if (!/\.mid$/i.test(next)) next += ".mid";
+        api("POST", "/api/songs/" + encodeURIComponent(s.name) + "/rename", { name: next })
+          .then(function () { toast("Renamed to " + next); refreshSongs(); })
+          .catch(function (e) { toast(e.message, true); });
+      });
+      item.appendChild(renBtn);
 
       var delBtn = document.createElement("button");
       delBtn.className = "btn small danger";
@@ -1069,6 +1225,7 @@ function applySettings(s, quiet) {
   setIf("s_repeatFloorMs", s.repeatFloorMs);
   setIf("s_repeatWaitPulseMs", s.repeatWaitPulseMs);
   setIf("s_afkTimeoutSec", s.afkTimeoutSec);
+  setIf("s_recordBudgetKB", s.recordBudgetKB);
   settingsLoaded = true;
 }
 
