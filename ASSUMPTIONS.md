@@ -3,6 +3,22 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A86 (2026-07-13, arch C2): **tools checker recomputes the FULL twin as an
+  independent 4th implementation, plus guards the editor's embedded fixture
+  hex.** `tools/midi_dump.py` reimplements the SMF parse, `tickToMicros`,
+  `TrackConfig::defaultsFor`, and the editor's `normalizeHands` hand rules
+  straight from the C++/JS contracts — it does not import the generator or
+  read its output, so it can catch a drift the generator's own reference
+  implementation and the two code consumers might share.
+  `tools/check_midi_corpus.py` (mirrors `check_corpus.py`) semantically
+  diffs every fixture's twin AND regex-extracts the `MIDI_CORPUS` block from
+  `editor.html` to byte-compare its embedded hex against the committed
+  `.mid` files (key-set equality too — an added fixture missing from the
+  embed fails). Rationale: the embed is hand-pasted from the generator's
+  printed snippet (A84/A85) with nothing else enforcing sync; undetected
+  drift there would silently hollow out the editor cross-pin, since the
+  selftest would keep passing against stale bytes that no longer match what
+  ships in `corpus/midi/`.
 - A85 (2026-07-13, arch C2): **editor selftest embeds the MIDI corpus.** The
   `?selftest=1` block carries `MIDI_CORPUS` — each fixture's committed `.mid`
   bytes as concatenated hex string literals plus the twin's editor-view `expect`

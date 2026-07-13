@@ -721,3 +721,29 @@ capture-timing upgrade (hardware-gated).
   esp32dev SUCCESS (flash 45.7%, RAM 19.6%). Remaining work is hardware-gated
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only
   docs/BUILD-GUIDE.md → BRINGUP.md.
+- 2026-07-13 arch step C2 — **golden MIDI conformance corpus landed**
+  (`corpus/midi/` — the SMF-side twin of the `.vls` show corpus, A83). 8
+  fixtures each pin BOTH representations of one file: firmware raw-index
+  view (`parseMidi` + `TrackConfig::defaultsFor`) and the editor's
+  canonical-hands view (`normalizeHands`) — the motivating bug is the A82
+  hand-swap, which no prior artifact would have caught. Builder A:
+  `corpus/gen/midi/gen_midi_fixtures.py` (declarative fixture models emit
+  both the `.mid` bytes and the expected twin independently), the 8
+  fixtures, firmware `test_midi_corpus` (~18 tests, A83/A84, incl. a
+  byte-compare of the real `writeSmf` against the `recording-shaped`
+  fixture), and the editor selftest's `MIDI_CORPUS` hex embed + cross-pin
+  (A85). Builder B (this entry): `tools/midi_dump.py` — a genuinely
+  independent 4th SMF parser (stdlib-only, reimplements the parse,
+  `tickToMicros`, `defaultsFor`, and `normalizeHands` rules straight from
+  the C++/JS contracts, never importing the generator) — plus
+  `tools/check_midi_corpus.py`, which semantically diffs every fixture's
+  twin AND guards the editor's embedded hex against the committed `.mid`
+  files (byte-match + key-set equality), so embed drift can no longer
+  silently hollow out the editor cross-pin (A86). `corpus/midi/README.md`
+  documents the fixture table, three consumers, twin schema, and
+  regeneration story. **372 native tests ALL PASS** (354 baseline + 18 from
+  `test_midi_corpus`); `check_midi_corpus.py` 8/8 fixtures PASS both checks;
+  `check_corpus.py` still 4/4 PASS (untouched). Negative-tested: a flipped
+  byte in a fixture's bytes, a flipped hex char in the extracted embed, and
+  a fixture dropped from the embed's key set all correctly trip a FAIL — the
+  checker is not vacuously green.
