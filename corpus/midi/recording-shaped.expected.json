@@ -1,0 +1,129 @@
+{
+  "ticksPerQuarter": 500,
+  "tracks": [
+    "",
+    "Right",
+    "Left"
+  ],
+  "tempo": [
+    {
+      "tick": 0,
+      "usPerQuarter": 500000
+    }
+  ],
+  "notes": [
+    {
+      "onTick": 0,
+      "offTick": 500,
+      "onUs": 0,
+      "offUs": 500000,
+      "note": 72,
+      "velocity": 100,
+      "channel": 0,
+      "track": 1
+    },
+    {
+      "onTick": 0,
+      "offTick": 1000,
+      "onUs": 0,
+      "offUs": 1000000,
+      "note": 48,
+      "velocity": 80,
+      "channel": 0,
+      "track": 2
+    },
+    {
+      "onTick": 500,
+      "offTick": 1000,
+      "onUs": 500000,
+      "offUs": 1000000,
+      "note": 74,
+      "velocity": 90,
+      "channel": 0,
+      "track": 1
+    }
+  ],
+  "pedal": [
+    {
+      "tick": 0,
+      "us": 0,
+      "value": 127,
+      "channel": 0,
+      "track": 1
+    },
+    {
+      "tick": 500,
+      "us": 500000,
+      "value": 64,
+      "channel": 0,
+      "track": 1
+    },
+    {
+      "tick": 1000,
+      "us": 1000000,
+      "value": 0,
+      "channel": 0,
+      "track": 1
+    }
+  ],
+  "firmwareHands": [
+    {
+      "hand": "off",
+      "lights": false
+    },
+    {
+      "hand": "right",
+      "lights": true
+    },
+    {
+      "hand": "left",
+      "lights": true
+    }
+  ],
+  "editor": {
+    "tracks": [
+      "Right",
+      "Left"
+    ],
+    "notes": [
+      {
+        "onUs": 0,
+        "offUs": 500000,
+        "note": 72,
+        "velocity": 100,
+        "hand": 0
+      },
+      {
+        "onUs": 0,
+        "offUs": 1000000,
+        "note": 48,
+        "velocity": 80,
+        "hand": 1
+      },
+      {
+        "onUs": 500000,
+        "offUs": 1000000,
+        "note": 74,
+        "velocity": 90,
+        "hand": 0
+      }
+    ],
+    "pedals": [
+      {
+        "us": 0,
+        "value": 127,
+        "hand": 0
+      },
+      {
+        "us": 500000,
+        "value": 64,
+        "hand": 0
+      },
+      {
+        "us": 1000000,
+        "value": 0,
+        "hand": 0
+      }
+    ]
+  }
+}

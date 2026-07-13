@@ -3,6 +3,32 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A84 (2026-07-13, arch C2): **generator authority + writeSmf byte-pin.** The
+  MIDI corpus is authored by `corpus/gen/midi/gen_midi_fixtures.py`: each fixture
+  is one declarative python model from which the script emits BOTH the `.mid`
+  bytes AND the expected twin JSON — the twin is computed from the model by a
+  python reference implementation of the parser semantics, NEVER by parsing the
+  bytes it just wrote. The generator's models are therefore the authority;
+  regenerating (`python corpus/gen/midi/gen_midi_fixtures.py`) is a deliberate
+  contract event that re-gates all three consumers. The `recording-shaped`
+  fixture is emitted by a byte-for-byte python replica of firmware `writeSmf`;
+  `test_recording_shaped_writer_bytes` byte-compares the real `writeSmf` against
+  the committed file, so any replica drift fails the gate. The generator also
+  prints the editor `MIDI_CORPUS` snippet so regeneration stays copy-paste.
+- A83 (2026-07-13, arch C2): **golden MIDI corpus at `corpus/midi/`** — the
+  cross-artifact contract for the SMF parser, twinning the `.vls` show corpus
+  (A56/candidate-1) for MIDI. 8 fixtures (conductor-first, named-lh-rh,
+  anonymous-pair, three-hands, pedal-only-track, tie-order, vlq-tempo,
+  recording-shaped) each ship `<name>.mid` + `<name>.expected.json`. The twin
+  pins BOTH representations of the same file: the firmware RAW-INDEX view
+  (`note.track` = MTrk index, `TrackConfig::defaultsFor` hands) AND the editor
+  CANONICAL-HANDS view (`normalizeHands`, 0=Right/1=Left/2=Other) — with
+  exact-integer-microsecond times (the generator asserts every pinned tick
+  divides cleanly through `tickToMicros`, so firmware truncating integer
+  division equals editor `round(ms*1000)`). Rationale: the A82 hand-swap shipped
+  because no artifact pinned both views of the same file — three-hands and
+  named-lh-rh explicitly pin the firmware/editor divergence and the name-beats-
+  file-order rule. Firmware suite: `firmware/test/test_midi_corpus` (~18 tests).
 - A82 (2026-07-13, closing review, CONFIRMED finding): **editor hand
   normalization at load** — the roll/counters/export trusted the raw MTrk
   index as the hand, but device recordings (and normal DAW files) carry a
