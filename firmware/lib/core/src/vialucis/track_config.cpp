@@ -24,11 +24,19 @@ TrackConfig TrackConfig::defaultsFor(const MidiSong& song) {
     std::vector<bool> hasNotes(song.tracks.size(), false);
     for (const MidiNote& n : song.notes)
         if (n.track < hasNotes.size()) hasNotes[n.track] = true;
+    std::vector<bool> hasPedal(song.tracks.size(), false);
+    for (const PedalEvent& p : song.pedal)
+        if (p.track < hasPedal.size()) hasPedal[p.track] = true;
 
     std::vector<size_t> noteTracks;
     for (size_t i = 0; i < cfg.tracks.size(); ++i) {
         if (!hasNotes[i]) {
-            cfg.tracks[i].hand = Hand::Off;
+            // A pedal-only track (the editor exports CC64 on its own track)
+            // must stay audible or demo playback silently loses the sustain —
+            // the emitter masks Pedal events by track like everything else.
+            // Both = plays in demo, silent in accompaniment (pedal is the
+            // player's own foot there), invisible to wait mode (no onsets).
+            cfg.tracks[i].hand = hasPedal[i] ? Hand::Both : Hand::Off;
             cfg.tracks[i].lights = false;
             continue;
         }

@@ -58,6 +58,37 @@ static void test_single_track_is_both() {
     TEST_ASSERT_EQUAL(Hand::Both, cfg.tracks[0].hand);
 }
 
+// A pedal-only track (the editor's export puts CC64 on its own track) must
+// default audible — Hand::Off would silently drop the sustain from demo
+// playback (the emitter masks Pedal events by track). A track with neither
+// notes nor pedal stays Off.
+static void test_pedal_only_track_defaults_audible() {
+    Bytes file = smf::header(1, 3, 480);
+    Bytes t1;
+    smf::trackName(t1, 0, "Right");
+    smf::noteOn(t1, 0, 0, 72, 100);
+    smf::noteOff(t1, 480, 0, 72);
+    smf::append(file, smf::track(t1));
+    Bytes t2;
+    smf::trackName(t2, 0, "Pedal");
+    smf::cc(t2, 0, 0, 64, 127);
+    smf::cc(t2, 480, 0, 64, 0);
+    smf::append(file, smf::track(t2));
+    Bytes t3;  // empty meta-ish track: no notes, no pedal
+    smf::trackName(t3, 0, "Copyright");
+    smf::append(file, smf::track(t3));
+    MidiSong song = parseMidi(file.data(), file.size()).song;
+    TrackConfig cfg = TrackConfig::defaultsFor(song);
+    TEST_ASSERT_EQUAL(Hand::Right, cfg.tracks[0].hand);
+    TEST_ASSERT_EQUAL(Hand::Both, cfg.tracks[1].hand);  // pedal-only: audible
+    TEST_ASSERT_FALSE(cfg.tracks[1].lights);
+    TEST_ASSERT_EQUAL(Hand::Off, cfg.tracks[2].hand);
+    // Demo emits the pedal track; accompaniment (the player's own foot) and
+    // wait-mode barriers (no onsets) don't.
+    TEST_ASSERT_TRUE((cfg.audibleMask() & trackBit(1)) != 0);
+    TEST_ASSERT_EQUAL_UINT32(0, cfg.accompanimentMask(Hand::Left) & trackBit(1));
+}
+
 static void test_masks_for_left_practice() {
     MidiSong song = makeSong(true, true);  // 0=off, 1=right, 2=left
     TrackConfig cfg = TrackConfig::defaultsFor(song);
@@ -94,6 +125,7 @@ int main(int, char**) {
     RUN_TEST(test_named_tracks_assigned_by_name);
     RUN_TEST(test_anonymous_two_track_convention);
     RUN_TEST(test_single_track_is_both);
+    RUN_TEST(test_pedal_only_track_defaults_audible);
     RUN_TEST(test_masks_for_left_practice);
     RUN_TEST(test_lights_toggle_excludes_track);
     RUN_TEST(test_both_hand_track_practices_under_either_hand);

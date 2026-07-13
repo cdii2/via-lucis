@@ -507,25 +507,25 @@ and light**; v1 contract tests stay green except the sanctioned `recordBudgetKB`
 append; TDD, one item per commit, A`<n>` entries, closing 8-angle `/code-review` before
 main.
 
-- [ ] REC1 — core **SMF writer** (`lib/core`, inverse of `midi_parser`): event list →
+- [x] REC1 — core **SMF writer** (`lib/core`, inverse of `midi_parser`): event list →
       SMF format-1 bytes. Round-trip test `parseMidi(write(events)) == events`; native.
-- [ ] REC2 — core **MidiCapture** tape head on the post-echo-guard input stream:
+- [x] REC2 — core **MidiCapture** tape head on the post-echo-guard input stream:
       timestamps note on/off/velocity/CC64 at 1 ms into a bounded ring buffer;
       first-note-start / stop / discard; budget + duration cap → typed overflow. Native
       tests: free capture, play-along (device-sent notes excluded by the echo-guard tap),
       budget refusal, wait-pause elapsed-time behavior, zero-alloc append.
-- [ ] REC3 — **ModeDirector integration**: Record top-mode (no-song → Reactive monitor +
+- [x] REC3 — **ModeDirector integration**: Record top-mode (no-song → Reactive monitor +
       heartbeat) + play-along overlay (song loaded → Practice keeps the strip, capture
       runs alongside, paints nothing). Gate-matrix tests: arm no-song ⇒ Record mode; arm
       song-loaded ⇒ stays Practice + captures; AFK disarmed while armed; stop ⇒ save.
-- [ ] REC4 — **persistence + REST**: save take to `recording-<n>.mid` on LittleFS (appears
+- [x] REC4 — **persistence + REST**: save take to `recording-<n>.mid` on LittleFS (appears
       in the song list, immediately playable); `POST /api/record/arm|stop|discard`;
       `recordBudgetKB` appends to `/api/settings` (contract test updated, append-only);
       free-space + budget checks with typed refusals; F1 fence + CORS as every route.
-- [ ] REC5 — **web UI**: Record panel (arm / stop / discard, REC indicator, budget
+- [x] REC5 — **web UI**: Record panel (arm / stop / discard, REC indicator, budget
       readout, rename take); Free-capture count-in toggle → fixed 1-bar visual strip pulse
       at a settable BPM (C1a; tap-tempo deferred).
-- [ ] REC6 — **editor MIDI note-editing** (the heavy item): extend the home-grown canvas
+- [x] REC6 — **editor MIDI note-editing** (the heavy item): extend the home-grown canvas
       roll; **vendor MidiWriterJS (MIT), inlined** for SMF export (webaudio-pianoroll
       Apache-2.0 = fallback roll). Lean edit set (A2b): move / delete / resize / quantize /
       tempo / hand-split (add-note + per-note velocity deferred). Interaction = DAW
@@ -533,7 +533,7 @@ main.
       Shift+click / marquee = multi-select, drag moves the selection together**. Load
       `recording-<n>.mid`, save `.vlp`, export clean `.mid`; light-show authoring applies
       on top.
-- [ ] REC7 — **docs**: SPEC cross-ref (recording = producer at the upload seam), API.md
+- [x] REC7 — **docs**: SPEC cross-ref (recording = producer at the upload seam), API.md
       routes, BRINGUP hardware-verify (real capture timing / BLE jitter on a take),
       TROUBLESHOOTING as needed.
 - [ ] closing `/code-review` over the wave diff — 8 angles — before it lands on main.

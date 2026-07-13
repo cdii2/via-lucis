@@ -3,6 +3,26 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A78 (2026-07-13, REC6 + lead integration fix): the editor's exported `.mid`
+  layout = format-1, track "Right" (tempo + right-hand notes), "Left", and a
+  separate **"Pedal" track for CC64** (emitted only when pedal events exist —
+  MidiWriterJS can't reliably interleave relative-delta CC with explicit-tick
+  notes on one track). That layout exposed a device gap: `defaultsFor` gave
+  every notes-empty track `Hand::Off`, and the emitter masks Pedal events by
+  track — demo playback would silently lose the sustain. FIX (lead, native
+  test): a notes-empty track that HAS pedal events now defaults **Hand::Both**
+  (audible in demo; silent in accompaniment — pedal is the player's own foot
+  there; invisible to wait mode — no onsets), lights off.
+- A77 (2026-07-13, REC6): `.vlp` bumped to **v2** — adds editable notes, CC64
+  pedals, and the note-edit settings (editTempoBpm / splitPoint / gridDiv /
+  noteSnapOn / quantLengths) alongside the existing show fields; v1 files
+  still load (missing fields default). The `.vlp` is the mutable project
+  copy — the raw take on the device is never rewritten (§6a).
+- A76 (2026-07-13, REC6): editor note timing is **millisecond-authoritative**;
+  MIDI ticks go stale after edits and are recomputed on export from ms + the
+  editor-assigned tempo (vendored MidiWriterJS 3.1.1 MIT, TPQ=128). Grid-
+  quantized notes land on clean ticks; velocity re-scales through
+  MidiWriter's 1–100 API (±1 — velocity isn't editable in v1 anyway, A2b).
 - A75 (2026-07-13, REC4 lead review): `recordBudgetKB` default lowered
   **256 → 64** and arm gained a **contiguous-RAM guard**
   (`ESP.getMaxAllocHeap() >= budget + 32KB` else `507 {"error":"low memory"}`).
