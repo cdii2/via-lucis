@@ -3,6 +3,27 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A60 (2026-07-13, REC1): SmfWriter emits **explicit note-off (0x80 status,
+  release velocity 0)** rather than note-on-velocity-0 for note ends. The
+  parser treats both identically, but 0x80 is unambiguous and keeps running
+  status irrelevant. The writer never uses running status (always a full
+  status byte) — simpler, and the parser reads both forms; the few extra bytes
+  are irrelevant at the 256 KB take ceiling.
+- A59 (2026-07-13, REC1): At an **identical timestamp**, SmfWriter orders
+  emitted messages **note-off (0) → CC64 pedal (1) → note-on (2)**. Offs
+  before ons at the same instant is required for a same-key re-strike at a
+  shared boundary (note ends exactly when it restarts): ons-first would make
+  the parser's re-trigger logic collapse the held note to zero length and drop
+  the second instance (the tie-order class of bug the show_player suite already
+  caught). Verified by test_same_key_restrike_boundary.
+- A58 (2026-07-13, REC1): SmfWriter input model = per-track `{name, notes[],
+  pedals[]}` with **absolute-millisecond** on/off (`SmfNoteEvent{onMs,offMs,
+  note,velocity,channel}`) and pedal (`SmfPedalEvent{tMs,value,channel}`) —
+  NOT delta-encoded and NOT required pre-sorted (the writer stable-sorts each
+  track before delta encoding, so capture/editor callers can hand it events in
+  any order). Track 0 (tempo/meta conductor) is written automatically; callers
+  supply only performance tracks. Degenerate input (no tracks / empty tracks)
+  yields a valid file with just the conductor — `writeSmf` never fails.
 - A57 (2026-07-13, VL3 close): **CHRISTIAN'S RULING, not an assumption — VL3
   editor hosting = Option 1.** The show editor is OFF-device (`editor/editor.html`),
   distributed as a downloadable **release artifact** (`file://` open, proven by the
