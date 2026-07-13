@@ -52,6 +52,9 @@ browser").
   as the editor / hand-splitter for files with merged tracks.
 - **OMR (sheet-music photo → MIDI) is a separate future program**, not part of this
   repo. The upload slot is the seam; anything that produces MIDI can feed it.
+- **v3 growth (additive):** Recording is exactly such a producer — the device itself
+  writes your played performance to a `.mid` at this same seam, no new pipeline. Design:
+  [DESIGN-record.md](DESIGN-record.md). Doesn't reopen anything LOCKED above.
 
 ### Explicitly deferred (not v1)
 - **Falling-notes web view** synced to the lights — flagship v1.1 feature.

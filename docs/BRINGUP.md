@@ -276,6 +276,82 @@ anything.
 
 Afterwards set the idle timeout back (default 180s).
 
+## Step 11d — Recording (v3) ⚠ VERIFY-ON-HARDWARE
+
+"Recording" means the ESP32 itself writes a `.mid` file of what you actually
+play — hit Record, play, hit Stop, and the take shows up in the song library
+like any other song (details: [DESIGN-record.md](DESIGN-record.md)).
+
+Action: with **no song loaded**, arm recording from the web UI (Free capture:
+`POST /api/record/arm`). Play a short passage — a scale, or a few bars you
+know. Stop recording (`POST /api/record/stop`).
+
+**Expected:**
+
+1. While armed/recording with no song loaded, the strip lights each key as you
+   press it (same as the Reactive/free-play glow), plus one dim, slow-breathing
+   **amber** pixel just past the last key — that's the recording heartbeat, not
+   a note; it's deliberately not red/blue/green so it never looks like a wait-mode
+   verdict.
+2. The web UI shows a "REC" indicator while armed/recording.
+3. After Stop, the take appears in the song library as `recording-1.mid` (next
+   run: `recording-2.mid`, etc.). Load it and press Play — it should sound and
+   light up like the passage you just played.
+
+⚠ VERIFY-ON-HARDWARE items in this step:
+
+- **Capture timing / jitter on the real FP-30X.** v1 timestamps each note the
+  instant the ESP32's Bluetooth stack hands it over (`millis()` on arrival —
+  design doc calls this "D1a"). Real BLE connections have some jitter (packets
+  arriving a few milliseconds late in bursts); the editor's quantize step is
+  meant to absorb this. **Measure it first:** record a steady metronome-tempo
+  passage (or tap one key on a beat for 20+ taps), then look at the take's
+  timing in the editor — are the gaps between taps consistently even, or do
+  they wander by more than ~15 ms? If timing feels loose enough to bother you,
+  see [DESIGN-record.md](DESIGN-record.md), section "Capture timing," for the
+  sanctioned upgrade path (D1b, using the BLE-MIDI packet's own timestamp) —
+  that's a firmware change, not a setting, so it's a "report the measurement"
+  item, not a self-serve fix.
+- **Echo exclusion.** Record in **Play-along capture** (a song loaded, mode
+  Demo or Accompaniment so the ESP32 is sending notes to the piano) — the
+  device's own accompaniment notes must **never** show up in the take
+  afterward. If you open the recorded take and see notes you didn't play →
+  [Device's own notes show up in a recording](TROUBLESHOOTING.md#devices-own-notes-show-up-in-a-recording).
+- **Recording budget vs. real free memory.** The default recording budget
+  (`recordBudgetKB`, Settings) is **64 KB**, sized so arming can reserve that
+  much RAM in one block even with BLE and WiFi both active — a stock ESP32
+  (no PSRAM) doesn't have a lot of headroom left over for anything bigger. Try
+  arming a take with BLE connected and the web UI open (both radios busy, the
+  worst case) at the default 64 KB — it should arm normally. Then, ONLY if you
+  want more than ~8,000 events of headroom, raise `recordBudgetKB` in steps
+  (e.g. 128, then 256) and re-test arming in that same busy state; note the
+  point where arming starts refusing with "low memory" so the number in
+  Settings reflects reality on your actual board, not just the clamp range
+  (16–1024 KB). See
+  [Arm refused — "low memory"](TROUBLESHOOTING.md#arm-refused--low-memory) if
+  it refuses sooner than expected.
+- **Free-space refusal.** With the LittleFS song storage nearly full (upload
+  songs until there's only a few KB free, or lower `recordBudgetKB` to force
+  it), try arming a take — it should refuse cleanly with a "low space" message
+  rather than crashing or silently failing. See
+  [Arm refused — "low space"](TROUBLESHOOTING.md#arm-refused--low-space).
+- **Full round-trip: record → edit → play back.** Record a short take, open it
+  in the off-device editor (`editor/editor.html`), clean it up (quantize,
+  trim any stray notes, fix the hand split if needed), export the cleaned
+  `.mid` + light show, upload both back to the device, and play the exported
+  song. It should look and sound like your cleaned-up version, not the raw
+  take.
+- **Count-in pulse legibility.** Arm a Free-capture take with count-in on (web
+  UI: Record → count-in toggle + BPM) and confirm the four-beat white pulse
+  before capture starts is clearly visible in your room's normal lighting —
+  if it's too subtle to feel the beat, that's a brightness question for a
+  later pass, not a setting that exists yet in v1.
+- **Heartbeat pixel visibility.** The recording heartbeat lives on the single
+  LED just past the last physical key (or just before the first key, on some
+  mounts) — confirm you can actually see it from playing position without
+  straining, since it's your only on-strip cue during Free capture that a
+  take is running.
+
 ## Step 12 — Done
 
 That's the whole trainer proven end to end. From here, everything is playtime:

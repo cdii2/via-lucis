@@ -21,6 +21,12 @@ Symptoms:
 - [Notes clear themselves (echo)](#notes-clear-themselves-echo)
 - [Wrong keys light up (calibration)](#wrong-keys-light-up-calibration)
 - [Lights lag behind key presses](#lights-lag-behind-key-presses)
+- [Arm refused — "low space"](#arm-refused--low-space)
+- [Arm refused — "low memory"](#arm-refused--low-memory)
+- [Device's own notes show up in a recording](#devices-own-notes-show-up-in-a-recording)
+- [My take has weird gaps](#my-take-has-weird-gaps)
+- [Stop said the take was empty](#stop-said-the-take-was-empty)
+- [Renaming a take](#renaming-a-take)
 
 ---
 
@@ -322,3 +328,120 @@ Check, in order:
    quiet time to confirm.
 5. If lag survives hotspot mode with one tab, note it — that's a firmware
    performance issue to report, not a setup problem.
+
+## Arm refused — "low space"
+
+**Looks like:** tapping Record does nothing but show an error, or the web UI
+reports something like `low space` when you try to arm.
+
+Why: recording reserves a chunk of the on-device flash storage up front (the
+same LittleFS partition songs live on) sized to `recordBudgetKB` (Settings —
+default 64 KB) plus a small safety margin, and it refuses to arm rather than
+run out of room mid-take.
+
+Fix, in order:
+
+1. **Delete a few songs you don't need** — web UI → Songs → delete old
+   uploads or old takes. Recording needs free space the same as any upload.
+2. **Lower `recordBudgetKB`** in Settings if you don't need long takes (it
+   clamps 16–1024 KB; a shorter budget needs less free space to arm).
+3. **Reboot the device** (Settings → Reboot) — this doesn't free storage by
+   itself, but it's a good next step if arming still refuses after step 1 and
+   the Songs list genuinely has room; if it still refuses, that's worth
+   reporting.
+
+## Arm refused — "low memory"
+
+**Looks like:** the web UI reports something like `low memory` when you try
+to arm a recording (different from "low space" above — this one is about
+working RAM, not flash storage).
+
+Why: arming a take reserves the ENTIRE recording budget (`recordBudgetKB`) as
+one single block of RAM up front, so the tape head never has to grow or
+reallocate while you're playing (that would risk a stutter on the live
+latency path). With BLE and WiFi both running, a stock ESP32 (no PSRAM) has
+a limited amount of RAM left over, and a big enough budget simply won't fit
+in one block even if the *total* free memory looks fine.
+
+Fix, in order:
+
+1. **Lower `recordBudgetKB` in Settings** — try the default (64 KB) if you'd
+   raised it. This is the normal fix; a smaller budget needs a smaller
+   contiguous block.
+2. **Reboot the device** (Settings → Reboot) — memory can get fragmented
+   into smaller pieces over a long uptime (many songs loaded/unloaded,
+   settings changed, etc.); a fresh boot gives arming the best chance at a
+   clean block.
+3. If arming still refuses at the default 64 KB right after a reboot, that's
+   worth reporting — see the ⚠ VERIFY-ON-HARDWARE note in
+   [BRINGUP.md](BRINGUP.md), Step 11d ("Recording"), about measuring real
+   headroom with BLE + WiFi both up.
+
+## Device's own notes show up in a recording
+
+**Looks like:** you play back a take (or open it in the editor) and notes
+appear that you never pressed — usually ones that match what Demo or
+Accompaniment mode was sending to the piano while you recorded.
+
+This should **never** happen — recording taps the incoming MIDI stream
+*after* the same echo guard that keeps wait mode from reacting to the
+device's own sent notes (see
+[Notes clear themselves (echo)](#notes-clear-themselves-echo) above for how
+the echo guard works). If it does happen:
+
+1. Confirm you were recording in **Play-along capture** (a song loaded, mode
+   Demo or Accompaniment) when it happened — that's the only context where
+   the device sends notes to the piano while capturing.
+2. Try raising the echo window (`echoWindowMs` in Settings, default 250 ms —
+   same setting as the echo-guard fix above) and re-test; a slower-echoing
+   piano could in principle need more margin than the wait-mode case does.
+3. If it still happens, this is a bring-up finding worth reporting exactly as
+   it occurred (which mode, roughly how many stray notes, whether it's every
+   take or occasional) — it's flagged as a hardware-verify item precisely
+   because it's never been checked against a real piano before.
+
+## My take has weird gaps
+
+**Looks like:** you play back a raw recorded take (before editing) and it
+sounds like it pauses in odd places, even though you played smoothly.
+
+Why: if you recorded in **Wait mode** (the song waiting for you between
+notes), those waits are baked into the raw take's timing — the recording
+faithfully captured how long you actually took at each pause. This is
+expected, not a bug.
+
+Fix:
+
+1. **Use the editor's quantize step** when cleaning up the take — snapping
+   notes to a grid removes wait-mode pauses along with ordinary human timing
+   noise.
+2. **Or just record differently next time** — Free capture (no song loaded)
+   or Follow-along give a clean, pause-free performance since nothing is
+   waiting on you mid-take.
+
+## Stop said the take was empty
+
+**Looks like:** you tap Stop right after arming and the take that appears has
+no name, or nothing shows up in the song library at all.
+
+Why: if you arm and then stop without ever pressing a key (or the only
+presses were echoes filtered out), there's nothing to save — a take needs at
+least one real note to become a song. This is expected, not an error; the
+device saves nothing rather than adding an empty file to your song list.
+
+Fix: just record again and actually play something before you stop. If you
+consistently get an empty take even though you know you pressed keys, check
+[BLE will not pair](#ble-will-not-pair) first (maybe the piano wasn't
+connected yet) — a take with no piano connection has no notes to capture.
+
+## Renaming a take
+
+**Looks like:** you want to give a recorded take (`recording-1.mid`,
+`recording-2.mid`, ...) a real name instead of the auto-numbered one.
+
+This isn't a problem to fix — it's a normal step. Web UI → Songs → find the
+take → rename it (same rename control every song has, not something special
+to recordings). Rules: the new name must still end in `.mid`, and it can't
+collide with a name already in the library (you'll get a clear error if it
+does — pick a different name). Renaming doesn't touch the take's contents,
+so anything you had loaded/playing is unaffected until you reload it.
