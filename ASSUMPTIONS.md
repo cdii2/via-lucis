@@ -3,6 +3,33 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A64 (2026-07-13, REC2): MidiCapture `stop()` takes **no clock argument**;
+  the take's `durationMs` is the last captured event's time, and notes still
+  held at stop close there (mirrors the parser closing unreleased notes at
+  End-of-Track). A note held silently for a while before the user hits stop
+  loses that trailing hold — acceptable for a trainer take (the editor fixes
+  ends), and it keeps stop() side-effect-free.
+- A63 (2026-07-13, REC2): Overflow is checked **per append**, dropping the
+  offending event and setting `CaptureStatus::Overflowed`, but recording
+  **continues** (state stays Recording) — it does not auto-stop. Rationale:
+  the iron rule is "never block/grow"; auto-stopping would be a policy the
+  director/REST layer should own, not the core tape head. Both limits (byte
+  budget via a fixed `maxEvents_`, and `tMs > maxDurationMs`) drop identically.
+- A62 (2026-07-13, REC2): Capture callbacks (`onNoteOn/Off/Pedal`, `noteSent`,
+  `arm`) take **microseconds** (`nowUs`), not ms — matching the engine's
+  clock and, critically, the EchoGuard window (250000 us). Timestamps are
+  stored as **ms relative to the first accepted note-on** (`(nowUs -
+  firstNoteUs_) / 1000`). Using ms for the guard would break its us window;
+  the wave brief's "nowMs" phrasing is superseded by this unit-consistency
+  requirement. The echo check runs BEFORE the Armed→Recording transition, so a
+  device echo neither is captured nor starts the clock.
+- A61 (2026-07-13, REC2): The capture take model reuses **`SmfNoteEvent` /
+  `SmfPedalEvent`** (from smf_writer.h) rather than a parallel struct, so a
+  finished take feeds `writeSmf` with no conversion. Raw in-flight events use a
+  separate packed 8-byte `CaptureEvent` (the byte-budget unit); pairing on/off
+  into notes happens once at `stop()` (off the hot path). Capture is a single
+  performance stream (both hands one pass); hand-split into two named tracks is
+  REC3's job downstream, not the tape head's.
 - A60 (2026-07-13, REC1): SmfWriter emits **explicit note-off (0x80 status,
   release velocity 0)** rather than note-on-velocity-0 for note ends. The
   parser treats both identically, but 0x80 is unambiguous and keeps running
