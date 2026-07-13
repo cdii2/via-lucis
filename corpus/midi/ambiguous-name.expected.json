@@ -1,0 +1,64 @@
+{
+  "ticksPerQuarter": 480,
+  "tracks": [
+    "Left Rhythm",
+    "Right"
+  ],
+  "tempo": [],
+  "notes": [
+    {
+      "onTick": 0,
+      "offTick": 240,
+      "onUs": 0,
+      "offUs": 250000,
+      "note": 48,
+      "velocity": 80,
+      "channel": 0,
+      "track": 0
+    },
+    {
+      "onTick": 0,
+      "offTick": 240,
+      "onUs": 0,
+      "offUs": 250000,
+      "note": 72,
+      "velocity": 100,
+      "channel": 0,
+      "track": 1
+    }
+  ],
+  "pedal": [],
+  "firmwareHands": [
+    {
+      "hand": "left",
+      "lights": true
+    },
+    {
+      "hand": "right",
+      "lights": true
+    }
+  ],
+  "editor": {
+    "tracks": [
+      "Right",
+      "Left"
+    ],
+    "notes": [
+      {
+        "onUs": 0,
+        "offUs": 250000,
+        "note": 48,
+        "velocity": 80,
+        "hand": 1
+      },
+      {
+        "onUs": 0,
+        "offUs": 250000,
+        "note": 72,
+        "velocity": 100,
+        "hand": 0
+      }
+    ],
+    "pedals": []
+  }
+}

@@ -296,11 +296,14 @@ def firmware_hands(track_names, notes, pedal):
 
 
 def hand_of_name(name):
+    # LEFT tokens checked BEFORE right, matching firmware defaultsFor: a name
+    # matching both sets (e.g. "Left Rhythm" — "rhythm" contains "rh") is Left
+    # (A87). Named left/lh -> 1(Left), right/rh -> 0(Right), else None.
     nm = (name or "").lower()
-    if "right" in nm or "rh" in nm:
-        return 0
     if "left" in nm or "lh" in nm:
         return 1
+    if "right" in nm or "rh" in nm:
+        return 0
     return None
 
 
@@ -496,6 +499,19 @@ def fixture_named_lh_rh():
     return {"tpq": 480, "tracks": [lh, rh]}
 
 
+def fixture_ambiguous_name():
+    # Precedence pin (A87): a track name matching BOTH token sets. "Left Rhythm"
+    # contains "left" AND "rh" (in "rhythm"); firmware and editor both test left
+    # BEFORE right, so it resolves to Left everywhere. LEFT-named track is FIRST
+    # in file order — its note therefore sorts first (onTick tie, stable) even
+    # though the canonical track list is [Right, Left]. TPQ 480, ticks mult of 3.
+    left = {"name": "Left Rhythm", "events": [("name", 0, "Left Rhythm")]}
+    note_pair(left["events"], 0, 240, 0, 48, 80)
+    right = {"name": "Right", "events": [("name", 0, "Right")]}
+    note_pair(right["events"], 0, 240, 0, 72, 100)
+    return {"tpq": 480, "tracks": [left, right]}
+
+
 def fixture_anonymous_pair():
     # Two unnamed note tracks, NO conductor, NO tempo meta at all.
     t0 = {"name": "", "events": []}
@@ -576,6 +592,7 @@ REC_SHAPED_INPUT = [
 FIXTURES = [
     ("conductor-first", fixture_conductor_first, None),
     ("named-lh-rh", fixture_named_lh_rh, None),
+    ("ambiguous-name", fixture_ambiguous_name, None),
     ("anonymous-pair", fixture_anonymous_pair, None),
     ("three-hands", fixture_three_hands, None),
     ("pedal-only-track", fixture_pedal_only_track, None),

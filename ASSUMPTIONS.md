@@ -3,6 +3,22 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A87 (2026-07-13, arch C2 closing review, CONFIRMED bug): **editor
+  hand-precedence aligned to firmware (left/lh checked before right/rh).**
+  Firmware `TrackConfig::defaultsFor` (track_config.cpp) tests left/lh BEFORE
+  right/rh, but the editor's `handOfName` (and both python replicas — the
+  generator's `hand_of_name` and `tools/midi_dump.py`'s `_hand_of_name`) tested
+  right/rh FIRST. Since both use case-insensitive substring matching, a name
+  matching BOTH token sets — the realistic "Left Rhythm" ("rhythm" contains
+  "rh") — was assigned Left by firmware but canonical Right(0) by the editor:
+  exactly the A82-class firmware/editor hand disagreement this corpus exists to
+  prevent. Ruling: **left tokens win**, matching firmware (the older, on-device
+  contract; A82's intent was that the editor match it). Fixed all three editor-view
+  consumers to check left/lh first. New fixture `ambiguous-name` (TPQ 480, "Left
+  Rhythm" note-track FIRST in file order + a "Right" track) pins the ruling across
+  firmware, editor, and midi_dump; it also pins that the LEFT-named track's note
+  sorts FIRST (onTick tie, stable) even though the canonical track list is
+  [Right, Left]. Corpus is now 9 fixtures; firmware suite +2 tests (374 total).
 - A86 (2026-07-13, arch C2): **tools checker recomputes the FULL twin as an
   independent 4th implementation, plus guards the editor's embedded fixture
   hex.** `tools/midi_dump.py` reimplements the SMF parse, `tickToMicros`,

@@ -1758,13 +1758,16 @@ function parseMidi(u8){
    export ships the hands reversed. Remap once here so 0=Right, 1=Left, 2=Other
    (the amber, editable-per-note bucket) regardless of file layout — every consumer
    reads note.track, so roll colors, R/L counters, export routing and the follow-
-   track dropdown all follow. Rule: a note-bearing track named right/rh -> 0,
-   left/lh -> 1; otherwise file order among note-bearing tracks (first=Right/0,
-   second=Left/1, third+ -> Other/2). */
+   track dropdown all follow. Rule: a note-bearing track named left/lh -> 1,
+   right/rh -> 0; otherwise file order among note-bearing tracks (first=Right/0,
+   second=Left/1, third+ -> Other/2). LEFT tokens are checked FIRST so a name
+   that matches both sets (e.g. "Left Rhythm" — "rhythm" contains "rh") resolves
+   to Left, matching firmware TrackConfig::defaultsFor which also tests left/lh
+   before right/rh (A87); the corpus fixture "ambiguous-name" pins this. */
 function handOfName(name){
   const nm = (name || "").toLowerCase();
-  if(nm.includes("right") || nm.includes("rh")) return 0;
   if(nm.includes("left")  || nm.includes("lh")) return 1;
+  if(nm.includes("right") || nm.includes("rh")) return 0;
   return null;
 }
 function normalizeHands(song){
@@ -3021,6 +3024,18 @@ function runSelfTest(){
       expect: {
         tracks: ["Right", "Left"],
         notes: [{onUs:0,offUs:500000,note:48,velocity:80,hand:1}, {onUs:0,offUs:250000,note:72,velocity:100,hand:0}, {onUs:250000,offUs:500000,note:50,velocity:80,hand:1}],
+        pedals: [],
+        tempo: []
+      }
+    },
+    "ambiguous-name": {
+      hex:
+        "4d546864000000060001000201e04d54726b0000001c00ff030b4c65667420526879" +
+        "74686d00903050817080300000ff2f004d54726b0000001600ff0305526967687400" +
+        "904864817080480000ff2f00",
+      expect: {
+        tracks: ["Right", "Left"],
+        notes: [{onUs:0,offUs:250000,note:48,velocity:80,hand:1}, {onUs:0,offUs:250000,note:72,velocity:100,hand:0}],
         pedals: [],
         tempo: []
       }

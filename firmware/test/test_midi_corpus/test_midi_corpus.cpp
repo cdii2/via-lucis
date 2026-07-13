@@ -199,6 +199,8 @@ void test_conductor_first_parse() { checkParse("conductor-first"); }
 void test_conductor_first_hands() { checkHands("conductor-first"); }
 void test_named_lh_rh_parse() { checkParse("named-lh-rh"); }
 void test_named_lh_rh_hands() { checkHands("named-lh-rh"); }
+void test_ambiguous_name_parse() { checkParse("ambiguous-name"); }
+void test_ambiguous_name_hands() { checkHands("ambiguous-name"); }
 void test_anonymous_pair_parse() { checkParse("anonymous-pair"); }
 void test_anonymous_pair_hands() { checkHands("anonymous-pair"); }
 void test_three_hands_parse() { checkParse("three-hands"); }
@@ -251,6 +253,8 @@ int main() {
     RUN_TEST(test_conductor_first_hands);
     RUN_TEST(test_named_lh_rh_parse);
     RUN_TEST(test_named_lh_rh_hands);
+    RUN_TEST(test_ambiguous_name_parse);
+    RUN_TEST(test_ambiguous_name_hands);
     RUN_TEST(test_anonymous_pair_parse);
     RUN_TEST(test_anonymous_pair_hands);
     RUN_TEST(test_three_hands_parse);

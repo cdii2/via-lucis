@@ -285,20 +285,24 @@ def _firmware_hands(track_names, notes, pedal):
 
 
 def _hand_of_name(name):
+    # LEFT tokens checked BEFORE right, matching firmware defaultsFor: a name
+    # matching both sets (e.g. "Left Rhythm" — "rhythm" contains "rh") is Left
+    # (A87). Named left/lh -> 1(Left), right/rh -> 0(Right), else None.
     nm = (name or "").lower()
-    if "right" in nm or "rh" in nm:
-        return 0
     if "left" in nm or "lh" in nm:
         return 1
+    if "right" in nm or "rh" in nm:
+        return 0
     return None
 
 
 def _editor_view(track_names, notes, pedal, tempo, tpq):
     """editor.html handOfName()/normalizeHands(): canonical hand indices
-    (0=Right, 1=Left, 2=Other) among note-bearing tracks — named right/rh ->
-    0, left/lh -> 1, else file order (first note-bearing -> 0, second -> 1,
-    third+ -> 2). Pedals inherit their source track's mapped hand; a pedal
-    on an unmapped (conductor/pedal-only) track buckets to Right (0)."""
+    (0=Right, 1=Left, 2=Other) among note-bearing tracks — named left/lh ->
+    1, right/rh -> 0 (left checked first, so "Left Rhythm" is Left; A87), else
+    file order (first note-bearing -> 0, second -> 1, third+ -> 2). Pedals
+    inherit their source track's mapped hand; a pedal on an unmapped
+    (conductor/pedal-only) track buckets to Right (0)."""
     n = len(track_names)
     bears = [False] * n
     for nt in notes:
