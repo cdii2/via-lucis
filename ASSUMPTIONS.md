@@ -3,6 +3,17 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A85 (2026-07-13, arch C2): **editor selftest embeds the MIDI corpus.** The
+  `?selftest=1` block carries `MIDI_CORPUS` — each fixture's committed `.mid`
+  bytes as concatenated hex string literals plus the twin's editor-view `expect`
+  object — and re-parses the hex with the real `parseMidi`, asserting the
+  canonical-hands view (track names, per-note hand/pitch/vel/onUs/offUs, per-pedal
+  hand/value/us, tempo). This is the editor half of the A83 cross-pin: the
+  firmware suite pins the raw-index view of the SAME files, so the two
+  implementations disagreeing on hands fails a gate (the A82 hand-swap, caught a
+  wave earlier). The embedded hex is regenerated from the generator (which prints
+  the snippet) and guarded against the committed `.mid` files by
+  `tools/check_midi_corpus.py` (Builder B). Selftest grows 55 → 99 assertions.
 - A84 (2026-07-13, arch C2): **generator authority + writeSmf byte-pin.** The
   MIDI corpus is authored by `corpus/gen/midi/gen_midi_fixtures.py`: each fixture
   is one declarative python model from which the script emits BOTH the `.mid`

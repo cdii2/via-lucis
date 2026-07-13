@@ -2984,6 +2984,148 @@ function runSelfTest(){
       "Finding2: pedals-only export round-trips both CC64 events");
   })();
 
+  // ===================================================================== //
+  // C2 golden MIDI corpus cross-pin (corpus/midi/*.mid + *.expected.json)   //
+  // ===================================================================== //
+  // The editor's third of the cross-artifact MIDI contract (A83): each fixture
+  // is committed as .mid bytes + a twin holding BOTH the firmware raw-index view
+  // AND this editor's CANONICAL-hands view. Below we re-parse the embedded hex
+  // with the REAL parseMidi and assert the canonical view (track names, per-note
+  // hand/pitch/vel/onUs/offUs, per-pedal hand/value/us, tempo). Because the
+  // firmware suite (test_midi_corpus) pins the SAME files' raw-index view, the
+  // two implementations disagreeing on which track is which hand is now a
+  // failing gate — exactly the A82 hand-swap, one wave earlier. The embedded hex
+  // is kept honest against the committed .mid files by tools/check_midi_corpus.py.
+  // parseMidi THROWS on malformed input, so each fixture is wrapped: one bad
+  // fixture logs a FAIL instead of aborting the whole selftest. Regenerate this
+  // block from corpus/gen/midi/gen_midi_fixtures.py (prints the snippet).
+  const MIDI_CORPUS = {
+    "conductor-first": {
+      hex:
+        "4d546864000000060001000301e04d54726b0000001800ff0309436f6e647563746f" +
+        "7200ff510307a12000ff2f004d54726b0000001f00ff030552696768740090486481" +
+        "7080480000904c648170804c0000ff2f004d54726b0000001500ff03044c65667400" +
+        "903050836080300000ff2f00",
+      expect: {
+        tracks: ["Right", "Left"],
+        notes: [{onUs:0,offUs:250000,note:72,velocity:100,hand:0}, {onUs:0,offUs:500000,note:48,velocity:80,hand:1}, {onUs:250000,offUs:500000,note:76,velocity:100,hand:0}],
+        pedals: [],
+        tempo: [{tick:0,usPerQuarter:500000}]
+      }
+    },
+    "named-lh-rh": {
+      hex:
+        "4d546864000000060001000201e04d54726b0000002200ff03085069616e6f206c68" +
+        "00903050817090325081708030000080320000ff2f004d54726b0000001900ff0308" +
+        "5069616e6f20524800904864817080480000ff2f00",
+      expect: {
+        tracks: ["Right", "Left"],
+        notes: [{onUs:0,offUs:500000,note:48,velocity:80,hand:1}, {onUs:0,offUs:250000,note:72,velocity:100,hand:0}, {onUs:250000,offUs:500000,note:50,velocity:80,hand:1}],
+        pedals: [],
+        tempo: []
+      }
+    },
+    "anonymous-pair": {
+      hex:
+        "4d546864000000060001000201e04d54726b0000000d00904664817080460000ff2f" +
+        "004d54726b0000000d00903250817080320000ff2f00",
+      expect: {
+        tracks: ["Right", "Left"],
+        notes: [{onUs:0,offUs:250000,note:70,velocity:100,hand:0}, {onUs:0,offUs:250000,note:50,velocity:80,hand:1}],
+        pedals: [],
+        tempo: []
+      }
+    },
+    "three-hands": {
+      hex:
+        "4d546864000000060001000401e04d54726b0000001800ff0309436f6e647563746f" +
+        "7200ff510307a12000ff2f004d54726b0000001600ff030552696768740090486481" +
+        "7080480000ff2f004d54726b0000001500ff03044c65667400903050817080300000" +
+        "ff2f004d54726b0000000d00933c5a8170833c0000ff2f00",
+      expect: {
+        tracks: ["Right", "Left", "Other"],
+        notes: [{onUs:0,offUs:250000,note:72,velocity:100,hand:0}, {onUs:0,offUs:250000,note:48,velocity:80,hand:1}, {onUs:0,offUs:250000,note:60,velocity:90,hand:2}],
+        pedals: [],
+        tempo: [{tick:0,usPerQuarter:500000}]
+      }
+    },
+    "pedal-only-track": {
+      hex:
+        "4d546864000000060001000201e04d54726b0000001600ff03055269676874009048" +
+        "64817080480000ff2f004d54726b0000001600ff0305506564616c00b2407f8170b2" +
+        "400000ff2f00",
+      expect: {
+        tracks: ["Right"],
+        notes: [{onUs:0,offUs:250000,note:72,velocity:100,hand:0}],
+        pedals: [{us:0,value:127,hand:0}, {us:250000,value:0,hand:0}],
+        tempo: []
+      }
+    },
+    "tie-order": {
+      hex:
+        "4d546864000000060001000101e04d54726b0000002f00ff0305526967687400903c" +
+        "64003e500040408170803c0000903c5a00400081703e4600803c0081703e0000ff2f" +
+        "00",
+      expect: {
+        tracks: ["Right"],
+        notes: [{onUs:0,offUs:250000,note:60,velocity:100,hand:0}, {onUs:0,offUs:250000,note:64,velocity:64,hand:0}, {onUs:0,offUs:500000,note:62,velocity:80,hand:0}, {onUs:250000,offUs:500000,note:60,velocity:90,hand:0}, {onUs:500000,offUs:750000,note:62,velocity:70,hand:0}],
+        pedals: [],
+        tempo: []
+      }
+    },
+    "vlq-tempo": {
+      hex:
+        "4d546864000000060001000101e04d54726b0000003f00ff0305526967687400ff51" +
+        "0307a12000903c648101803c0000ff5103075300818002903e5a8360803e0000ff51" +
+        "0303a98000904050874080400000ff2f00",
+      expect: {
+        tracks: ["Right"],
+        notes: [{onUs:0,offUs:134375,note:60,velocity:100,hand:0}, {onUs:16520375,offUs:17000375,note:62,velocity:90,hand:0}, {onUs:17000375,offUs:17480375,note:64,velocity:80,hand:0}],
+        pedals: [],
+        tempo: [{tick:0,usPerQuarter:500000}, {tick:129,usPerQuarter:480000}, {tick:16995,usPerQuarter:240000}]
+      }
+    },
+    "recording-shaped": {
+      hex:
+        "4d546864000000060001000301f44d54726b0000000b00ff510307a12000ff2f004d" +
+        "54726b0000002b00ff0305526967687400b0407f00904864837480480000b0404000" +
+        "904a5a8374804a0000b0400000ff2f004d54726b0000001500ff03044c6566740090" +
+        "3050876880300000ff2f00",
+      expect: {
+        tracks: ["Right", "Left"],
+        notes: [{onUs:0,offUs:500000,note:72,velocity:100,hand:0}, {onUs:0,offUs:1000000,note:48,velocity:80,hand:1}, {onUs:500000,offUs:1000000,note:74,velocity:90,hand:0}],
+        pedals: [{us:0,value:127,hand:0}, {us:500000,value:64,hand:0}, {us:1000000,value:0,hand:0}],
+        tempo: [{tick:0,usPerQuarter:500000}]
+      }
+    }
+  };
+  for(const [cname, cf] of Object.entries(MIDI_CORPUS)){
+    try {
+      const bytes = Uint8Array.from(cf.hex.match(/../g).map(h=>parseInt(h,16)));
+      const s = parseMidi(bytes);
+      const e = cf.expect;
+      A(JSON.stringify(s.tracks.map(t=>t.name))===JSON.stringify(e.tracks),
+        "midi-corpus "+cname+": canonical tracks "+JSON.stringify(e.tracks));
+      A(s.notes.length===e.notes.length, "midi-corpus "+cname+": note count "+e.notes.length+" (got "+s.notes.length+")");
+      let nok=true;
+      for(let i=0;i<e.notes.length;i++){ const a=s.notes[i], x=e.notes[i];
+        if(!a || a.track!==x.hand || a.note!==x.note || a.velocity!==x.velocity ||
+           Math.round(a.onMs*1000)!==x.onUs || Math.round(a.offMs*1000)!==x.offUs) nok=false; }
+      A(nok, "midi-corpus "+cname+": every note (hand,pitch,vel,onUs,offUs)");
+      A(s.pedals.length===e.pedals.length, "midi-corpus "+cname+": pedal count "+e.pedals.length+" (got "+s.pedals.length+")");
+      let pok=true;
+      for(let i=0;i<e.pedals.length;i++){ const a=s.pedals[i], x=e.pedals[i];
+        if(!a || a.track!==x.hand || a.value!==x.value || Math.round(a.ms*1000)!==x.us) pok=false; }
+      A(pok, "midi-corpus "+cname+": every pedal (hand,value,us)");
+      if(e.tempo && e.tempo.length){
+        let tok = s.tempo.length===e.tempo.length;
+        for(let i=0;i<e.tempo.length;i++){ const a=s.tempo[i], x=e.tempo[i];
+          if(!a || a.tick!==x.tick || a.usPerQuarter!==x.usPerQuarter) tok=false; }
+        A(tok, "midi-corpus "+cname+": tempo map ("+e.tempo.length+")");
+      }
+    } catch(err){ A(false, "midi-corpus "+cname+": parseMidi threw — "+err.message); }
+  }
+
   box.textContent = (pass?"SELF-TEST PASS":"SELF-TEST FAIL")+"\n"+log;
   console.log(pass?"SELF-TEST PASS":"SELF-TEST FAIL"); console.log(log);
   // reset editor to empty after the test
