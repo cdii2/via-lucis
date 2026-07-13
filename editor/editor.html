@@ -3132,12 +3132,12 @@ function runSelfTest(){
       for(let i=0;i<e.pedals.length;i++){ const a=s.pedals[i], x=e.pedals[i];
         if(!a || a.track!==x.hand || a.value!==x.value || Math.round(a.ms*1000)!==x.us) pok=false; }
       A(pok, "midi-corpus "+cname+": every pedal (hand,value,us)");
-      if(e.tempo && e.tempo.length){
-        let tok = s.tempo.length===e.tempo.length;
-        for(let i=0;i<e.tempo.length;i++){ const a=s.tempo[i], x=e.tempo[i];
-          if(!a || a.tick!==x.tick || a.usPerQuarter!==x.usPerQuarter) tok=false; }
-        A(tok, "midi-corpus "+cname+": tempo map ("+e.tempo.length+")");
-      }
+      // Unconditional: an expected-empty tempo must ALSO be pinned, else a
+      // phantom tempo entry on such a fixture would go undetected.
+      let tok = s.tempo.length===e.tempo.length;
+      for(let i=0;i<e.tempo.length;i++){ const a=s.tempo[i], x=e.tempo[i];
+        if(!a || a.tick!==x.tick || a.usPerQuarter!==x.usPerQuarter) tok=false; }
+      A(tok, "midi-corpus "+cname+": tempo map ("+e.tempo.length+")");
     } catch(err){ A(false, "midi-corpus "+cname+": parseMidi threw — "+err.message); }
   }
 

@@ -3,6 +3,26 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A88 (2026-07-13, arch C2 closing review, cleanups — no behavior change):
+  batch of verified-finding hardening across the MIDI corpus tooling.
+  (1) Generator replaces every invariant-guarding `assert` (the two
+  `tick_to_micros` exactness checks + the non-decreasing-tick `delta` guard)
+  with explicit `raise ValueError` — `python -O` strips asserts and would let
+  an inexact/corrupt golden twin commit silently. (2) Generator `channel_msg`
+  now range-validates the authored status/data bytes (status bit7 set + known
+  channel-status kind; d1/d2 0..127) and raises — an out-of-range byte
+  otherwise desyncs the MTrk stream with no generation-time error. (3) Deleted
+  the dead `js_number_list` helper. (4) `tools/midi_dump.py` `-o` opens with
+  `newline="\n"` so its output stays LF-exact (text-mode default emitted CRLF
+  on Windows). (5) Editor selftest's tempo pin is now UNCONDITIONAL (previously
+  skipped for expected-empty tempo, hiding a phantom entry). (6)
+  `tools/check_midi_corpus.py` gains a third `firmware-coverage` check: the
+  stems in `test_midi_corpus.cpp`'s `checkParse`/`checkHands` calls must equal
+  the committed `corpus/midi/*.mid` set, closing the last silent hole (a new
+  fixture missing its firmware tests). (7) The firmware suite guards each
+  `tickToMicros` value `<= 0xFFFFFFFF` before the uint32 cast (a future long
+  fixture would wrap). (8) README's stale "~line 3002" pointer replaced with a
+  grep command.
 - A87 (2026-07-13, arch C2 closing review, CONFIRMED bug): **editor
   hand-precedence aligned to firmware (left/lh checked before right/rh).**
   Firmware `TrackConfig::defaultsFor` (track_config.cpp) tests left/lh BEFORE

@@ -10,7 +10,10 @@ declarative model, and three consumers must reproduce them —
                  PLUS an embed-drift guard: editor.html hand-copies each
                  fixture's bytes as a hex literal (MIDI_CORPUS) for its own
                  selftest, and nothing but this check enforces that copy
-                 stays byte-identical to the committed .mid
+                 stays byte-identical to the committed .mid,
+                 PLUS a firmware-coverage guard: test_midi_corpus.cpp must
+                 exercise EXACTLY the committed fixture set (else a new
+                 fixture shipping without its firmware tests passes silently)
   - firmware:    test_midi_corpus (native suite, field-by-field)
   - editor:      selftest re-parses the SAME embedded hex with the real
                  parseMidi()/normalizeHands() (A85)
@@ -33,6 +36,7 @@ from midi_dump import BadMidi, parse_midi  # noqa: E402
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MIDI_DIR = ROOT / "corpus" / "midi"
 EDITOR_HTML = ROOT / "editor" / "editor.html"
+FIRMWARE_TEST = ROOT / "firmware" / "test" / "test_midi_corpus" / "test_midi_corpus.cpp"
 
 
 def check_twins():
@@ -134,15 +138,51 @@ def check_editor_hex(fixture_stems):
     return failed
 
 
+def check_firmware_coverage(fixture_stems):
+    """Check 3: the firmware suite (test_midi_corpus.cpp) must exercise EXACTLY
+    the committed fixture set. Extract every stem passed to checkParse("<stem>")
+    / checkHands("<stem>") and require that set to equal the committed
+    corpus/midi/*.mid stems — so a 9th fixture that ships without its firmware
+    tests (or a stale test naming a deleted fixture) fails a gate instead of
+    passing every other check silently."""
+    try:
+        cpp = FIRMWARE_TEST.read_text(encoding="utf-8")
+    except OSError as e:
+        print("check_midi_corpus: FAIL firmware-coverage — cannot read %s: %s"
+              % (FIRMWARE_TEST.name, e))
+        return 1
+
+    call_re = re.compile(r'check(?:Parse|Hands)\(\s*"([^"]+)"\s*\)')
+    exercised = set(call_re.findall(cpp))
+
+    want = set(fixture_stems)
+    if exercised != want:
+        missing = sorted(want - exercised)   # fixtures with no firmware test
+        extra = sorted(exercised - want)     # tests naming a non-existent fixture
+        if missing:
+            print("check_midi_corpus: FAIL firmware-coverage — fixtures with no "
+                  "checkParse/checkHands test: %s" % ", ".join(missing))
+        if extra:
+            print("check_midi_corpus: FAIL firmware-coverage — tests name absent "
+                  "fixtures: %s" % ", ".join(extra))
+        return 1
+
+    print("check_midi_corpus: PASS firmware-coverage (%d fixtures exercised)"
+          % len(want))
+    return 0
+
+
 def main():
     twin_failed, fixture_stems = check_twins()
     hex_failed = check_editor_hex(fixture_stems)
+    coverage_failed = check_firmware_coverage(fixture_stems)
 
-    failed = twin_failed + hex_failed
+    failed = twin_failed + hex_failed + coverage_failed
     if failed:
         print("check_midi_corpus: %d check(s) FAILED" % failed)
         return 1
-    print("check_midi_corpus: all %d fixtures match (twin + editor hex)" % len(fixture_stems))
+    print("check_midi_corpus: all %d fixtures match (twin + editor hex + firmware coverage)"
+          % len(fixture_stems))
     return 0
 
 

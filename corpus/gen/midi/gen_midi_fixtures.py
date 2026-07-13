@@ -88,12 +88,24 @@ def serialize_track(track):
     def delta(tick):
         nonlocal last_tick
         d = tick - last_tick
-        assert d >= 0, "events must be listed in non-decreasing tick order"
+        # raise (not assert): python -O strips asserts, and a silent negative
+        # delta here would emit a corrupt MTrk stream into a committed twin.
+        if d < 0:
+            raise ValueError("events must be listed in non-decreasing tick order")
         last_tick = tick
         return vlq(d)
 
     def channel_msg(tick, status, d1, d2=None):
         nonlocal running_status
+        # Validate authored bytes: an out-of-range status or data byte would
+        # silently desync the MTrk stream (a data byte >= 0x80 reads as a new
+        # status). raise here so it fails at generation, not at parse time.
+        if not (status & 0x80) or (status & 0xF0) not in (0x80, 0x90, 0xA0, 0xB0, 0xC0, 0xD0, 0xE0):
+            raise ValueError("bad channel status byte 0x%02X" % status)
+        if not (0 <= d1 <= 127):
+            raise ValueError("data1 %d out of range 0..127 (status 0x%02X)" % (d1, status))
+        if d2 is not None and not (0 <= d2 <= 127):
+            raise ValueError("data2 %d out of range 0..127 (status 0x%02X)" % (d2, status))
         body.extend(delta(tick))
         if not (use_running and status == running_status):
             body.append(status)
@@ -226,8 +238,10 @@ class ParseSim:
 
 
 def tick_to_micros(tempo, tpq, tick):
-    """Exact-integer tickToMicros (midi_parser.cpp). Asserts each per-segment
-    division has zero remainder, enforcing the corpus exactness rule (A83)."""
+    """Exact-integer tickToMicros (midi_parser.cpp). Raises on any per-segment
+    division with a nonzero remainder, enforcing the corpus exactness rule
+    (A83). ValueError not assert: python -O strips asserts, which would let an
+    inexact time slip silently into a committed golden twin."""
     us = 0
     cur = 0
     uspq = 500000  # MIDI default, 120 BPM
@@ -237,12 +251,14 @@ def tick_to_micros(tempo, tpq, tick):
             break
         if tc["tick"] > cur:
             num = (tc["tick"] - cur) * uspq
-            assert num % tq == 0, "inexact us at tempo boundary tick %d" % tc["tick"]
+            if num % tq != 0:
+                raise ValueError("inexact us at tempo boundary tick %d" % tc["tick"])
             us += num // tq
             cur = tc["tick"]
         uspq = tc["usPerQuarter"]
     num = (tick - cur) * uspq
-    assert num % tq == 0, "inexact us at tick %d (tpq %d uspq %d)" % (tick, tq, uspq)
+    if num % tq != 0:
+        raise ValueError("inexact us at tick %d (tpq %d uspq %d)" % (tick, tq, uspq))
     return us + num // tq
 
 
@@ -617,10 +633,6 @@ def hex_lines(data, width=68):
     h = data.hex()
     parts = [h[i:i + width] for i in range(0, len(h), width)]
     return parts
-
-
-def js_number_list(objs, keys):
-    return objs
 
 
 def emit():

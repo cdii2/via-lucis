@@ -418,7 +418,9 @@ def main(argv=None):
     text = json.dumps(twin, separators=(",", ":")) if args.compact \
         else json.dumps(twin, indent=2)
     if args.out:
-        with open(args.out, "w", encoding="utf-8") as f:
+        # newline="\n": keep the on-disk bytes LF-exact (text-mode default would
+        # emit CRLF on Windows, byte-different from the LF corpus twins).
+        with open(args.out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
     else:
         print(text)

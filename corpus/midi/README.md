@@ -72,8 +72,9 @@ python corpus/gen/midi/gen_midi_fixtures.py
 
 This overwrites every `corpus/midi/<fixture>.mid` + `.expected.json` and
 prints an editor `MIDI_CORPUS` snippet to stdout — paste it over the
-`const MIDI_CORPUS = {...}` block in `editor.html` (currently ~line 3002),
-then re-run all three consumers above. The declarative fixture models inside
+`const MIDI_CORPUS = {...}` block in `editor.html` (locate it with
+`grep -n "const MIDI_CORPUS" editor/editor.html`), then re-run all three
+consumers above. The declarative fixture models inside
 the generator are the **authority**: the `.mid` bytes and the expected twin
 are both derived from the same model, never one from the other. A
 regeneration is therefore a contract-change event, not routine maintenance —

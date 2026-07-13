@@ -131,13 +131,18 @@ void checkParse(const char* stem) {
         JsonObjectConst e = notes[i];
         TEST_ASSERT_EQUAL_UINT32(e["onTick"].as<uint32_t>(), n.onTick);
         TEST_ASSERT_EQUAL_UINT32(e["offTick"].as<uint32_t>(), n.offTick);
-        // us fit uint32 in every fixture — cast for the Unity compare.
-        TEST_ASSERT_EQUAL_UINT32(
-            e["onUs"].as<uint32_t>(),
-            static_cast<uint32_t>(tickToMicros(song, n.onTick)));
-        TEST_ASSERT_EQUAL_UINT32(
-            e["offUs"].as<uint32_t>(),
-            static_cast<uint32_t>(tickToMicros(song, n.offTick)));
+        // us fit uint32 in every fixture — guard before the cast so a future
+        // long fixture fails loudly instead of silently wrapping the compare.
+        uint64_t onUs = tickToMicros(song, n.onTick);
+        TEST_ASSERT_TRUE_MESSAGE(onUs <= 0xFFFFFFFFULL,
+                                 "onUs exceeds uint32 — fixture too long for the cast");
+        TEST_ASSERT_EQUAL_UINT32(e["onUs"].as<uint32_t>(),
+                                 static_cast<uint32_t>(onUs));
+        uint64_t offUs = tickToMicros(song, n.offTick);
+        TEST_ASSERT_TRUE_MESSAGE(offUs <= 0xFFFFFFFFULL,
+                                 "offUs exceeds uint32 — fixture too long for the cast");
+        TEST_ASSERT_EQUAL_UINT32(e["offUs"].as<uint32_t>(),
+                                 static_cast<uint32_t>(offUs));
         TEST_ASSERT_EQUAL_UINT8(e["note"].as<uint8_t>(), n.note);
         TEST_ASSERT_EQUAL_UINT8(e["velocity"].as<uint8_t>(), n.velocity);
         TEST_ASSERT_EQUAL_UINT8(e["channel"].as<uint8_t>(), n.channel);
@@ -151,9 +156,11 @@ void checkParse(const char* stem) {
         const PedalEvent& p = song.pedal[i];
         JsonObjectConst e = pedal[i];
         TEST_ASSERT_EQUAL_UINT32(e["tick"].as<uint32_t>(), p.tick);
-        TEST_ASSERT_EQUAL_UINT32(
-            e["us"].as<uint32_t>(),
-            static_cast<uint32_t>(tickToMicros(song, p.tick)));
+        uint64_t pedUs = tickToMicros(song, p.tick);
+        TEST_ASSERT_TRUE_MESSAGE(pedUs <= 0xFFFFFFFFULL,
+                                 "pedal us exceeds uint32 — fixture too long for the cast");
+        TEST_ASSERT_EQUAL_UINT32(e["us"].as<uint32_t>(),
+                                 static_cast<uint32_t>(pedUs));
         TEST_ASSERT_EQUAL_UINT8(e["value"].as<uint8_t>(), p.value);
         TEST_ASSERT_EQUAL_UINT8(e["channel"].as<uint8_t>(), p.channel);
         TEST_ASSERT_EQUAL_UINT8(e["track"].as<uint8_t>(), p.track);
