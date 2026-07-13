@@ -37,9 +37,11 @@ commit). Wave B agents get isolated worktrees; the lead merges B1/B2/B3 back int
 - `POST /api/songs/{name}/rename` body `{"name":"new-name.mid"}` → `200 {"name":...}`,
   `400` bad/non-.mid name, `404` missing, `409 {"error":"exists"}`. (Needed by REC5
   "rename take"; general-purpose for any song.)
-- `recordBudgetKB` appends to `/api/settings` (default 256, clamp 16–1024 KB — the
-  256 KB per-song upload ceiling stays the outer bound). Contract test updated
-  append-only (the sanctioned exception).
+- `recordBudgetKB` appends to `/api/settings` (default 64 — revised from 256 at lead
+  review, A75: arm reserves the whole budget as one contiguous RAM block; clamp
+  16–1024 KB). Arm also refuses `507 {"error":"low memory"}` when the largest free
+  heap block can't hold budget + margin. Contract test updated append-only (the
+  sanctioned exception).
 - Duration cap = compile-time constant (~10 min, `kRecordMaxMs`), not a setting.
 
 ### Core seams (REC1/REC2 build; REC3/REC4 consume)

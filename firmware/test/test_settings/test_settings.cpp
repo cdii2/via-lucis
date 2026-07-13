@@ -188,12 +188,14 @@ static void test_wrong_color_cannot_land_on_repeat_color() {
     TEST_ASSERT_EQUAL_UINT8(0xCC, out.wrongColor.r);
 }
 
-// REC4: the recording byte budget — default 256 KB, round-trips, clamps to
-// 16–1024 KB (append-only contract growth).
+// REC4: the recording byte budget — default 64 KB (arm() reserves the whole
+// budget as one contiguous heap block; 256 KB rarely fits on a stock ESP32
+// with BLE + WiFi up), round-trips, clamps to 16–1024 KB (append-only
+// contract growth).
 static void test_record_budget_round_trip_and_clamp() {
     Settings s;
-    TEST_ASSERT_EQUAL_UINT32(256, s.recordBudgetKB);  // default
-    TEST_ASSERT_TRUE(s.toJson().find("\"recordBudgetKB\":256") !=
+    TEST_ASSERT_EQUAL_UINT32(64, s.recordBudgetKB);  // default
+    TEST_ASSERT_TRUE(s.toJson().find("\"recordBudgetKB\":64") !=
                      std::string::npos);
 
     Settings out;

@@ -151,6 +151,9 @@ void recordArmReply(App& app, AsyncWebServerRequest* req, bool countIn,
         case App::RecordArm::LowSpace:
             sendError(req, 507, "low space");
             return;
+        case App::RecordArm::LowMemory:
+            sendError(req, 507, "low memory");
+            return;
     }
 }
 

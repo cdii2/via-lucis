@@ -3,6 +3,15 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A75 (2026-07-13, REC4 lead review): `recordBudgetKB` default lowered
+  **256 → 64** and arm gained a **contiguous-RAM guard**
+  (`ESP.getMaxAllocHeap() >= budget + 32KB` else `507 {"error":"low memory"}`).
+  arm() reserves the WHOLE budget as one heap block; with BLE + WiFi up a
+  stock ESP32 rarely has a 256 KB block free, and on -fno-exceptions a failed
+  reserve ABORTS the device — the old default was a crash-on-arm, and any
+  user-raised budget now degrades to a typed refusal instead. 64 KB ≈ 8k
+  events, ample for the 10-min cap; PSRAM boards can raise the setting
+  (clamp 16–1024 unchanged). Re-verify the margin at hardware bring-up.
 - A74 (2026-07-13, REC4): `statusJson` gained a **`RecordStatus` param**
   (mirroring the M3 `TopStatus`), so the `"record"` object is authored inside
   the one status document BEFORE wifi (wifi stays last). This REQUIRED editing

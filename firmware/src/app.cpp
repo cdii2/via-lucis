@@ -23,6 +23,10 @@ struct FenceGuard {
 // A little flash headroom kept free above the take's byte budget so a save
 // never wedges the filesystem right at the limit (REC4 free-space check).
 constexpr size_t kRecordSpaceMarginBytes = 8 * 1024;
+// RAM headroom above the budget: arm() reserves the WHOLE budget as one
+// contiguous heap block, and on -fno-exceptions a failed reserve aborts the
+// device — so refuse (typed) when the largest free block can't hold it.
+constexpr size_t kRecordHeapMarginBytes = 32 * 1024;
 }  // namespace
 
 void App::begin() {
@@ -297,6 +301,11 @@ App::RecordArm App::recordArm(bool countIn, uint16_t bpm) {
     // a tick never waits behind LittleFS stat calls.
     if (store_.freeBytes() < budgetBytes + kRecordSpaceMarginBytes)
         return RecordArm::LowSpace;
+    // Contiguous-RAM check: the capture buffer is one block of budgetBytes.
+    // getMaxAllocHeap is the largest block malloc can hand out RIGHT NOW —
+    // total free heap lies under fragmentation.
+    if (ESP.getMaxAllocHeap() < budgetBytes + kRecordHeapMarginBytes)
+        return RecordArm::LowMemory;
     FenceGuard g(lock_);
     touchWriteActivity();  // arming disarms AFK / restarts the idle drift
     ArmResult r = director_.armRecord(

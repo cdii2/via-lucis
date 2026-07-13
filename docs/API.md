@@ -39,7 +39,7 @@ Errors: non-2xx with `{"error": "<human message>"}`.
       "state": "idle",                //   idle | armed | recording
       "elapsedMs": 0,                 //   ms since the first captured note
       "usedBytes": 0,                 //   raw event bytes captured so far
-      "budgetBytes": 262144,          //   recordBudgetKB * 1024
+      "budgetBytes": 65536,           //   recordBudgetKB * 1024
       "countIn": false,               //   Free-capture count-in requested
       "bpm": 90                       //   count-in BPM (clamped 20-300)
     },
@@ -125,6 +125,9 @@ excludes any note the device sent the piano (echo guard). Live state is in the
     is forbidden in that display context).
   - `507 {"error": "low space"}` — LittleFS free space can't cover the byte
     budget (`recordBudgetKB` + a small margin).
+  - `507 {"error": "low memory"}` — the device can't reserve the budget as
+    one contiguous RAM block right now (arm pre-allocates the whole capture
+    buffer). Lower `recordBudgetKB` or reboot.
   - `400 {"error": "bad json"}` — unparseable body.
 - `POST /api/record/stop` — finalize + save → `200 {"name": "recording-<n>.mid"}`,
   and the take appears in `GET /api/songs` (an ordinary song: practice / editor
@@ -188,13 +191,15 @@ own route). Tracks are effect configs played top→bottom→loop.
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
     "afkTimeoutSec": 180,
-    "recordBudgetKB": 256
+    "recordBudgetKB": 64
   }
   ```
   The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —
   appended; nothing existing changed). `recordBudgetKB` is the v3 recording
-  byte budget (default 256, clamped 16–1024 KB — the 256 KB per-song upload
-  ceiling stays the outer bound), the one sanctioned v1 contract growth. Percents are 0–100 (`repeatFillPeakPct`
+  byte budget (default 64, clamped 16–1024 KB — arm reserves the whole
+  budget as one contiguous RAM block, so a stock ESP32 wants ≤64; PSRAM
+  boards can raise it toward the 256 KB per-song upload ceiling), the one
+  sanctioned v1 contract growth. Percents are 0–100 (`repeatFillPeakPct`
   100 = pure hue-snap glide at onset). A `repeatColor` equal to `wrongColor`
   is rejected (the field keeps its previous value) — a cue must never look
   like an error.

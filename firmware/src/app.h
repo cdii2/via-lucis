@@ -77,7 +77,9 @@ public:
     // Arm the tape head. Typed refusals map to REST 409/507. Free-space is
     // checked against the recordBudgetKB setting; count-in is Free-capture
     // only (ignored with a song loaded).
-    enum class RecordArm : uint8_t { Ok, Playing, AlreadyArmed, LowSpace };
+    enum class RecordArm : uint8_t {
+        Ok, Playing, AlreadyArmed, LowSpace, LowMemory
+    };
     RecordArm recordArm(bool countIn, uint16_t bpm);
     // Finalize: extract the take under the fence, then hand-split + writeSmf +
     // LittleFS save UNFENCED (F-wave discipline). An empty take saves nothing
