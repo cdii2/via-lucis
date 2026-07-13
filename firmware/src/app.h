@@ -73,6 +73,20 @@ public:
     bool stopShow();
     bool showBusy();  // uploads are refused while anything renders live
 
+    // --- recording (v3 REC4) ---------------------------------------------
+    // Arm the tape head. Typed refusals map to REST 409/507. Free-space is
+    // checked against the recordBudgetKB setting; count-in is Free-capture
+    // only (ignored with a song loaded).
+    enum class RecordArm : uint8_t { Ok, Playing, AlreadyArmed, LowSpace };
+    RecordArm recordArm(bool countIn, uint16_t bpm);
+    // Finalize: extract the take under the fence, then hand-split + writeSmf +
+    // LittleFS save UNFENCED (F-wave discipline). An empty take saves nothing
+    // (Empty → 200 {"name":""}); otherwise the auto-named file lands in the
+    // song list. nameOut carries the saved name ("" on Empty).
+    enum class RecordStop : uint8_t { Saved, Empty, NotArmed, SaveFailed };
+    RecordStop recordStop(std::string* nameOut);
+    bool recordDiscard();  // false when idle (409 not armed)
+
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and

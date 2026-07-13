@@ -454,7 +454,8 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
 }
 
 std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
-                                       const TopStatus* top) const {
+                                       const TopStatus* top,
+                                       const RecordStatus* rec) const {
     JsonDocument doc;
     doc["version"] = kVersion;
     doc["song"] = songName_;
@@ -506,6 +507,16 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
         doc["topMode"] = top->mode;
         doc["idleSec"] = top->idleSec;
         doc["afkTimeoutSec"] = top->afkTimeoutSec;
+    }
+
+    if (rec) {  // v3 REC4 growth — the record object, also BEFORE wifi
+        JsonObject r = doc["record"].to<JsonObject>();
+        r["state"] = rec->state;
+        r["elapsedMs"] = rec->elapsedMs;
+        r["usedBytes"] = rec->usedBytes;
+        r["budgetBytes"] = rec->budgetBytes;
+        r["countIn"] = rec->countIn;
+        r["bpm"] = rec->bpm;
     }
 
     if (wifi) {

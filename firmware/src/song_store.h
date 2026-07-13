@@ -27,6 +27,19 @@ public:
     bool remove(const std::string& name);
     bool read(const std::string& name, std::vector<uint8_t>& out);
 
+    // Rename a song (REC4: rename a recorded take, general-purpose). Typed so
+    // the REST layer maps to 400 / 404 / 409. Both names are validated.
+    enum class RenameResult : uint8_t { Ok, BadName, NotFound, Exists };
+    RenameResult rename(const std::string& from, const std::string& to);
+
+    // The next free "recording-<n>.mid" name (REC4): scans /songs and defers
+    // the integer logic to the native-tested nextRecordingName() helper.
+    std::string nextRecordingName();
+
+    // Free LittleFS bytes — the pre-arm free-space check (REC4). 0 if the FS
+    // is unavailable.
+    size_t freeBytes();
+
     bool loadSettings(Settings& s);
     bool saveSettings(const Settings& s);
 

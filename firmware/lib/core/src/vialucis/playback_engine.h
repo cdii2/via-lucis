@@ -64,9 +64,21 @@ struct WifiStatus {
 // Top-mode facts for /api/status (M3) — the ModeDirector owns them; the
 // engine only serializes (it authors the status document once, R4).
 struct TopStatus {
-    const char* mode;       // reactive | afk | practice | presentation
+    const char* mode;       // reactive | afk | practice | presentation | record
     uint32_t idleSec;
     uint32_t afkTimeoutSec;
+};
+
+// Recording facts for /api/status (v3 REC4) — the ModeDirector owns the tape
+// head; the engine only serializes them (into a "record" object placed BEFORE
+// wifi, which stays the last key).
+struct RecordStatus {
+    const char* state;    // idle | armed | recording
+    uint32_t elapsedMs;
+    uint32_t usedBytes;
+    uint32_t budgetBytes;
+    bool countIn;
+    uint16_t bpm;
 };
 
 class PlaybackEngine {
@@ -156,7 +168,8 @@ public:
     // (every other route's status reply). With `top`, the M3 top-mode
     // fields are included (before wifi — wifi stays the last key).
     std::string statusJson(const WifiStatus* wifi = nullptr,
-                           const TopStatus* top = nullptr) const;
+                           const TopStatus* top = nullptr,
+                           const RecordStatus* rec = nullptr) const;
 
     PlayState state() const { return state_; }
     uint64_t positionUs() const { return sched_ ? sched_->positionUs() : 0; }

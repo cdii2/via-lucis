@@ -134,6 +134,26 @@ void onJsonBody(const char* path, JsonHandler handle,
         });
 }
 
+// POST /api/record/arm has an OPTIONAL body, so it can't use onJsonBody (which
+// 400s a bodyless request). This maps App's typed arm result to the contract.
+void recordArmReply(App& app, AsyncWebServerRequest* req, bool countIn,
+                    uint16_t bpm) {
+    switch (app.recordArm(countIn, bpm)) {
+        case App::RecordArm::Ok:
+            sendJson(req, 200, app.statusJson());
+            return;
+        case App::RecordArm::AlreadyArmed:
+            sendError(req, 409, "already armed");
+            return;
+        case App::RecordArm::Playing:
+            sendError(req, 409, "playing");
+            return;
+        case App::RecordArm::LowSpace:
+            sendError(req, 507, "low space");
+            return;
+    }
+}
+
 }  // namespace
 
 void WebServerLayer::begin(App& app, WifiManager& wifi) {
@@ -245,6 +265,32 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        return;
                    }
                    sendJson(req, 200, app.statusJson());
+               });
+
+    // Rename any song (REC4: rename a recorded take; general-purpose).
+    onJsonBody("^\\/api\\/songs\\/([^\\/]+)\\/rename$",
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   std::string from = req->pathArg(0).c_str();
+                   std::string to = doc["name"] | "";
+                   switch (app.store().rename(from, to)) {
+                       case SongStore::RenameResult::Ok: {
+                           JsonDocument out;
+                           out["name"] = to;
+                           std::string body;
+                           serializeJson(out, body);
+                           sendJson(req, 200, body);
+                           return;
+                       }
+                       case SongStore::RenameResult::BadName:
+                           sendError(req, 400, "bad name (want *.mid)");
+                           return;
+                       case SongStore::RenameResult::NotFound:
+                           sendError(req, 404, "no such song");
+                           return;
+                       case SongStore::RenameResult::Exists:
+                           sendError(req, 409, "exists");
+                           return;
+                   }
                });
 
     gServer.on("^\\/api\\/songs\\/([^\\/]+)$", HTTP_DELETE,
@@ -476,6 +522,72 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        return;
                    }
                    send204(req);
+               });
+
+    // --- record (v3 REC4; docs/DESIGN-record.md) -------------------------
+    // Arm: optional body {"countIn":bool,"bpm":N}. A bodyless POST arms with
+    // defaults (count-in off) — so this can't use onJsonBody, which 400s an
+    // empty body. Body chunks accumulate through the buffer sink; the request
+    // handler covers the no-body case.
+    gServer.on(
+        "/api/record/arm", HTTP_POST,
+        [&app](AsyncWebServerRequest* req) {
+            if (req->_tempObject) return;  // body handler already replied
+            recordArmReply(app, req, /*countIn=*/false, /*bpm=*/90);
+        },
+        nullptr,
+        [&app](AsyncWebServerRequest* req, uint8_t* data, size_t len,
+               size_t index, size_t total) {
+            BodyIntake& in = intakeFor(req);
+            if (in.failed) return;
+            ChunkPlan plan = planChunk(index, len, total, kJsonBodyCap);
+            if (plan.tooLarge) {
+                intakeFail(req, 413, "body too large");
+                return;
+            }
+            if (plan.first) in.buf.reserve(total);
+            in.buf.concat(reinterpret_cast<const char*>(data), len);
+            if (!plan.last) return;
+            JsonDocument doc;
+            if (deserializeJson(doc, in.buf.c_str()) !=
+                DeserializationError::Ok) {
+                sendError(req, 400, "bad json");
+                return;
+            }
+            bool countIn = doc["countIn"] | false;
+            uint16_t bpm = doc["bpm"] | 90;
+            recordArmReply(app, req, countIn, bpm);
+        });
+
+    gServer.on("/api/record/stop", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   std::string name;
+                   switch (app.recordStop(&name)) {
+                       case App::RecordStop::Saved:
+                       case App::RecordStop::Empty: {
+                           JsonDocument doc;
+                           doc["name"] = name;
+                           std::string out;
+                           serializeJson(doc, out);
+                           sendJson(req, 200, out);
+                           return;
+                       }
+                       case App::RecordStop::NotArmed:
+                           sendError(req, 409, "not armed");
+                           return;
+                       case App::RecordStop::SaveFailed:
+                           sendError(req, 500, "write failed");
+                           return;
+                   }
+               });
+
+    gServer.on("/api/record/discard", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   if (!app.recordDiscard()) {
+                       sendError(req, 409, "not armed");
+                       return;
+                   }
+                   sendJson(req, 200, app.statusJson());
                });
 
     // --- AFK playlist (E3) ---------------------------------------------

@@ -2,6 +2,9 @@
 
 #include <Arduino.h>
 
+#include "vialucis/record_take.h"  // splitTakeIntoHands
+#include "vialucis/smf_writer.h"   // writeSmf
+
 namespace vialucis {
 
 namespace {
@@ -16,6 +19,10 @@ struct FenceGuard {
     FenceGuard(const FenceGuard&) = delete;
     FenceGuard& operator=(const FenceGuard&) = delete;
 };
+
+// A little flash headroom kept free above the take's byte budget so a save
+// never wedges the filesystem right at the limit (REC4 free-space check).
+constexpr size_t kRecordSpaceMarginBytes = 8 * 1024;
 }  // namespace
 
 void App::begin() {
@@ -263,7 +270,75 @@ std::string App::statusJson(const WifiStatus* wifi) {
     uint64_t now = static_cast<uint64_t>(esp_timer_get_time());
     TopStatus top{ModeDirector::topModeName(director_.topMode(now)),
                   director_.idleSec(now), director_.idleTimeoutSec()};
-    return engine_.statusJson(wifi, &top);
+    const char* rState = "idle";
+    switch (director_.recordState()) {
+        case CaptureState::Armed: rState = "armed"; break;
+        case CaptureState::Recording: rState = "recording"; break;
+        case CaptureState::Idle: break;
+    }
+    RecordStatus rec{rState, director_.recordElapsedMs(now),
+                     static_cast<uint32_t>(director_.recordUsedBytes()),
+                     static_cast<uint32_t>(director_.recordBudgetBytes()),
+                     director_.recordCountIn(), director_.recordBpm()};
+    return engine_.statusJson(wifi, &top, &rec);
+}
+
+App::RecordArm App::recordArm(bool countIn, uint16_t bpm) {
+    size_t budgetBytes =
+        static_cast<size_t>(settings_.recordBudgetKB) * 1024;
+    // Armed / playing checks under the fence (loop task mutates capture state).
+    {
+        FenceGuard g(lock_);
+        if (director_.recordState() != CaptureState::Idle)
+            return RecordArm::AlreadyArmed;
+        if (director_.showPlaying()) return RecordArm::Playing;  // §arm refusal
+    }
+    // Free-space check UNFENCED (store_ is HTTP-task-owned, F-wave discipline):
+    // a tick never waits behind LittleFS stat calls.
+    if (store_.freeBytes() < budgetBytes + kRecordSpaceMarginBytes)
+        return RecordArm::LowSpace;
+    FenceGuard g(lock_);
+    touchWriteActivity();  // arming disarms AFK / restarts the idle drift
+    ArmResult r = director_.armRecord(
+        budgetBytes, countIn, bpm,
+        static_cast<uint64_t>(esp_timer_get_time()));
+    if (r == ArmResult::AlreadyArmed) return RecordArm::AlreadyArmed;  // race
+    if (r == ArmResult::BadBudget) return RecordArm::LowSpace;
+    return RecordArm::Ok;
+}
+
+App::RecordStop App::recordStop(std::string* nameOut) {
+    CaptureTake take;
+    {
+        FenceGuard g(lock_);
+        touchWriteActivity();
+        if (director_.recordState() == CaptureState::Idle)
+            return RecordStop::NotArmed;
+        take = director_.stopRecord();  // FENCED: state mutation only
+    }
+    // Empty take: save nothing (DESIGN-record — a stop with no events discards).
+    if (take.empty) {
+        if (nameOut) nameOut->clear();
+        return RecordStop::Empty;
+    }
+    // UNFENCED (F-wave discipline): hand-split + writeSmf + LittleFS save run
+    // outside the fence — a concurrent tick never waits behind the heap work
+    // or the flash write.
+    SmfInput smf = splitTakeIntoHands(take);
+    std::vector<uint8_t> bytes = writeSmf(smf);
+    std::string name = store_.nextRecordingName();
+    if (!store_.save(name, bytes.data(), bytes.size()))
+        return RecordStop::SaveFailed;
+    if (nameOut) *nameOut = name;
+    return RecordStop::Saved;
+}
+
+bool App::recordDiscard() {
+    FenceGuard g(lock_);
+    touchWriteActivity();
+    if (director_.recordState() == CaptureState::Idle) return false;
+    director_.discardRecord();
+    return true;
 }
 
 void App::applySettings(bool calibScalarsChanged) {

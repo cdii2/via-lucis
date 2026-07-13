@@ -3,6 +3,8 @@
 #include <FS.h>
 #include <LittleFS.h>
 
+#include "vialucis/record_take.h"  // nextRecordingName() helper (native-tested)
+
 namespace vialucis {
 
 namespace {
@@ -89,6 +91,29 @@ bool SongStore::read(const std::string& name, std::vector<uint8_t>& out) {
     size_t got = f.read(out.data(), len);
     f.close();
     return got == len;
+}
+
+SongStore::RenameResult SongStore::rename(const std::string& from,
+                                          const std::string& to) {
+    if (!validName(from) || !validName(to)) return RenameResult::BadName;
+    if (from == to) return RenameResult::Ok;  // no-op rename to itself
+    if (!LittleFS.exists(songPath(from).c_str())) return RenameResult::NotFound;
+    if (LittleFS.exists(songPath(to).c_str())) return RenameResult::Exists;
+    return LittleFS.rename(songPath(from).c_str(), songPath(to).c_str())
+               ? RenameResult::Ok
+               : RenameResult::NotFound;
+}
+
+std::string SongStore::nextRecordingName() {
+    std::vector<std::string> names;
+    for (const SongFileInfo& s : list()) names.push_back(s.name);
+    return vialucis::nextRecordingName(names);
+}
+
+size_t SongStore::freeBytes() {
+    size_t total = LittleFS.totalBytes();
+    size_t used = LittleFS.usedBytes();
+    return total > used ? total - used : 0;
 }
 
 bool SongStore::loadSettings(Settings& s) {

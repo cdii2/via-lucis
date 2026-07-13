@@ -59,6 +59,13 @@ struct Settings {
     // ambient lighting arms. 0 = never.
     uint32_t afkTimeoutSec = kDefaultAfkTimeoutSec;
 
+    // Recording byte budget (v3 REC4, docs/DESIGN-record.md §8): the ceiling
+    // on a single take, in KB. Bounds both the in-RAM capture buffer and the
+    // free-space check before arming. Clamped 16–1024 KB (the 256 KB per-song
+    // upload ceiling stays the outer bound). Appended after the v1 key set —
+    // the contract test locks this (the one sanctioned v1 contract change).
+    uint32_t recordBudgetKB = 256;
+
     std::string toJson() const;
     // Tolerant: missing fields keep current values; false only on unparseable
     // input. Numeric fields are clamped to sane ranges.

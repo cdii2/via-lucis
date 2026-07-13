@@ -30,11 +30,19 @@ Errors: non-2xx with `{"error": "<human message>"}`.
       {"index": 0, "name": "Right", "hand": "right", "lights": true}
     ],
     "pendingNotes": [60, 64],         // wait mode: keys currently owed
-    "topMode": "practice",            // v2 M3: reactive | afk | practice | presentation
+    "topMode": "practice",            // v2 M3: reactive | afk | practice | presentation | record
     "idleSec": 12,                    // seconds since the last activity
     "afkTimeoutSec": 180,             // mirror of the setting (0 = never)
                                       // (the three fields above appear in EVERY
                                       // status-JSON reply, unlike wifi)
+    "record": {                       // v3 REC4: the tape head (before wifi)
+      "state": "idle",                //   idle | armed | recording
+      "elapsedMs": 0,                 //   ms since the first captured note
+      "usedBytes": 0,                 //   raw event bytes captured so far
+      "budgetBytes": 262144,          //   recordBudgetKB * 1024
+      "countIn": false,               //   Free-capture count-in requested
+      "bpm": 90                       //   count-in BPM (clamped 20-300)
+    },
     "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap — LAST key
   }
   ```
@@ -49,6 +57,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 - `DELETE /api/songs/{name}` → `204`.
 - `POST /api/songs/{name}/load` → `200` + status JSON. Parses the file,
   resets transport to 0, state `idle`.
+- `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →
+  `200 {"name": "new-name.mid"}`. `400` bad/non-`.mid` name, `404` missing
+  source, `409 {"error": "exists"}` if the target name is taken. (Used to
+  rename a recorded take; general-purpose for any song.)
 
 ## Track / hand assignment
 
@@ -93,6 +105,39 @@ follow from song state and activity.
   (song/transport/loop cleared; settings and calibration untouched). Like
   every state-changing call it resets the idle clock, so the AFK drift
   restarts from the unload.
+
+## Record (v3 Record wave)
+
+Record your own playing to a `.mid` on the device (docs/DESIGN-record.md). The
+tape head is armable in two contexts: **Free capture** (no song loaded — the
+Record top-mode, lights follow you) and **Play-along capture** (a song loaded —
+Practice keeps the strip, capture runs alongside; the "REC" indicator is
+web-UI-only). Capture starts on your first note (leading silence trimmed) and
+excludes any note the device sent the piano (echo guard). Live state is in the
+`record` object of `GET /api/status`.
+
+- `POST /api/record/arm` — body OPTIONAL `{"countIn": true, "bpm": 90}`
+  (count-in is Free-capture only; `bpm` clamped 20–300; both ignored when a
+  song is loaded). A bodyless POST arms with count-in off. → `200` + status
+  JSON. Typed refusals:
+  - `409 {"error": "already armed"}` — a take is already armed/recording.
+  - `409 {"error": "playing"}` — a presentation light show is playing (arming
+    is forbidden in that display context).
+  - `507 {"error": "low space"}` — LittleFS free space can't cover the byte
+    budget (`recordBudgetKB` + a small margin).
+  - `400 {"error": "bad json"}` — unparseable body.
+- `POST /api/record/stop` — finalize + save → `200 {"name": "recording-<n>.mid"}`,
+  and the take appears in `GET /api/songs` (an ordinary song: practice / editor
+  / `.vls` / score-follow all apply). Auto-named `recording-<n>.mid` (next free
+  n). The raw take is hand-split at middle C (60): notes < 60 → a `Left` track,
+  ≥ 60 → a `Right` track (empty hands omitted; pedals attach to the first
+  track) — the editor fixes crossovers per-note. A stop with **zero** captured
+  events saves nothing → `200 {"name": ""}`. `409 {"error": "not armed"}` if
+  idle.
+- `POST /api/record/discard` — drop the armed/recording state, save nothing →
+  `200` + status JSON. `409 {"error": "not armed"}` if idle.
+- Duration cap is a compile-time constant (~10 min); the byte budget is the
+  `recordBudgetKB` setting.
 
 ## Ambient (AFK) playlist (v2 E-wave)
 
@@ -142,11 +187,14 @@ own route). Tracks are effect configs played top→bottom→loop.
     "repeatCueEnabled": true, "repeatColor": "#FFFFFF",
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
-    "afkTimeoutSec": 180
+    "afkTimeoutSec": 180,
+    "recordBudgetKB": 256
   }
   ```
   The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —
-  appended; nothing existing changed). Percents are 0–100 (`repeatFillPeakPct`
+  appended; nothing existing changed). `recordBudgetKB` is the v3 recording
+  byte budget (default 256, clamped 16–1024 KB — the 256 KB per-song upload
+  ceiling stays the outer bound), the one sanctioned v1 contract growth. Percents are 0–100 (`repeatFillPeakPct`
   100 = pure hue-snap glide at onset). A `repeatColor` equal to `wrongColor`
   is rejected (the field keeps its previous value) — a cue must never look
   like an error.

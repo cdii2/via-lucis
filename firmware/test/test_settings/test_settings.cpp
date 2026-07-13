@@ -98,6 +98,9 @@ static void test_to_json_emits_exactly_the_contract_field_names() {
         "repeatFillPeakPct", "repeatFloorMs", "repeatWaitPulseMs",
         // M3 growth: the AFK idle timeout.
         "afkTimeoutSec",
+        // v3 REC4 growth (the one sanctioned v1 contract change): the
+        // recording byte budget. Appended; nothing existing changed.
+        "recordBudgetKB",
     };
     constexpr size_t kCount = sizeof(kContract) / sizeof(kContract[0]);
 
@@ -185,8 +188,28 @@ static void test_wrong_color_cannot_land_on_repeat_color() {
     TEST_ASSERT_EQUAL_UINT8(0xCC, out.wrongColor.r);
 }
 
+// REC4: the recording byte budget — default 256 KB, round-trips, clamps to
+// 16–1024 KB (append-only contract growth).
+static void test_record_budget_round_trip_and_clamp() {
+    Settings s;
+    TEST_ASSERT_EQUAL_UINT32(256, s.recordBudgetKB);  // default
+    TEST_ASSERT_TRUE(s.toJson().find("\"recordBudgetKB\":256") !=
+                     std::string::npos);
+
+    Settings out;
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"recordBudgetKB\":512}", out));
+    TEST_ASSERT_EQUAL_UINT32(512, out.recordBudgetKB);
+    // Clamp both ends.
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"recordBudgetKB\":4}", out));
+    TEST_ASSERT_EQUAL_UINT32(16, out.recordBudgetKB);
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"recordBudgetKB\":99999}", out));
+    TEST_ASSERT_EQUAL_UINT32(1024, out.recordBudgetKB);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_record_budget_round_trip_and_clamp);
     RUN_TEST(test_wrong_color_cannot_land_on_repeat_color);
     RUN_TEST(test_defaults_match_spec);
     RUN_TEST(test_json_round_trip);

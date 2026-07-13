@@ -472,6 +472,28 @@ void test_statusjson_between_ticks_is_internally_consistent() {
     TEST_ASSERT_TRUE(status.find("\"pendingNotes\":[60]") != std::string::npos);
 }
 
+// REC4: the status "record" object is emitted with the frozen shape and
+// lands BEFORE wifi (which stays the last key).
+void test_statusjson_record_object_before_wifi() {
+    PlaybackEngine e;
+    e.configure(Settings{});
+    WifiStatus wifi{"sta", "192.168.1.9"};
+    RecordStatus rec{"recording", 4200, 320, 262144, true, 96};
+    std::string s = e.statusJson(&wifi, nullptr, &rec);
+    // Shape.
+    TEST_ASSERT_TRUE(s.find("\"record\":{") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"state\":\"recording\"") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"elapsedMs\":4200") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"usedBytes\":320") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"budgetBytes\":262144") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"countIn\":true") != std::string::npos);
+    TEST_ASSERT_TRUE(s.find("\"bpm\":96") != std::string::npos);
+    // Ordering: record before wifi.
+    TEST_ASSERT_TRUE(s.find("\"record\"") < s.find("\"wifi\""));
+    // Omitted entirely when no RecordStatus is passed (other routes).
+    TEST_ASSERT_TRUE(e.statusJson().find("\"record\"") == std::string::npos);
+}
+
 // --- F2: status loop honesty --------------------------------------------
 // A loaded song's loop range belongs to that song. Loading a new song must
 // clear the status mirror fields — otherwise /api/status claims an enabled
@@ -680,6 +702,7 @@ int main(int, char**) {
     RUN_TEST(test_loadsong_between_ticks_while_playing_is_coherent);
     RUN_TEST(test_configure_between_tick_and_frame_uses_new_config);
     RUN_TEST(test_statusjson_between_ticks_is_internally_consistent);
+    RUN_TEST(test_statusjson_record_object_before_wifi);
     RUN_TEST(test_load_song_clears_reported_loop);
     RUN_TEST(test_pause_gap_play_re_baselines_no_burst);
     RUN_TEST(test_set_table_overrides_configure_geometry);

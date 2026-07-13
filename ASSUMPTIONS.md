@@ -3,6 +3,45 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A74 (2026-07-13, REC4): `statusJson` gained a **`RecordStatus` param**
+  (mirroring the M3 `TopStatus`), so the `"record"` object is authored inside
+  the one status document BEFORE wifi (wifi stays last). This REQUIRED editing
+  `playback_engine.{h,cpp}` — one file beyond the wave's listed chokepoint set —
+  because R4 forbids serialize→splice→reserialize and only the engine controls
+  key order. The change is minimal and mechanical (a third optional pointer
+  arg, default `nullptr`, so every existing caller is unaffected).
+- A73 (2026-07-13, REC4): `App::recordArm` refusal precedence = **already-armed
+  (409) → playing (409) → low-space (507)**. "playing" means a **presentation
+  light show is rendering** (`director_.showPlaying()`) — recording DURING
+  Practice/Play-along (even mid-song) is explicitly allowed (the point of
+  Play-along). The armed/playing checks run under the fence; the free-space
+  check runs UNFENCED (store_ is HTTP-task-owned). Free-space needs
+  `recordBudgetKB*1024 + 8 KB` margin or arm 507s.
+- A72 (2026-07-13, REC4): `App::recordStop` fences ONLY the take extraction
+  (`director_.stopRecord`); the hand-split + `writeSmf` + LittleFS `save` run
+  UNFENCED after (F-wave discipline — a tick never waits behind heap/flash). An
+  **empty take saves nothing** and returns `""` (REST `200 {"name":""}`); a
+  save failure is `500 {"error":"write failed"}` (a code beyond the frozen
+  Saved/Empty/NotArmed set, for the flash-full edge). The auto-name is the next
+  free `recording-<n>.mid` (SongStore scans `/songs`).
+- A71 (2026-07-13, REC4): Hand-split (`splitTakeIntoHands`) emits **Right first,
+  then Left** (piano convention), **omits an empty hand's track**, attaches ALL
+  CC64 pedal events to the **first emitted track**, and a notes-empty
+  (pedals-only) take still yields a single `Right` track so the pedals have a
+  home. The pure helpers `splitTakeIntoHands` + `nextRecordingName` live in a
+  NEW native-testable lib/core module `record_take.{h,cpp}` (App/SongStore that
+  call them are Arduino-bound); `POST /api/record/arm` can't use `onJsonBody`
+  (which 400s an empty body) since its body is optional, so it uses an explicit
+  request+body handler pair (bodyless arms with count-in off, defaults).
+- A70 (2026-07-13, REC4): `nextRecordingName` returns the **smallest positive
+  integer not already used** (fills a deleted-take gap first), ignoring names
+  that don't match `recording-<n>.mid`. `recordBudgetKB` (16–1024 KB) bounds
+  BOTH the in-RAM capture buffer reserve AND the free-space check.
+  **HARDWARE FLAG (bring-up, not a code change):** the 256 KB DEFAULT reserves
+  ~256 KB of heap at `arm()` on a chip with ~250 KB free — on an ESP32 without
+  PSRAM the default may need lowering; the byte budget is a setting precisely so
+  this can be tuned once real heap headroom is measured. `rename` treats a
+  rename-to-self as a no-op `Ok`.
 - A69 (2026-07-13, REC3): The recording **heartbeat** is one reserved pixel
   OUTSIDE every key's LED range (§9a), chosen in `computeHeartbeatLed`: the LED
   just above the top key if room, else just below the bottom key, else pixel 0
