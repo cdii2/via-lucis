@@ -488,9 +488,66 @@ Deferred beyond v2 (open items in the brief, untouched by this plan): falling-no
 view, extended blend modes, show export/share format + xLights import, AFK starter
 catalog curation, BOM scaling guidance.
 
+## v3 — Record wave (grilled + LOCKED 2026-07-13)
+
+Executes [docs/DESIGN-record.md](docs/DESIGN-record.md). Record your own playing to a
+`.mid` on the device, edit the notes in the editor, author its light show. Recording is a
+new MIDI producer at the existing upload seam — once a take lands in the song list it is
+an ordinary song (practice / editor / `.vls` / score-follow all apply unchanged). Two
+armable capture contexts: **Free capture** (no song, lights follow you — Reactive monitor)
+and **Play-along capture** (song loaded, lights follow the song in follow-along, Practice
+owns the strip, REC indicator web-UI-only).
+
+### Shared gates — every REC item
+`pio test -e native` ALL PASS (grep FAIL/ERROR), native count STRICTLY grows;
+`pio run -e esp32dev` clean within budgets (flash ≤70% / RAM ≤35%); **zero new
+alloc/blocking/indirection on the BLE-in→match→LED-out path — the tape-head append is
+O(1) into a pre-reserved buffer and runs AFTER the wait-mode verdict, never between key
+and light**; v1 contract tests stay green except the sanctioned `recordBudgetKB` settings
+append; TDD, one item per commit, A`<n>` entries, closing 8-angle `/code-review` before
+main.
+
+- [ ] REC1 — core **SMF writer** (`lib/core`, inverse of `midi_parser`): event list →
+      SMF format-1 bytes. Round-trip test `parseMidi(write(events)) == events`; native.
+- [ ] REC2 — core **MidiCapture** tape head on the post-echo-guard input stream:
+      timestamps note on/off/velocity/CC64 at 1 ms into a bounded ring buffer;
+      first-note-start / stop / discard; budget + duration cap → typed overflow. Native
+      tests: free capture, play-along (device-sent notes excluded by the echo-guard tap),
+      budget refusal, wait-pause elapsed-time behavior, zero-alloc append.
+- [ ] REC3 — **ModeDirector integration**: Record top-mode (no-song → Reactive monitor +
+      heartbeat) + play-along overlay (song loaded → Practice keeps the strip, capture
+      runs alongside, paints nothing). Gate-matrix tests: arm no-song ⇒ Record mode; arm
+      song-loaded ⇒ stays Practice + captures; AFK disarmed while armed; stop ⇒ save.
+- [ ] REC4 — **persistence + REST**: save take to `recording-<n>.mid` on LittleFS (appears
+      in the song list, immediately playable); `POST /api/record/arm|stop|discard`;
+      `recordBudgetKB` appends to `/api/settings` (contract test updated, append-only);
+      free-space + budget checks with typed refusals; F1 fence + CORS as every route.
+- [ ] REC5 — **web UI**: Record panel (arm / stop / discard, REC indicator, budget
+      readout, rename take); Free-capture count-in toggle → fixed 1-bar visual strip pulse
+      at a settable BPM (C1a; tap-tempo deferred).
+- [ ] REC6 — **editor MIDI note-editing** (the heavy item): extend the home-grown canvas
+      roll; **vendor MidiWriterJS (MIT), inlined** for SMF export (webaudio-pianoroll
+      Apache-2.0 = fallback roll). Lean edit set (A2b): move / delete / resize / quantize /
+      tempo / hand-split (add-note + per-note velocity deferred). Interaction = DAW
+      convention: **snap default-ON + grid-size selector + toggle; hold Alt = off-grid;
+      Shift+click / marquee = multi-select, drag moves the selection together**. Load
+      `recording-<n>.mid`, save `.vlp`, export clean `.mid`; light-show authoring applies
+      on top.
+- [ ] REC7 — **docs**: SPEC cross-ref (recording = producer at the upload seam), API.md
+      routes, BRINGUP hardware-verify (real capture timing / BLE jitter on a take),
+      TROUBLESHOOTING as needed.
+- [ ] closing `/code-review` over the wave diff — 8 angles — before it lands on main.
+
+Deferred fast-follows (sanctioned, not v1): overdub (R then L as a second take), count-in
+tap-tempo, editor compose features (add-note + per-note velocity), D1b BLE-packet-timestamp
+capture-timing upgrade (hardware-gated).
+
 ## Needs Christian (never blocks the loop)
-- v2 P0: editor-hosting ruling (VL3 — recommendation: off-device `editor/` static app,
-  device gains only `/api/shows` + CORS). Only blocks the P-wave, nothing earlier.
+- ~~v2 P0: editor-hosting ruling (VL3)~~ **RULED 2026-07-13 (A57): Option 1 —
+  off-device `editor/editor.html`, distributed as a downloadable release artifact;
+  Pages/repo link the download only, never host the live editor (https→http
+  mixed-content block). Device-served editor = optional later add. No format/player/API
+  change. VL3 CLOSED — the last open v2 planning ruling.**
 - MuseScore-account downloads (exact URLs get listed in SONGBOOK.md as found)
 - ~~GitHub publish decision~~ **PUBLISHED 2026-07-07** (his call, in-session):
   public repo `github.com/cdii2/via-lucis`, main @ b6d69d7, MIT. Pre-flight
@@ -503,6 +560,8 @@ catalog curation, BOM scaling guidance.
 - Strip calibration values; actual wait-mode latency; PSU headroom check
 - v2 (OV1/OV2): P-POC against the real device; per-effect frame-budget benchmark;
   heap watermark check under AFK + presentation playback
+- v3 (Record wave): real capture timing fidelity — BLE-MIDI jitter baked into a take;
+  verify a recorded → edited → played-back round-trip on the real FP-30X
 
 ## Iteration log
 

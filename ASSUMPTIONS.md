@@ -3,6 +3,16 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A57 (2026-07-13, VL3 close): **CHRISTIAN'S RULING, not an assumption — VL3
+  editor hosting = Option 1.** The show editor is OFF-device (`editor/editor.html`),
+  distributed as a downloadable **release artifact** (`file://` open, proven by the
+  P-POC). GitHub Pages / the repo link the download and docs only — it does NOT host
+  the live editor (HTTPS→http device is a spec-mandated mixed-content block, not
+  fixable by CORS). Device-served editor (a second gzipped app, same-origin) stays an
+  OPTIONAL later add — additive, costs flash, revisit only if wanted. No format/player/
+  API change follows from this ruling; the firmware CORS header set
+  (ACAO:*, OPTIONS 204, Allow-Private-Network) already ships with `/api/shows` as
+  designed. VL3 is now CLOSED — the last open v2 planning ruling.
 - A56 (2026-07-10, arch-review run): **CHRISTIAN'S RULING, not an assumption —
   demo_reel and Pride2015 are removed PERMANENTLY (commit f160183); never
   re-add them.** The effect set is now exactly: fire2012, pacifica,
