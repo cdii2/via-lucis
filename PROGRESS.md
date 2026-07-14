@@ -753,3 +753,23 @@ capture-timing upgrade (hardware-gated).
   byte in a fixture's bytes, a flipped hex char in the extracted embed, and
   a fixture dropped from the embed's key set all correctly trip a FAIL — the
   checker is not vacuously green.
+- 2026-07-13/14 hardware bring-up prep (docs-only, no test gate): **BOM v2.1
+  protection add-on** adopted from WLED's fuse guidance (bbbad86 — per-leg 5A
+  ATC fuses, 1000µF bulk cap, strip power moved off the breadboard rails via
+  WAGO junctions A–D; BUILD-GUIDE §4 rewired to the frozen 22-row table,
+  BRINGUP Step 6 + TROUBLESHOOTING updated), wire-gauge rules (2f1e173 —
+  Dupont jumpers off the power path; 22AWG solid + stripper), lever-nut
+  sourcing (7538e0e), row-8 fuse holder swapped to the B0H365LXSP 2-pack
+  (cace3c1; add-on ≈ $59, all links live-verified 2026-07-14).
+- 2026-07-14 cleanup + full-docs review session: three-agent consistency
+  sweep — hardware docs (BOM/BUILD-GUIDE/BRINGUP/TROUBLESHOOTING) verified
+  clean, zero fixes needed; software docs fixed (SIMULATOR full 30-suite test
+  list + corpus-gate section, corpus/midi README 9th fixture row, SHOW-FORMAT
+  marks VL3 CLOSED per A57, DESIGN-lightshow P3 as-built note). README/
+  PROGRESS counts reconciled to the verified C2 gate (374 native tests, 9
+  fixtures, check_midi_corpus 9/9; suite re-run 374/374 this session).
+  Plain-English explainer moved to docs/EXPLAINER.md (linked from README;
+  parts total ~$180 incl. add-on). NEW docs/BREADBOARD-GUIDE.md — absolute-
+  beginner hole-by-hole companion to BUILD-GUIDE §4 (chip/ESP32/cap placement
+  only, ends with no power connected; step↔row audit against the frozen
+  table), cross-linked from BUILD-GUIDE §3/§4 and BRINGUP Step 6.

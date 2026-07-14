@@ -163,6 +163,9 @@ Plug the chip in so it **straddles the center groove** of the breadboard (legs o
 both sides of the ditch), notch pointing toward the breadboard's top edge. Push
 gently and evenly until it's fully seated.
 
+> A gentler, hole-by-hole placement of this chip is in
+> [BREADBOARD-GUIDE.md](BREADBOARD-GUIDE.md) Part 4.
+
 ### The fuses and lever nuts (protection add-on)
 
 - An **inline fuse holder** is a short wire with a plastic capsule in the middle;
@@ -234,6 +237,10 @@ board has no pin marked 16, search the web for an image of
 ## 4. Wiring
 
 **PSU unplugged from the wall. USB unplugged. Now wire everything.**
+
+> New to breadboards? Read the slow, hole-by-hole companion first:
+> [BREADBOARD-GUIDE.md](BREADBOARD-GUIDE.md). It covers the breadboard side
+> (ESP32, chip, capacitor) of this same table.
 
 ### The complete picture
 

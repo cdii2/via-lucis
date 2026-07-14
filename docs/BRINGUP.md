@@ -108,6 +108,8 @@ password.)
 
 Action: **unplug USB.** Wire everything exactly per BUILD-GUIDE section 4
 (table rows 1–22, plus the tidy-up jumpers), mount the strip per section 5.
+(First time on a breadboard? [BREADBOARD-GUIDE.md](BREADBOARD-GUIDE.md) walks
+the breadboard side one wire at a time before you get here.)
 Triple-check: the 74AHCT125 power pins (14 → +, 7 and 1 → –), the capacitor's
 stripe side to (–), and a **5A fuse clicked into each of the two inline
 holders**. Then plug the PSU into the wall.
