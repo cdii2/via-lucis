@@ -27,7 +27,13 @@ void ModeDirector::onKeyDown(uint8_t note, uint8_t velocity,
             // practice verdict path below is inert by construction). The
             // snap lands on the very next frame.
             follower_.onNote(note, nowUs);
-            engine_.driveShowClock(follower_.positionUs(nowUs));
+            // B-2/A95 (G16): while a test pattern hides the show, its clock
+            // must not silently keep moving underneath it — skip the write
+            // into the engine. The follower itself keeps tracking (still
+            // fed above) so a later "off" doesn't lose the performer's
+            // place; only the rendered/engine position freezes.
+            if (!testPatternActive())
+                engine_.driveShowClock(follower_.positionUs(nowUs));
             engine_.markFrameDirty();
         }
         engine_.onKeyDown(note, nowUs);
@@ -115,6 +121,21 @@ bool ModeDirector::setPresentation(bool on) {
     return true;
 }
 
+bool ModeDirector::setMode(const std::string& mode, const std::string& practice,
+                           std::vector<MidiOutMsg>& out) {
+    // B-3/A96 (G14): a playing show owns the practice sub-mode as its own
+    // clock (demo/follow — score-follow's driver is layered on top of
+    // follow). Switching it mid-performance would arm a barrier (wait) or
+    // otherwise fight the show's own schedule; wait mode's barrier-holding
+    // in particular is inherent to the engine, so there is no partial
+    // "leave it running" option the way B-2 found for the test pattern —
+    // refuse wholesale. D3 falls out for free: App::setMode only updates
+    // its lastMode_/lastPractice_ bookkeeping when this call succeeds, so a
+    // refused switch never clobbers the player's real pre-show choice.
+    if (showPlaying_) return false;
+    return engine_.setMode(mode, practice, out);
+}
+
 TopMode ModeDirector::topMode(uint64_t nowUs) const {
     if (engine_.songLoaded())
         return presentation_ ? TopMode::Presentation : TopMode::Practice;
@@ -162,7 +183,16 @@ bool ModeDirector::setTestPattern(const std::string& name,
     // F3/A35: the pattern paints over practice while the scheduler clock
     // would keep running — pause it here so EVERY caller keeps the
     // no-skipped-time-burst guarantee, not just one REST route.
-    if (engine_.state() == PlayState::Playing)
+    // B-2/A95 (G15): a PLAYING SHOW is exempt from this pause — the pattern
+    // is a pure visual overlay borrowing the strip; it must never touch a
+    // live performance's own clock. For a demo-clock show that clock IS the
+    // engine's Playing-state tick (which also drives the piano's audio via
+    // MIDI-out), so simply not pausing here leaves it running untouched.
+    // Score-follow has no transport to pause in the first place (G16 is the
+    // inverse hole: this check silently did nothing there); its clock is
+    // frozen by the OTHER half of this rule instead — onKeyDown/tick skip
+    // driveShowClock while a pattern is active (see testPatternActive()).
+    if (!showPlaying_ && engine_.state() == PlayState::Playing)
         engine_.transport("pause", 0, out);
     engine_.markFrameDirty();
     return true;
@@ -170,7 +200,13 @@ bool ModeDirector::setTestPattern(const std::string& name,
 
 ModeDirector::ProbeArm ModeDirector::armProbe(uint16_t led, uint64_t nowUs,
                                               uint32_t timeoutMs) {
-    if (engine_.state() == PlayState::Playing) return ProbeArm::Playing;
+    // B-1/A94 (G13): a playing show must refuse the probe too, not just
+    // ordinary Playing practice — score-follow's transport is deliberately
+    // STOPPED (the performer IS the clock), so the Playing check alone
+    // never catches it, and an armed probe would eat the performer's next
+    // key press before the follower ever sees it.
+    if (engine_.state() == PlayState::Playing || showPlaying_)
+        return ProbeArm::Playing;
     if (led >= ledCount_) return ProbeArm::BadLed;
     if (timeoutMs < 1000) timeoutMs = 1000;
     if (timeoutMs > 300000) timeoutMs = 300000;
@@ -200,7 +236,9 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     if (probe_.tickExpire(nowUs)) engine_.markFrameDirty();
     // Playback starting cancels an armed probe — user intent wins, and the
     // rule holds for ANY path into Playing, not just one REST route.
-    if (probe_.armed() && engine_.state() == PlayState::Playing) {
+    // B-1/A94: a show starting after the probe was armed cancels it too
+    // (same reasoning as armProbe's refusal above).
+    if (probe_.armed() && (engine_.state() == PlayState::Playing || showPlaying_)) {
         probe_.cancel();
         engine_.markFrameDirty();
     }
@@ -229,7 +267,9 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     // P4: between key events the score-follow clock still moves (coast /
     // hold / free-run are functions of real time) — drive song time from
     // the follower's estimate every tick so the show breathes continuously.
-    if (scoreFollowActive())
+    // B-2/A95 (G16): EXCEPT while a test pattern is up — see onKeyDown's
+    // matching guard; this is the tick-driven half of the same freeze.
+    if (scoreFollowActive() && !testPatternActive())
         engine_.driveShowClock(follower_.positionUs(nowUs));
     TopMode m = topMode(nowUs);
     if (m != lastMode_) {

@@ -3,6 +3,85 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A97 (2026-07-14, FIX-B B-4, what-if audit D2, DECIDE): `DELETE /api/songs/
+  {name}` refuses (`409 {"error": "song is loaded"}`) rather than silently
+  unloading the song first. Rejected the "safely unload first" alternative
+  the brief also offered — a DELETE that also stops your live practice
+  session mid-chord is a surprising, destructive side effect for what reads
+  as a library-management action; the player almost certainly meant "free
+  up space," not "kick myself out of what I'm playing." An explicit `POST
+  /api/songs/unload` is one call away, matches the existing pattern (probe/
+  mode/test-pattern-during-show all refuse rather than silently tearing
+  something down), and needed no new engine API — web_server.cpp determines
+  "is this the loaded song" from the `"song"` field already on the wire in
+  `statusJson()`, so the guard stays entirely inside its D2 scope (no
+  App.h/PlaybackEngine change). No native test: web_server.cpp is a
+  structurally-untested device shim (compile-gated only, per the wave's
+  policy-logic-placement rule) and there's nothing decidable to hoist into
+  ModeDirector here — the "is this song loaded" fact is engine-owned name
+  string comparison, not a mode/show policy call.
+- A96 (2026-07-14, FIX-B B-3, what-if audit G14 + D3, DECIDE): mode PUT
+  (`/api/mode`) is refused wholesale while any show plays, via a new
+  `ModeDirector::setMode` wrapper App now routes through instead of calling
+  `PlaybackEngine::setMode` directly. Rejected alternative: "route through
+  show teardown" (the brief's other offered option) — auto-stopping a live
+  show because the player poked an unrelated control felt too surprising
+  for a stage tool; an explicit `POST /api/shows/stop` is one call away.
+  Refusal is also the only fix possible without touching PlaybackEngine
+  (FIX-A's territory in this wave): wait mode's barrier-holding is inherent
+  to the engine, so there is no partial "leave the clock running" option
+  the way B-2 found for the test pattern — switching mode away from what
+  the show needs (demo/follow) WILL freeze it, full stop. D3 (App's
+  `lastMode_`/`lastPractice_` getting clobbered mid-show) falls out for
+  free: App::setMode only assigns them when the call succeeds, and a
+  refused call never does. Reuses the existing `400 bad mode` shape (no new
+  REST route/response shape) — the message text stays generic since
+  web_server.cpp's `/api/mode` handler is out of this pack's scope (D2 guard
+  only); a more specific error string is a nice-to-have for a later pack.
+- A94 (2026-07-14, FIX-B B-1, what-if audit G13): probe refusal (`ProbeArm::
+  Playing`) widened to `engine_.state()==Playing OR showPlaying_` — a
+  score-follow show's transport is deliberately stopped (the performer IS
+  the clock), so the old engine-state-only check never caught it, and an
+  armed probe would eat the performer's next key press before the follower
+  saw it (probe consumes before practice/follow, by design). The tick's
+  "playback starting cancels an armed probe" auto-cancel got the same
+  widening for symmetry, so a show that starts after the probe was armed
+  also clears it. No REST shape change — reuses the existing `409 playing`
+  typed refusal.
+- A95 (2026-07-14, FIX-B B-2, what-if audit G15/G16, DECIDE): one uniform
+  rule for test-pattern-during-show, covering both clock kinds — **the
+  pattern is a pure visual overlay that must never alter a playing show's
+  own clock, in either direction.** Concretely that's TWO symmetric guards
+  (not one shared code path, since demo and score-follow drive their clocks
+  through entirely different mechanisms): (1) `setTestPattern`'s F3/A35
+  auto-pause is skipped while `showPlaying_` — a demo-clock show's clock IS
+  the engine's own Playing-state tick, so leaving it alone is sufficient
+  (G15: the OLD behavior of pausing it was itself the bug — a live
+  performance's transport, and the piano audio it drives, must not stall
+  because someone bumped the test-pattern button). (2) `driveShowClock()` —
+  the write that feeds the follower's estimate into engine position — is
+  skipped in both `onKeyDown` and `tick` while `testPatternActive()`, for
+  score-follow (G16: it has no transport to pause, so the OLD bug was the
+  opposite — the clock silently kept advancing under the pattern, breaking
+  the A35 no-skipped-time guarantee for that path; freezing engine position
+  restores it). The follower itself keeps consuming key events under a
+  pattern (only the engine-facing write is gated) so it doesn't lose the
+  performer's place when the pattern goes `off`; whether resuming needs its
+  own re-baseline (mirroring A35's play-side fix) is unexercised by any
+  repro and deferred — flagged for hardware bring-up. Rejected alternative:
+  refuse the pattern outright while any show plays (B-1's precedent) — fails
+  G16's own repro, which activates the pattern and expects the clock frozen,
+  not the activation refused.
+- A94 (2026-07-14, FIX-B B-1, what-if audit G13): probe refusal (`ProbeArm::
+  Playing`) widened to `engine_.state()==Playing OR showPlaying_` — a
+  score-follow show's transport is deliberately stopped (the performer IS
+  the clock), so the old engine-state-only check never caught it, and an
+  armed probe would eat the performer's next key press before the follower
+  saw it (probe consumes before practice/follow, by design). The tick's
+  "playback starting cancels an armed probe" auto-cancel got the same
+  widening for symmetry, so a show that starts after the probe was armed
+  also clears it. No REST shape change — reuses the existing `409 playing`
+  typed refusal.
 - A91 (2026-07-14, what-if audit FIX-A / G10, LOG-ONLY — needs bring-up
   data): **same-pitch accompaniment echo can eat the player's genuine press —
   deliberately NOT changed yet.** When accompaniment plays the muted hand at

@@ -226,10 +226,19 @@ private:
     uint64_t lastTickUs_ = 0;
     uint64_t lastFrameUs_ = 0;
     uint64_t prevPosUs_ = 0;
-    // Set by the BLE task on key verdicts AND by REST sound-stop paths
-    // (A27); consumed by the loop task in frameDue(). Plain volatile: a
-    // racing writer can lose its mark to frameDue's clear, costing at most
-    // one 16.7ms frame period of delay — acceptable, documented.
+    // Set by key verdicts AND REST sound-stop paths (A27); consumed by the
+    // loop task in frameDue(). D4 (2026-07-14 fix wave): the BLE note path
+    // is NOT a concurrent writer — its callback fires on the loop task
+    // itself, dispatched from inside ble_.poll() while tick() already holds
+    // the F1 fence, so it is serialized with frameDue() by construction,
+    // same as every other write here. The real (still acceptable) race is
+    // an HTTP-task REST write landing, under its own FenceGuard, between one
+    // tick's frameDue() check and the next — the render it asks for lands on
+    // the FOLLOWING frame instead of the current one. Worst case one 16.7ms
+    // frame period of delay, never a lost mark (the flag stays true until an
+    // actual render clears it). Plain volatile documents that this flag
+    // crosses the FreeRTOS task boundary; the fence, not the qualifier, is
+    // what makes the read-modify-clear itself safe.
     volatile bool frameDirty_ = false;
 
     struct WrongFlash {

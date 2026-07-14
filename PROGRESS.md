@@ -804,3 +804,48 @@ capture-timing upgrade (hardware-gated).
   full firmware link should be re-verified at merge in the main tree (which
   has a valid NimBLE cache; a 15s incremental build). A94–A97 reserved for the
   parallel FIX-B (director/show policy) wave.
+- 2026-07-14 FIX-B "ShowPolicy" wave (branch `w7/show`, worktree
+  `%TEMP%\vl-w7-show`, parallel to FIX-A's `w7/sched`): closed the show/
+  presentation policy holes from the 2026-07-14 what-if audit — G13–G16,
+  D2, D3, D4. B-1 (G13, A94): `armProbe` and the tick auto-cancel now also
+  key off `showPlaying_`, not just engine `Playing` — score-follow's
+  transport stays stopped for the whole performance, so the old check never
+  caught it. B-2 (G15/G16, A95, DECIDE): one rule for test-pattern-during-
+  show — the pattern must never touch the show's own clock, so
+  `setTestPattern`'s F3 auto-pause skips while `showPlaying_` (G15: a demo
+  show's clock IS the engine's Playing tick, also driving the piano's
+  audio — pausing it was the bug) and `driveShowClock` is skipped while a
+  pattern is active (G16: score-follow has no transport to pause, so its
+  clock silently drifted under the pattern before — now frozen). B-3 (G14 +
+  D3, A96, DECIDE): new `ModeDirector::setMode` refuses mode PUTs wholesale
+  while any show plays (wait mode's barrier-holding is inherent to the
+  engine — no partial fix is possible without touching PlaybackEngine, out
+  of scope this wave); `App::setMode` now routes through it, which also
+  fixes D3 (`lastMode_`/`lastPractice_` only mutate on success). B-4 (D2 +
+  D4, A97): `DELETE /api/songs/{name}` refuses (`409`) on the currently-
+  loaded song (device-level, compile-gated only, no native repro exists);
+  `playback_engine.h`'s `frameDirty_` comment corrected (comment lines
+  only — the one FIX-A-file exception granted this wave) — the BLE path
+  was never actually racing (same task, inside tick's fence); the real
+  accepted race is an HTTP-task write landing between one tick's
+  `frameDue()` check and the next. TDD throughout: all four G-item repros
+  (`test_s4_probe_refused_during_score_follow_show`,
+  `test_w29_test_pattern_refused_or_inert_during_show`,
+  `test_C22_test_pattern_freezes_scorefollow_clock`,
+  `test_s3_setmode_during_show_does_not_freeze_show_clock` — the last one
+  adapted to call the new `ModeDirector::setMode` wrapper since the
+  original repro bypassed any policy layer entirely) moved from
+  `audit/whatif-throwaway` into `test_mode_director`, confirmed red, fixed,
+  pinned green. One commit per item (`e65b11f`→`3a885d3`). **374 → 378
+  native tests, all green; esp32dev SUCCESS (flash 48.6%, RAM 22.7%,
+  within the 70/35 budgets).** Docs updated in-wave: API.md (probe/mode/
+  test-pattern/DELETE refusal shapes), SHOW-FORMAT.md (new "while a show
+  plays" policy summary). Lesson: the worktree's first location (nested 5
+  levels under the scratchpad temp dir) blew past Windows' 260-char
+  MAX_PATH once NimBLE's build tree nested under `.pio/libdeps/` — esp32dev
+  failed with a bogus "No such file" on a header that demonstrably existed
+  at the right relative path; the fix was relocating the worktree to a
+  shallow `%TEMP%\vl-w7-show` (needed `\\?\`-prefixed `Remove-Item` in
+  PowerShell to even delete the too-long original path first). Not
+  merged to main — FIX-A merges first per the wave's merge order; this
+  branch rebases onto the new main next.

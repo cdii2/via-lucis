@@ -54,7 +54,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   (LittleFS `/songs/` directory listing; names are sanitized filenames.)
 - `POST /api/songs` — raw body upload, `?name=<filename>.mid` query param.
   → `201 {"name": "..."}`. Rejects non-`.mid` names and files > 256 KB.
-- `DELETE /api/songs/{name}` → `204`.
+- `DELETE /api/songs/{name}` → `204`, or `404 {"error": "no such song"}`, or
+  `409 {"error": "song is loaded"}` if it's the currently-loaded song
+  (`POST /api/songs/unload` it first — otherwise status/practice would keep
+  reporting a "loaded" song the list no longer has).
 - `POST /api/songs/{name}/load` → `200` + status JSON. Parses the file,
   resets transport to 0, state `idle`.
 - `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →
@@ -83,7 +86,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 ## Mode
 
 - `POST /api/mode` body `{"mode": "wait|follow|demo|accompaniment", "practice": "left|right|both"}`
-  → `200`.
+  → `200`, or `400 bad mode` (also returned while a Presentation show is
+  playing — a show owns its practice sub-mode as its own clock; switching it
+  mid-performance would freeze the show on stage. Stop the show first via
+  `POST /api/shows/stop`).
   - `practice` = the hand YOU play (default `both`). In `wait` mode it selects
     which tracks arm the barrier; in `accompaniment` the *other* hand's tracks
     are sent to the piano while wait mode watches the practiced hand.
@@ -244,8 +250,9 @@ inputs — changing them (either route) rebuilds the table on that tier only.
   that LED and captures the NEXT piano note-on as the answer (the press
   never reaches practice/wait mode). → `200` + probe status, `400 missing
   led` (no `led` in the body), `400 bad led` (off the strip), `409 playing`
-  (probe never arms during playback; starting playback cancels an armed
-  probe).
+  (probe never arms during playback OR a playing Presentation show — including
+  score-follow, whose transport stays stopped; starting playback or a show
+  cancels an armed probe).
 - `GET /api/calibration/probe` → `{"armed": true, "led": 123, "note": null}`
   (`note` = the captured MIDI note after the press; poll ~2×/s while armed).
 - `DELETE /api/calibration/probe` — cancel; clears any capture. → `200`.
@@ -255,6 +262,12 @@ inputs — changing them (either route) rebuilds the table on that tier only.
 - `POST /api/reboot` → `200` then restarts.
 - `POST /api/test` body `{"pattern": "strip"}` — patterns `strip` (walk a
   white dot end to end), `rainbow` (the easter egg), `off`. For BRINGUP.md.
+  Ordinary practice still auto-pauses while a pattern is up (F3/A35). A
+  **playing Presentation show is left alone**: the pattern is a pure visual
+  overlay that borrows the strip without touching the show's own clock — a
+  demo-clock show's transport (and the piano audio it drives) keeps running
+  underneath; a score-follow show's clock freezes for the duration (no
+  transport to pause) and resumes tracking once the pattern goes `off`.
 - `GET /api/ble` → `{"connected": true, "device": "BLE-MIDI"}` (`device` is
   `""` while disconnected).
 

@@ -119,6 +119,16 @@ binary stream as its JSON twin for round-trip checks.
 - `POST /api/shows/{name}/play` → loads + validates + starts Presentation
   (song must be loaded for Demo/Free-run clocks that reference it; typed
   errors otherwise). `POST /api/shows/stop` → back to Practice.
+- **While a show plays, it owns the strip and its own clock** (what-if
+  audit, 2026-07-14 fix wave): `POST /api/mode` is refused (`400`) — a
+  switch mid-performance would freeze the show's clock; `POST /api/
+  calibration/probe` is refused (`409 playing`) — it would eat the
+  performer's next key press, and this covers score-follow too, whose
+  transport stays stopped so the ordinary Playing check alone misses it.
+  `POST /api/test` (test pattern) is accepted, but is a pure visual overlay
+  that never touches the show's own clock underneath it: a demo-clock
+  show's transport keeps running (and the piano keeps sounding), a
+  score-follow show's clock freezes until the pattern goes `off`.
 - CORS: the P-POC header set (`Access-Control-Allow-Origin: *`, OPTIONS
   204, `Access-Control-Allow-Private-Network: true`) ships with these
   routes — the off-device editor depends on it.
