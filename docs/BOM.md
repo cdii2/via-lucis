@@ -17,8 +17,11 @@ All links verified live on 2026-07-06. Total ≈ **$121**. No soldering required
 Adopted from WLED's wiring guidance (their 5V wiring diagram: *"for a safe setup,
 fuses are not optional… with multiple injections it is also recommended to fuse
 each injection wire separately"*), sized for this build. Links verified live
-2026-07-14. Total ≈ **$34**. Still no soldering — everything lands in lever nuts
-or the breadboard.
+2026-07-14. Total ≈ **$61**. Still no soldering — everything lands in lever nuts
+or the breadboard — but the power runs need a few wire ends cut and stripped
+(hence the stripper). The kit's Dupont-style jumpers stay for the breadboard
+side only: they're too thin (~26 AWG) for the WAGOs to clamp and must never
+carry strip current.
 
 | # | Part | Link | Price | Notes |
 |---|------|------|-------|-------|
@@ -26,6 +29,8 @@ or the breadboard.
 | 9 | **5A blade fuses** — standard ATC, 10-pack, blown-fuse LED indicator | [amazon.com/dp/B074F1T16F](https://www.amazon.com/dp/B074F1T16F) | $10.95 | 2 used, 8 spares. Each feed carries ≤~4A under the firmware's 8A cap, so 5A never nuisance-blows; the LED lights when a fuse dies |
 | 10 | **Bulk capacitor** — 1000µF 16V radial electrolytic, 5-pack | [amazon.com/dp/B07YN6DS58](https://www.amazon.com/dp/B07YN6DS58) | $6.62 | 1 used, across the breadboard power rails. Smooths power-on inrush (WLED marks it recommended-to-optional) |
 | 11 | **Lever nuts** — WAGO 221-415, 5-conductor, 10-pack | [amazon.com/dp/B06XH47DC2](https://www.amazon.com/dp/B06XH47DC2) | $8.95 | 4 used: two power-distribution junctions at the PSU adapter, two fuse-to-strip splices. Tool-free, reusable |
+| 12 | **Hookup wire** — TUOFENG 22 AWG solid core, 6 colors × 30ft | [amazon.com/dp/B07TX6BX47](https://www.amazon.com/dp/B07TX6BX47) | $15.99 | For the WAGO→breadboard rail feeds (a Dupont jumper can't clamp in a WAGO). Solid 22 AWG fits both WAGO and breadboard; big spares for future projects |
+| 13 | **Wire stripper** — Amazon Basics self-adjusting, 10–24 AWG | [amazon.com/dp/B07TS6KCXD](https://www.amazon.com/dp/B07TS6KCXD) | $10.79 | WAGOs need ~11mm of bare wire; covers the 16 AWG fuse leads and the 22 AWG hookup wire |
 
 Why: the PSU can deliver 10 A. A chafed strip wire against the aluminum channel or
 a popped jumper shorting +5V to GND would dump that full current through wiring

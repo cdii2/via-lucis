@@ -52,9 +52,10 @@ Check, in order:
    terminals and every WAGO port. A wire that slips out of a WAGO wasn't
    stripped far enough or the lever wasn't snapped fully down; a loose screw
    terminal is a resistor. Re-seat and re-tighten.
-4. **Are the power jumpers into the rails fully pushed in?** Rows 2–3 and
-   12–13 — power wants fat, short paths, so use the short thick jumpers there
-   if you have them.
+4. **Are the power feeds the right wire, fully seated?** Rows 2–3 must be the
+   16 AWG fuse-lead offcuts (never a skinny Dupont jumper — power wants fat,
+   short paths) and rows 12–13 the 22 AWG solid wire, pushed firmly into the
+   rails.
 5. **Feel the connections** after a minute of the Rainbow pattern. A warm fuse
    holder, WAGO, screw terminal, or jumper = a bad junction carrying too much
    current through too thin a path. Fix that junction (thicker/shorter wire,

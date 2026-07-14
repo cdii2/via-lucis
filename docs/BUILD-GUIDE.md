@@ -26,6 +26,7 @@ Lay all of this on the table first:
   - 2 inline fuse holders + two **5A** blade fuses (protection add-on)
   - 1 capacitor, 1000µF (small black can with two legs; protection add-on)
   - 4 WAGO lever nuts (clear blocks with orange levers; protection add-on)
+  - 22 AWG solid hookup wire + the wire stripper (protection add-on)
 - [ ] A **USB-C data cable**. Important: some USB cables are charge-only and carry
       no data — the ESP32 will power up but your PC won't see it. A cable that came
       with a phone that transfers photos is usually fine.
@@ -175,6 +176,17 @@ gently and evenly until it's fully seated.
   it's gripped. They're reusable — lift the lever to release. We use four; put
   a piece of tape on each and label them **A, B, C, D** now, the wiring table
   refers to them by letter.
+- **Which wire goes where.** WAGOs need ~11 mm of bare wire and at least 24 AWG
+  thickness — the kit's skinny plug-in jumpers (Dupont wires) can't clamp in
+  them and stay on the breadboard side only. The two power feeds from the
+  adapter (table rows 2–3) carry the full strip current, so they must be thick:
+  cut **one lead of each fuse holder in half** and use the freed 16 AWG offcut
+  as that holder's row-2/row-3 feed (strip both cut ends). The two low-current
+  feeds into the breadboard rails (rows 12–13) are cut from the **22 AWG solid**
+  spools. If a fuse-lead offcut comes out too short to reach, fallback: land
+  both fuse-holder leads directly in the adapter's + screw terminal instead and
+  skip WAGO A — three wires under one screw is tighter to get right, which is
+  why the WAGO route is the default.
 
 ### The capacitor has a direction too
 
@@ -259,8 +271,8 @@ current. Label the four WAGOs A–D with tape before you start.
 | # | From | To | Wire |
 |---|------|----|------|
 | 1 | PSU barrel plug | barrel-to-screw adapter (click in) | — |
-| 2 | Adapter **+** screw terminal | **WAGO A** | thick jumper |
-| 3 | Adapter **–** screw terminal | **WAGO B** | thick jumper |
+| 2 | Adapter **+** screw terminal | **WAGO A** | 16 AWG fuse-lead offcut (section 3) |
+| 3 | Adapter **–** screw terminal | **WAGO B** | 16 AWG fuse-lead offcut (section 3) |
 | 4 | **WAGO A** | fuse holder **1**, either pigtail (**5A fuse clicked in**) | holder's own wire |
 | 5 | Fuse holder **1**, other pigtail | **WAGO C** | holder's own wire |
 | 6 | Strip **input (left) end +5V** | **WAGO C** | strip's own power wire |
@@ -269,8 +281,8 @@ current. Label the four WAGOs A–D with tape before you start.
 | 9 | Strip **far (right) end +5V** | **WAGO D** | strip's own power wire |
 | 10 | Strip **input (left) end GND** | **WAGO B** | strip's own power wire |
 | 11 | Strip **far (right) end GND** | **WAGO B** | strip's own power wire |
-| 12 | **WAGO A** | breadboard **(+) rail** | jumper |
-| 13 | **WAGO B** | breadboard **(–) rail** | jumper |
+| 12 | **WAGO A** | breadboard **(+) rail** | 22 AWG solid, stripped both ends |
+| 13 | **WAGO B** | breadboard **(–) rail** | 22 AWG solid, stripped both ends |
 | 14 | Capacitor **+ (longer leg)** | **(+) rail** | its own legs |
 | 15 | Capacitor **– (stripe side, shorter leg)** | **(–) rail** | its own legs |
 | 16 | ESP32 **VIN** | **(+) rail** | jumper |
