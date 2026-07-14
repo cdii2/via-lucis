@@ -105,6 +105,20 @@ MidiSong pedalSong() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// Single key 60: sounds 0..30ms, dark, then re-presses at 1.5s (beyond the 1s
+// ramp lead). The only thing that can light key 60 mid-loop is the repeat
+// fill window [30ms, 1500ms). A loop ending at 100ms straddles it. (A-5/G5)
+MidiSong repeatStraddleSong() {
+    Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);     // on @ 0
+    smf::noteOff(ev, 29, 0, 60);        // off ~30ms
+    smf::noteOn(ev, 1411, 0, 60, 100);  // tick1440 = 1500000us
+    smf::noteOff(ev, 29, 0, 60);
+    Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 }  // namespace
 
 void test_follow_mode_lights_sounding_note_full_color() {
@@ -929,6 +943,27 @@ void test_P11_pause_flushes_sustain_pedal() {
         "pause must flush a held sustain pedal (CC64=0)");
 }
 
+// --- A-5: repeat-cue loop clamp (G5) -------------------------------------
+
+// G5 — a repeat-fill window straddling loopEnd must not paint: while looping,
+// the loop never reaches the onset the cue crescendos toward.
+void test_C34_phantom_repeat_cue_inside_loop() {
+    PlaybackEngine e;
+    setupEngine(e, repeatStraddleSong(), "follow");
+    TEST_ASSERT_TRUE(e.setLoop(true, 0, 100));  // ends inside [30ms,1500ms) win
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // pos wraps to ~99ms inside the loop
+    const std::vector<Rgb>& f = e.renderFrame(200000);
+    bool anyLit = false;
+    for (const Rgb& p : f)
+        if (p.r || p.g || p.b) anyLit = true;
+    TEST_ASSERT_FALSE_MESSAGE(
+        anyLit, "no repeat cue should render for an onset the loop never "
+                "reaches (phantom cue)");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -972,5 +1007,6 @@ int main(int, char**) {
     RUN_TEST(test_P24_echo_credit_bleeds_across_mode_switch);
     RUN_TEST(test_C26_echo_credit_survives_backward_seek);
     RUN_TEST(test_P11_pause_flushes_sustain_pedal);
+    RUN_TEST(test_C34_phantom_repeat_cue_inside_loop);
     return UNITY_END();
 }

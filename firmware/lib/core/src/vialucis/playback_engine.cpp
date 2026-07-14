@@ -407,9 +407,15 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
         uint64_t pos = sched_->positionUs();
         uint32_t lightsMask = trackCfg_.lightsMask();
 
-        // Ramp preview: notes coming up within the lead window.
+        // Ramp preview: notes coming up within the lead window. While
+        // looping, don't preview onsets at/beyond loopEnd — the loop wraps
+        // before reaching them, so their swell would be a phantom (A-5/G5).
         uint64_t lead = renderer_.ramp().leadUs;
-        sched_->onsetsBetween(pos + 1, pos + lead, lightsMask, queryBuf_);
+        uint64_t previewTo = pos + lead;
+        if (sched_->loopEnabled() && sched_->loopEndUs() > pos &&
+            previewTo >= sched_->loopEndUs())
+            previewTo = sched_->loopEndUs() - 1;
+        sched_->onsetsBetween(pos + 1, previewTo, lightsMask, queryBuf_);
         for (const SchedEvent& e : queryBuf_)
             renderer_.addUpcoming(e.note, colorForTrack(e.track), e.timeUs,
                                   pos);
@@ -427,6 +433,10 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
                 while (cur < v.size() && v[cur].onsetUs <= pos) ++cur;
                 if (cur >= v.size()) continue;
                 const RepeatWindow& w = v[cur];
+                // A window whose onset is at/beyond loopEnd is never reached
+                // while looping — skip its phantom crescendo (A-5/G5).
+                if (sched_->loopEnabled() && w.onsetUs >= sched_->loopEndUs())
+                    continue;
                 if (pos < w.fillStartUs) continue;
                 if (!trackInMask(lightsMask, w.track)) continue;
                 float frac = static_cast<float>(pos - w.fillStartUs) /
