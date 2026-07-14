@@ -107,19 +107,23 @@ password.)
 ## Step 6 — Full hookup: PSU + strip
 
 Action: **unplug USB.** Wire everything exactly per BUILD-GUIDE section 4
-(table rows 1–14, plus the tidy-up jumpers), mount the strip per section 5.
-Triple-check the 74AHCT125 power pins (14 → +, 7 and 1 → –). Then plug the PSU
-into the wall.
+(table rows 1–22, plus the tidy-up jumpers), mount the strip per section 5.
+Triple-check: the 74AHCT125 power pins (14 → +, 7 and 1 → –), the capacitor's
+stripe side to (–), and a **5A fuse clicked into each of the two inline
+holders**. Then plug the PSU into the wall.
 
 **Expected:** the ESP32's red LED lights (it's now fed from the PSU through
 VIN), the strip stays **completely dark** (no random colors — dark is correct;
-nothing has told it to light yet), and after ~20 seconds the web UI is
+nothing has told it to light yet), **both inline fuse LEDs stay dark** (that
+LED lights only when its fuse has blown), and after ~20 seconds the web UI is
 reachable again at the same address as Step 5.
 
 If LEDs glow dim red or the board keeps restarting →
 [Dim red LEDs and brownouts](TROUBLESHOOTING.md#dim-red-leds-and-brownouts).
 If the strip shows random flickering colors →
 [Flickering or glitching colors](TROUBLESHOOTING.md#flickering-or-glitching-colors).
+If a fuse LED is lit →
+[A fuse LED is lit (blown fuse)](TROUBLESHOOTING.md#a-fuse-led-is-lit-blown-fuse).
 
 ## Step 7 — Strip test pattern
 

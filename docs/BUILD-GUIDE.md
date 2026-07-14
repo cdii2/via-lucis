@@ -15,7 +15,7 @@ When something doesn't behave as described, stop and open
 
 Lay all of this on the table first:
 
-- [ ] All 7 parts from [BOM.md](BOM.md):
+- [ ] All parts from [BOM.md](BOM.md), including the v2.1 protection add-on:
   - BTF-LIGHTING FCOB LED strip, 2 m, 180 LED/m, 5V (one continuous piece)
   - ELEGOO ESP32 dev board (the "brain" — a small computer board; the 3-pack has two spares)
   - ALITOVE 5V 10A power supply ("PSU" — the power brick)
@@ -23,6 +23,9 @@ Lay all of this on the table first:
   - Breadboard + jumper wires (the white plug-board and the colored wires)
   - 2 of the 6 Muzata aluminum channels (the U-shaped rails)
   - 1 **female** barrel-to-screw adapter (small green-and-black block a power plug clicks into)
+  - 2 inline fuse holders + two **5A** blade fuses (protection add-on)
+  - 1 capacitor, 1000µF (small black can with two legs; protection add-on)
+  - 4 WAGO lever nuts (clear blocks with orange levers; protection add-on)
 - [ ] A **USB-C data cable**. Important: some USB cables are charge-only and carry
       no data — the ESP32 will power up but your PC won't see it. A cable that came
       with a phone that transfers photos is usually fine.
@@ -159,6 +162,29 @@ Plug the chip in so it **straddles the center groove** of the breadboard (legs o
 both sides of the ditch), notch pointing toward the breadboard's top edge. Push
 gently and evenly until it's fully seated.
 
+### The fuses and lever nuts (protection add-on)
+
+- An **inline fuse holder** is a short wire with a plastic capsule in the middle;
+  a blade fuse clicks inside. If a short circuit ever tries to pull more than
+  5 amps through a strip power feed, the fuse burns out in an instant and cuts
+  the power — a $1 part dies instead of a wire catching fire. Our fuses have a
+  tiny LED that lights up when the fuse is blown, so you can see at a glance
+  which one died.
+- A **WAGO lever nut** joins 2–5 wires without tools: lift a lever, push a
+  stripped wire end in all the way, snap the lever down. Tug gently to confirm
+  it's gripped. They're reusable — lift the lever to release. We use four; put
+  a piece of tape on each and label them **A, B, C, D** now, the wiring table
+  refers to them by letter.
+
+### The capacitor has a direction too
+
+The 1000µF capacitor is a small can with two legs and it is **polarized** —
+connected backwards it can pop like a firecracker. Two ways to spot the negative
+leg: the **stripe** printed down one side of the can marks the **negative** leg,
+and the negative leg is the **shorter** one. Stripe/short leg → (–) rail, long
+leg → (+) rail. Its job: it's a tiny local reservoir that smooths the electrical
+"gulp" when the strip turns on or brightness jumps.
+
 ### How a breadboard works (30 seconds)
 
 - The long red-striped row along the edge is the **(+) rail**; the blue/black
@@ -199,6 +225,10 @@ board has no pin marked 16, search the web for an image of
 
 ### The complete picture
 
+Strip power runs through **fuses and WAGO lever nuts**, never through the
+breadboard — the breadboard's spring rails only carry the small ESP32 + chip
+current. Label the four WAGOs A–D with tape before you start.
+
 ```
  WALL OUTLET
      │
@@ -206,15 +236,17 @@ board has no pin marked 16, search the web for an image of
      │  5.5 x 2.5 mm barrel plug
      ▼
  [barrel-to-screw adapter, female]
-     │(+)                     │(-)
-     ▼                        ▼
- breadboard (+) rail      breadboard (–) rail
-     │                        │
-     ├── strip LEFT end  +5V  ├── strip LEFT end  GND      ← power injection 1
-     ├── strip RIGHT end +5V  ├── strip RIGHT end GND      ← power injection 2
-     ├── ESP32 VIN            ├── ESP32 GND
-     └── 74AHCT125 pin 14     └── 74AHCT125 pin 7
-                              └── 74AHCT125 pin 1 (1OE)
+     │(+)                             │(-)
+     ▼                                ▼
+ [WAGO A]  the + junction         [WAGO B]  the – junction
+     ├─[FUSE 5A]─[WAGO C]─ strip LEFT  end +5V   ├── strip LEFT  end GND   ← injection 1
+     ├─[FUSE 5A]─[WAGO D]─ strip RIGHT end +5V   ├── strip RIGHT end GND   ← injection 2
+     └── breadboard (+) rail                     └── breadboard (–) rail
+              │                                       │
+              ├── ESP32 VIN                           ├── ESP32 GND
+              ├── 74AHCT125 pin 14                    ├── 74AHCT125 pin 7
+              └── capacitor + (long leg)              ├── 74AHCT125 pin 1 (1OE)
+                                                      └── capacitor – (stripe)
 
  DATA (separate thin jumper wires):
 
@@ -227,19 +259,31 @@ board has no pin marked 16, search the web for an image of
 | # | From | To | Wire |
 |---|------|----|------|
 | 1 | PSU barrel plug | barrel-to-screw adapter (click in) | — |
-| 2 | Adapter **+** screw terminal | breadboard **(+) rail** | thick jumper |
-| 3 | Adapter **–** screw terminal | breadboard **(–) rail** | thick jumper |
-| 4 | Strip **input (left) end +5V** | **(+) rail** | strip's own power wire |
-| 5 | Strip **input (left) end GND** | **(–) rail** | strip's own power wire |
-| 6 | Strip **far (right) end +5V** | **(+) rail** | strip's own power wire |
-| 7 | Strip **far (right) end GND** | **(–) rail** | strip's own power wire |
-| 8 | ESP32 **VIN** | **(+) rail** | jumper |
-| 9 | ESP32 **GND** | **(–) rail** | jumper |
-| 10 | 74AHCT125 **pin 14 (VCC)** | **(+) rail** | jumper |
-| 11 | 74AHCT125 **pin 7 (GND)** | **(–) rail** | jumper |
-| 12 | 74AHCT125 **pin 1 (1OE)** | **(–) rail** | jumper |
-| 13 | ESP32 **G16** | 74AHCT125 **pin 2 (1A)** | jumper |
-| 14 | 74AHCT125 **pin 3 (1Y)** | strip **DIN** (data, input end) | jumper |
+| 2 | Adapter **+** screw terminal | **WAGO A** | thick jumper |
+| 3 | Adapter **–** screw terminal | **WAGO B** | thick jumper |
+| 4 | **WAGO A** | fuse holder **1**, either pigtail (**5A fuse clicked in**) | holder's own wire |
+| 5 | Fuse holder **1**, other pigtail | **WAGO C** | holder's own wire |
+| 6 | Strip **input (left) end +5V** | **WAGO C** | strip's own power wire |
+| 7 | **WAGO A** | fuse holder **2**, either pigtail (**5A fuse clicked in**) | holder's own wire |
+| 8 | Fuse holder **2**, other pigtail | **WAGO D** | holder's own wire |
+| 9 | Strip **far (right) end +5V** | **WAGO D** | strip's own power wire |
+| 10 | Strip **input (left) end GND** | **WAGO B** | strip's own power wire |
+| 11 | Strip **far (right) end GND** | **WAGO B** | strip's own power wire |
+| 12 | **WAGO A** | breadboard **(+) rail** | jumper |
+| 13 | **WAGO B** | breadboard **(–) rail** | jumper |
+| 14 | Capacitor **+ (longer leg)** | **(+) rail** | its own legs |
+| 15 | Capacitor **– (stripe side, shorter leg)** | **(–) rail** | its own legs |
+| 16 | ESP32 **VIN** | **(+) rail** | jumper |
+| 17 | ESP32 **GND** | **(–) rail** | jumper |
+| 18 | 74AHCT125 **pin 14 (VCC)** | **(+) rail** | jumper |
+| 19 | 74AHCT125 **pin 7 (GND)** | **(–) rail** | jumper |
+| 20 | 74AHCT125 **pin 1 (1OE)** | **(–) rail** | jumper |
+| 21 | ESP32 **G16** | 74AHCT125 **pin 2 (1A)** | jumper |
+| 22 | 74AHCT125 **pin 3 (1Y)** | strip **DIN** (data, input end) | jumper |
+
+WAGO port count sanity check: A holds 4 wires (adapter, two fuse pigtails,
+breadboard feed), B holds 4 (adapter, both strip GNDs, breadboard feed), C and D
+hold 2 each (fuse pigtail + strip wire). The fifth port on each stays empty.
 
 Tidy-up (recommended, keeps the unused parts of the chip quiet): also jumper pins
 **4, 5, 9, 10, 12, 13** of the 74AHCT125 to the **(–) rail**. These are the three
@@ -247,20 +291,28 @@ unused translator groups; parking them at ground is good practice. Pins 6, 8, 11
 stay empty.
 
 If the strip's wires end in a plug (a small white 3-pin connector) rather than
-bare ends, the strip bag includes a mating pigtail — click it on and put the
-pigtail's bare wire ends into the breadboard/adapter instead.
+bare ends, the strip bag includes a mating pigtail — click it on and land the
+pigtail's bare wire ends in the WAGOs instead (power) and the data wire per
+row 22.
 
 Key facts behind this wiring (for the curious; already accounted for):
 
-- **All grounds are common.** ESP32, chip, strip, PSU — every GND meets at the
-  (–) rail. Signals are meaningless without a shared ground.
+- **All grounds are common.** ESP32, chip, strip, PSU — every GND meets at
+  WAGO B / the (–) rail. Signals are meaningless without a shared ground.
 - Power is injected at **both** strip ends so LED 359 is as bright as LED 0.
-- The firmware caps total strip power at **8 A** (out of the PSU's 10 A) as a
-  safety backstop, and the ESP32 shares the same 5V supply.
-- Data pin **GPIO16** is frozen in the firmware (`led_output.h`), matching row 13.
+- **Each strip feed is fused at 5 A** (WLED's rule: fuses sized for the wire,
+  below what the PSU can deliver). The firmware caps total strip power at
+  **8 A**, so each feed carries at most ~4 A — a 5 A fuse never blows in normal
+  use, only on a genuine short.
+- The breadboard rails now carry **only** the ESP32 + level shifter current
+  (well under 1 A). Strip current never touches the breadboard — spring rails
+  aren't rated for it.
+- Data pin **GPIO16** is frozen in the firmware (`led_output.h`), matching row 21.
 
-**Double-check rows 10–12 before ever powering on:** pin 14 to (+), pins 7 and 1
-to (–). Reversing power on the chip kills it (you do have four spares, but still).
+**Triple-check before ever powering on:** rows 18–20 (chip power: pin 14 to (+),
+pins 7 and 1 to (–) — reversed power kills the chip; you do have four spares, but
+still), rows 14–15 (capacitor stripe to (–) — backwards it can pop), and both 5A
+fuses actually clicked into their holders.
 
 ---
 

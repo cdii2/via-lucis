@@ -42,26 +42,56 @@ starve — starving LEDs go red-ish because red survives at the lowest voltage.
 
 Check, in order:
 
-1. **Is power really injected at BOTH strip ends?** BUILD-GUIDE section 4 rows
-   4–7. If only the left end is fed, the right half dims. Both +5V wires to the
-   (+) rail, both GND wires to the (–) rail.
-2. **Are the screw-adapter terminals tight?** Tug each wire gently; a loose
-   screw terminal is a resistor. Re-seat and re-tighten.
-3. **Are the power jumpers into the rails fully pushed in?** Push every power
-   jumper (rows 2–9) firmly home. If you have them, use short thick jumpers for
-   rows 2–7 — power wants fat, short paths.
-4. **Feel the connections** after a minute of the Rainbow pattern. Warm screw
-   terminals or jumpers = a bad junction carrying too much current through too
-   thin a path. Fix that junction (thicker/shorter wire, tighter screw, or run
-   the strip-end power wires directly into the screw adapter alongside the rail
-   feeds instead of through the breadboard).
-5. **Is it the right PSU?** It must say 5V 10A (the BOM ALITOVE). A random 5V
+1. **Is a fuse blown?** Glance at both inline fuse holders — a lit LED means
+   that feed is dead, so the whole strip runs off one end and the far half
+   dims. See [A fuse LED is lit](#a-fuse-led-is-lit-blown-fuse).
+2. **Is power really injected at BOTH strip ends?** BUILD-GUIDE section 4 rows
+   4–11: each +5V wire runs adapter → WAGO A → fuse → WAGO C/D → strip end,
+   and both GND wires meet in WAGO B.
+3. **Are all the junctions tight?** Tug each wire gently — screw-adapter
+   terminals and every WAGO port. A wire that slips out of a WAGO wasn't
+   stripped far enough or the lever wasn't snapped fully down; a loose screw
+   terminal is a resistor. Re-seat and re-tighten.
+4. **Are the power jumpers into the rails fully pushed in?** Rows 2–3 and
+   12–13 — power wants fat, short paths, so use the short thick jumpers there
+   if you have them.
+5. **Feel the connections** after a minute of the Rainbow pattern. A warm fuse
+   holder, WAGO, screw terminal, or jumper = a bad junction carrying too much
+   current through too thin a path. Fix that junction (thicker/shorter wire,
+   tighter screw, wire re-seated in its WAGO).
+6. **Is it the right PSU?** It must say 5V 10A (the BOM ALITOVE). A random 5V
    2A charger will brown out immediately.
-6. **Lower the load as a diagnostic:** Settings → Brightness slider down to
+7. **Lower the load as a diagnostic:** Settings → Brightness slider down to
    ~80, retry. If the symptom vanishes at low brightness, the problem is
-   definitely a power path, not the firmware — keep working checks 1–4. (The
+   definitely a power path, not the firmware — keep working checks 1–5. (The
    firmware already caps strip power at 8 A internally; a healthy build never
    hits the cap in normal practice, where only a handful of LEDs are lit.)
+
+## A fuse LED is lit (blown fuse)
+
+**Looks like:** the small LED on one of the inline fuse holders is lit (it only
+lights when its fuse has blown), and/or the far half of the strip is dim
+(running on one feed instead of two).
+
+A blown fuse is the protection **working** — something pulled more than 5 A
+through that feed, almost always a short from +5V to GND. Don't just swap the
+fuse and move on:
+
+1. **PSU off.** Unplug it from the wall.
+2. **Find the short first.** Inspect that feed's path end to end: a strip power
+   wire chafed against the aluminum channel, a stray wire strand bridging two
+   WAGO ports, +5V and GND wires swapped at one junction, a jumper that fell
+   across the rails. If the blow happened the instant you plugged in the PSU,
+   it's wiring; if it happened when everything lit bright white, re-check the
+   whole power path instead
+   ([Dim red LEDs and brownouts](#dim-red-leds-and-brownouts)).
+3. **Fix what you found**, click a spare 5A fuse into the holder (the 10-pack
+   has spares), power on, and re-run the strip test.
+4. **It blew again?** Stop. Don't escalate to a bigger fuse — a 5 A fuse never
+   blows in this build's normal operation (each feed carries at most ~4 A under
+   the firmware's 8 A cap), so a repeat blow means a real short you haven't
+   found yet. Work through the feed junction by junction with everything else
+   disconnected.
 
 ## Flickering or glitching colors
 
@@ -78,7 +108,7 @@ Check, in order:
 2. **Is the chip the right way around?** Notch at top, pin 1 top-left
    (BUILD-GUIDE section 3 diagram). If it was in backwards it is probably dead —
    swap in one of the four spares, correctly oriented.
-3. **Re-check the five data-path rows:** BUILD-GUIDE table rows 10–14.
+3. **Re-check the five data-path rows:** BUILD-GUIDE table rows 18–22.
    Especially pin 1 (1OE) to the (–) rail — if 1OE floats, output is dead or
    erratic. And confirm the ESP32 jumper really is on **G16**, not a neighbor.
 4. **Common ground.** Every GND (ESP32, chip, both strip ends, PSU) must reach

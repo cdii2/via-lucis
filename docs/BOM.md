@@ -12,6 +12,28 @@ All links verified live on 2026-07-06. Total ≈ **$121**. No soldering required
 | 6 | **Mounting** — Muzata aluminum U channel, 6× 1m | [amazon.com/dp/B01M09PBYX](https://www.amazon.com/dp/B01M09PBYX) | $19.99 | Use 2 end-to-end. **Leave milky diffuser cover off** — it blurs per-key edges. 10mm strip fits the ~12mm channel |
 | 7 | **Barrel-to-screw adapters** — 5.5×2.5mm, 5 pairs, 20A | [amazon.com/dp/B0CXPK3TJ6](https://www.amazon.com/dp/B0CXPK3TJ6) | $7.99 | Must be 2.5mm (not the common 2.1mm) to match the ALITOVE plug. Use one female |
 
+## Protection add-on (v2.1, added 2026-07-14 — order separately)
+
+Adopted from WLED's wiring guidance (their 5V wiring diagram: *"for a safe setup,
+fuses are not optional… with multiple injections it is also recommended to fuse
+each injection wire separately"*), sized for this build. Links verified live
+2026-07-14. Total ≈ **$34**. Still no soldering — everything lands in lever nuts
+or the breadboard.
+
+| # | Part | Link | Price | Notes |
+|---|------|------|-------|-------|
+| 8 | **Inline fuse holders** — Parts Express ATO/ATC, 16AWG pigtails — **buy 2** | [amazon.com/dp/B003N8SD9G](https://www.amazon.com/dp/B003N8SD9G) | $3.65 ea | One per strip power feed (we inject at both ends) |
+| 9 | **5A blade fuses** — standard ATC, 10-pack, blown-fuse LED indicator | [amazon.com/dp/B074F1T16F](https://www.amazon.com/dp/B074F1T16F) | $10.95 | 2 used, 8 spares. Each feed carries ≤~4A under the firmware's 8A cap, so 5A never nuisance-blows; the LED lights when a fuse dies |
+| 10 | **Bulk capacitor** — 1000µF 16V radial electrolytic, 5-pack | [amazon.com/dp/B07YN6DS58](https://www.amazon.com/dp/B07YN6DS58) | $6.62 | 1 used, across the breadboard power rails. Smooths power-on inrush (WLED marks it recommended-to-optional) |
+| 11 | **Lever nuts** — WAGO 221-415, 5-conductor, 10-pack | [amazon.com/dp/B06XH47DC2](https://www.amazon.com/dp/B06XH47DC2) | $8.95 | 4 used: two power-distribution junctions at the PSU adapter, two fuse-to-strip splices. Tool-free, reusable |
+
+Why: the PSU can deliver 10 A. A chafed strip wire against the aluminum channel or
+a popped jumper shorting +5V to GND would dump that full current through wiring
+never rated for it — on a piano. A 5 A fuse on each strip feed blows first. This
+change also moves strip power **off the breadboard rails** (spring rails are only
+comfortably good for ~1–2 A; the strip may legitimately draw up to 8 A total),
+which was the wiring's weakest point. Wiring details: BUILD-GUIDE section 4.
+
 Rejected along the way (and why):
 
 - *hntoolight WS2812B USB kit (B08DJCCJ16)* — right strip, wrong package: bundled RF
