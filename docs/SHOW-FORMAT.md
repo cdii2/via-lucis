@@ -4,12 +4,14 @@
 hardening + OV1/OV4 pins). This file is the contract for P1 (device player),
 P2 (clock sources), P3 (editor) — build against it; change it here first.
 
-**The one open ruling:** VL3 editor hosting is **Christian's call, still
-queued** (PROGRESS "Needs Christian"). Everything below builds against the
-recommendation (off-device editor, release-artifact distribution), which the
-P-POC proved viable (`editor/poc/README.md`: `file://` + CORS passes;
-HTTPS-hosted → http device is a spec-mandated mixed-content block). The
-ruling can flip *distribution* later without touching the format or player.
+**VL3 editor-hosting ruling: CLOSED 2026-07-13 (ASSUMPTIONS.md A57).**
+Christian ruled Option 1 — off-device `editor/editor.html`,
+distributed as a downloadable release artifact; Pages/repo link the download
+only, never host the live editor (https→http is a spec-mandated
+mixed-content block, proven by the P-POC: `editor/poc/README.md`: `file://` +
+CORS passes). This is exactly the recommendation everything below already
+built against, so the ruling changed *distribution* only — no format/player
+change.
 
 ---
 
@@ -141,7 +143,7 @@ skips, no migration.
 
 ## 5. Editor (P3) & distribution
 
-- Lives OFF-device in `editor/` (VL3 recommendation): a single-file static
+- Lives OFF-device in `editor/` (VL3, ruled 2026-07-13 per A57): a single-file static
   app (piano-roll over the loaded MIDI via a BUILT-IN SMF parser — a CDN
   dependency like `@tonejs/midi` can't load from `file://`, the proven
   distribution; canvas timeline, effect clips with span/scope/drive,
