@@ -99,8 +99,40 @@ static void test_out_param_consume_and_all_off_append() {
     TEST_ASSERT_EQUAL_size_t(5, out.size());  // idempotent
 }
 
+// A-4/G17: a held sustain pedal (CC64>=64) passed through must be released by
+// allOff (CC64=0), once, on the channel that held it — and not spuriously
+// when no pedal is down.
+static void test_all_off_flushes_held_sustain_pedal() {
+    NoteEmitter e(kTrackMaskAll);
+    e.consume({pedal(127, 0), on(60, 0)}, 0);  // pedal down + a note
+    std::vector<MidiOutMsg> out;
+    e.allOff(out);
+    // Note-off for 60 AND a CC64=0 to release the pedal.
+    bool sawNoteOff = false, sawPedalOff = false;
+    for (const auto& m : out) {
+        if (m.type == MidiOutType::NoteOff && m.data1 == 60) sawNoteOff = true;
+        if (m.type == MidiOutType::Cc && m.data1 == 64 && m.data2 == 0)
+            sawPedalOff = true;
+    }
+    TEST_ASSERT_TRUE(sawNoteOff);
+    TEST_ASSERT_TRUE_MESSAGE(sawPedalOff, "held pedal must be released");
+    // Idempotent: a second allOff sends nothing (latch already cleared).
+    std::vector<MidiOutMsg> out2;
+    e.allOff(out2);
+    TEST_ASSERT_EQUAL_size_t(0, out2.size());
+}
+
+static void test_pedal_up_clears_the_latch_no_spurious_release() {
+    NoteEmitter e(kTrackMaskAll);
+    e.consume({pedal(127, 0), pedal(0, 0)}, 0);  // down then up
+    auto msgs = e.allOff();  // pedal already up → allOff emits nothing
+    TEST_ASSERT_EQUAL_size_t(0, msgs.size());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_all_off_flushes_held_sustain_pedal);
+    RUN_TEST(test_pedal_up_clears_the_latch_no_spurious_release);
     RUN_TEST(test_demo_emits_all_tracks);
     RUN_TEST(test_accompaniment_mask_filters_practiced_hand);
     RUN_TEST(test_pedal_passthrough_respects_mask);

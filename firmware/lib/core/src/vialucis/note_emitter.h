@@ -42,6 +42,11 @@ private:
     uint32_t mask_;
     EchoGuard* guard_ = nullptr;
     SoundingSet<Sounding> sounding_;
+    // Per-channel sustain-pedal latch (A-4/G17): a CC64 we pass through in
+    // demo/accompaniment leaves the piano's damper raised. allOff (pause /
+    // stop / seek / panic) must send CC64=0 wherever a pedal is still down,
+    // or the piano stays sustained after playback halts.
+    bool pedalDown_[16] = {false};
 };
 
 }  // namespace vialucis

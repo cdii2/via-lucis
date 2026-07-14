@@ -92,6 +92,19 @@ MidiSong dualForty() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// Note 60 with a sustain pedal held down at tick 0 and released at tick 960,
+// on one audible track (A-4/G17 fixture).
+MidiSong pedalSong() {
+    Bytes ev;
+    smf::cc(ev, 0, 0, 64, 127);      // pedal DOWN @ tick 0
+    smf::noteOn(ev, 0, 0, 60, 100);  // note @ tick 0
+    smf::noteOff(ev, 480, 0, 60);    // note off @ tick 480
+    smf::cc(ev, 480, 0, 64, 0);      // pedal UP @ tick 960
+    Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 }  // namespace
 
 void test_follow_mode_lights_sounding_note_full_color() {
@@ -896,6 +909,26 @@ void test_C26_echo_credit_survives_backward_seek() {
         "as a stale echo");
 }
 
+// --- A-4: pedal-off flush on pause/stop/seek (G17) -----------------------
+
+// G17 — pausing demo/accompaniment while the song's sustain pedal is down
+// must flush CC64=0, or the piano stays sustained.
+void test_P11_pause_flushes_sustain_pedal() {
+    PlaybackEngine e;
+    setupEngine(e, pedalSong(), "demo");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);    // baseline: emits t=0 events (pedal-down + note)
+    e.tick(100000, gOut);  // advance past pedal-down, before pedal-up
+    TEST_ASSERT_TRUE_MESSAGE(hasCc(gOut, 0, 64, 127),
+                             "pedal-down CC64=127 must be emitted in demo");
+    size_t before = gOut.size();
+    e.transport("pause", 0, gOut);
+    TEST_ASSERT_TRUE_MESSAGE(
+        hasCc(gOut, before, 64, 0),
+        "pause must flush a held sustain pedal (CC64=0)");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -938,5 +971,6 @@ int main(int, char**) {
     RUN_TEST(test_P13_pause_resume_keeps_partial_chord);
     RUN_TEST(test_P24_echo_credit_bleeds_across_mode_switch);
     RUN_TEST(test_C26_echo_credit_survives_backward_seek);
+    RUN_TEST(test_P11_pause_flushes_sustain_pedal);
     return UNITY_END();
 }
