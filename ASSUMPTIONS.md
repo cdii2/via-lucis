@@ -3,6 +3,30 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A95 (2026-07-14, FIX-B B-2, what-if audit G15/G16, DECIDE): one uniform
+  rule for test-pattern-during-show, covering both clock kinds — **the
+  pattern is a pure visual overlay that must never alter a playing show's
+  own clock, in either direction.** Concretely that's TWO symmetric guards
+  (not one shared code path, since demo and score-follow drive their clocks
+  through entirely different mechanisms): (1) `setTestPattern`'s F3/A35
+  auto-pause is skipped while `showPlaying_` — a demo-clock show's clock IS
+  the engine's own Playing-state tick, so leaving it alone is sufficient
+  (G15: the OLD behavior of pausing it was itself the bug — a live
+  performance's transport, and the piano audio it drives, must not stall
+  because someone bumped the test-pattern button). (2) `driveShowClock()` —
+  the write that feeds the follower's estimate into engine position — is
+  skipped in both `onKeyDown` and `tick` while `testPatternActive()`, for
+  score-follow (G16: it has no transport to pause, so the OLD bug was the
+  opposite — the clock silently kept advancing under the pattern, breaking
+  the A35 no-skipped-time guarantee for that path; freezing engine position
+  restores it). The follower itself keeps consuming key events under a
+  pattern (only the engine-facing write is gated) so it doesn't lose the
+  performer's place when the pattern goes `off`; whether resuming needs its
+  own re-baseline (mirroring A35's play-side fix) is unexercised by any
+  repro and deferred — flagged for hardware bring-up. Rejected alternative:
+  refuse the pattern outright while any show plays (B-1's precedent) — fails
+  G16's own repro, which activates the pattern and expects the clock frozen,
+  not the activation refused.
 - A94 (2026-07-14, FIX-B B-1, what-if audit G13): probe refusal (`ProbeArm::
   Playing`) widened to `engine_.state()==Playing OR showPlaying_` — a
   score-follow show's transport is deliberately stopped (the performer IS

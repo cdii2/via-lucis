@@ -256,6 +256,12 @@ inputs — changing them (either route) rebuilds the table on that tier only.
 - `POST /api/reboot` → `200` then restarts.
 - `POST /api/test` body `{"pattern": "strip"}` — patterns `strip` (walk a
   white dot end to end), `rainbow` (the easter egg), `off`. For BRINGUP.md.
+  Ordinary practice still auto-pauses while a pattern is up (F3/A35). A
+  **playing Presentation show is left alone**: the pattern is a pure visual
+  overlay that borrows the strip without touching the show's own clock — a
+  demo-clock show's transport (and the piano audio it drives) keeps running
+  underneath; a score-follow show's clock freezes for the duration (no
+  transport to pause) and resumes tracking once the pattern goes `off`.
 - `GET /api/ble` → `{"connected": true, "device": "BLE-MIDI"}` (`device` is
   `""` while disconnected).
 

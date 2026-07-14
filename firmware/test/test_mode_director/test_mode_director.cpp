@@ -44,6 +44,21 @@ struct Rig {
 
 using fxtest::litCount;
 
+// A minimal one-cue show with the given clock source (chordSong is the
+// loaded song: anchors 60@0 · 64@500ms · {67,71}@1000ms on the follow mask).
+// clock: 0 = demo, 1 = free-run, 2 = score-follow.
+Show scoreFollowShow(uint8_t clock) {
+    Show s;
+    s.meta.clockSource = clock;
+    s.meta.durationMs = 5000;
+    s.meta.name = "sf";
+    s.effects.push_back("colorwaves");
+    ShowCue cue;
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    return s;
+}
+
 }  // namespace
 
 // --- the gate matrix -------------------------------------------------------
@@ -185,6 +200,57 @@ void test_pattern_activation_auto_pauses_playback() {
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
 }
 
+// B-2 (what-if audit G15, A95): a test pattern POST during a playing
+// DEMO-clock show must not silently pause the show's transport — the pattern
+// is a visual overlay that borrows the strip, it must not stall a live
+// performance (or the piano's own audio, which the demo transport drives).
+// Adapted from test_w29_test_pattern_refused_or_inert_during_show
+// (audit/whatif-throwaway).
+void test_w29_test_pattern_refused_or_inert_during_show() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("follow", "both", gOut);
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(0), 99, gOut);  // demo clock
+    r.tick(1000);
+    r.tick(200000);
+    TEST_ASSERT_TRUE(r.director.showPlaying());
+    bool accepted = r.director.setTestPattern("rainbow", gOut);
+    // Correct behavior: refuse the pattern while a show performs, or at
+    // minimum leave the show's clock running.
+    if (accepted) {
+        r.tick(400000);
+        r.tick(700000);
+        TEST_ASSERT_TRUE_MESSAGE(
+            r.engine.state() == PlayState::Playing,
+            "test pattern must not silently pause a live show's transport");
+    }
+}
+
+// B-2 (what-if audit G16, A95): the inverse hole — a test pattern over a
+// SCORE-FOLLOW show must freeze its clock (the follower otherwise keeps
+// driving song position under the pattern, since there is no transport to
+// auto-pause). Adapted from test_C22_test_pattern_freezes_scorefollow_clock.
+void test_C22_test_pattern_freezes_scorefollow_clock() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    r.director.onKeyDown(60, 100, 1000000);  // match first anchor
+    r.tick(1100000);
+    r.tick(1200000);                          // clock coasts
+    uint64_t frozen = r.engine.positionUs();
+    r.director.setTestPattern("strip", gOut);  // pattern up ⇒ clock freezes
+    r.director.onKeyDown(64, 100, 1300000);    // next anchor
+    r.tick(1400000);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+        frozen, r.engine.positionUs(),
+        "a test pattern over a score-follow show must freeze its clock");
+}
+
 void test_stale_presentation_never_survives_unload() {
     Rig r;
     r.tick(1 * kSec);
@@ -322,24 +388,8 @@ void test_leaving_presentation_midshow_clears_show_playing() {
 }
 
 // --- P4: score-follow — the performer IS the Presentation clock -------------
-
-namespace {
-
-// A minimal one-cue show with the given clock source (chordSong is the
-// loaded song: anchors 60@0 · 64@500ms · {67,71}@1000ms on the follow mask).
-Show scoreFollowShow(uint8_t clock) {
-    Show s;
-    s.meta.clockSource = clock;
-    s.meta.durationMs = 5000;
-    s.meta.name = "sf";
-    s.effects.push_back("colorwaves");
-    ShowCue cue;
-    cue.endMs = 0xFFFFFFFFu;
-    s.cues.push_back(cue);
-    return s;
-}
-
-}  // namespace
+// (scoreFollowShow() is defined in the top anonymous namespace — B-2 needs
+// it too, for the demo/score-follow test-pattern-during-show tests.)
 
 void test_score_follow_show_slaves_the_clock_to_the_performer() {
     Rig r;
@@ -548,6 +598,8 @@ int main(int, char**) {
     RUN_TEST(test_reactive_renders_dark_practice_renders_engine);
     RUN_TEST(test_test_pattern_is_a_forced_source_over_any_mode);
     RUN_TEST(test_pattern_activation_auto_pauses_playback);
+    RUN_TEST(test_w29_test_pattern_refused_or_inert_during_show);
+    RUN_TEST(test_C22_test_pattern_freezes_scorefollow_clock);
     RUN_TEST(test_stale_presentation_never_survives_unload);
     RUN_TEST(test_afk_plays_the_configured_playlist_not_the_fallback);
     RUN_TEST(test_presentation_plays_a_show_on_the_song_clock);
