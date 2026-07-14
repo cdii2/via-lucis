@@ -181,7 +181,12 @@ private:
     }
 
     void rebuildAfterLoad();   // after song load
-    void applyMasks();         // after mode/practice/track changes
+    // After mode/practice/track changes. Re-arms the wait barrier only when
+    // the practiced set actually changed (or barrier mode was just re-
+    // entered, or forceResync) — a no-op mode/track PUT must not wipe
+    // partial-chord progress (A-2). rebuildAfterLoad forces it for a fresh
+    // song.
+    void applyMasks(bool forceResync = false);
     void buildRepeatGaps();    // Q1: one load pass, O(1) render lookups
     void resyncRepeatCursors(uint64_t posUs);  // after seek / loop wrap
     void resetWaitPulse();     // Q2: forget chord history + live pulses
@@ -202,6 +207,12 @@ private:
     Mode mode_ = Mode::Wait;
     Hand practice_ = Hand::Both;
     PlayState state_ = PlayState::Idle;
+
+    // Last practiced mask / barrier-mode applied (A-2): applyMasks compares
+    // against these to decide whether a resync is a real change or a wipe of
+    // in-flight chord progress. rebuildAfterLoad seeds them for the new song.
+    uint32_t lastPracticedMask_ = 0;
+    bool wasBarrierMode_ = false;
 
     // Loop status is derived from the Scheduler in statusJson (F-wave
     // review, A34): one source of truth, no mirror fields to forget to

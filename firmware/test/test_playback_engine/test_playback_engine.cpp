@@ -769,6 +769,73 @@ void test_C2_seek_beyond_duration_clamped() {
         pos <= dur, "seek past the end must clamp positionMs to durationMs");
 }
 
+// --- A-2: partial-chord progress preservation (G7/G8/G9) -----------------
+
+// G7 — a double "play" (web-remote double-tap) while holding at a chord
+// barrier with one member cleared must not resurrect the cleared member.
+void test_w4_double_play_keeps_partial_chord_progress() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.onKeyDown(60, 2000);    // clear C4 barrier at 0
+    e.tick(600000, gOut);     // holds at E4 barrier 500000
+    e.onKeyDown(64, 610000);  // clear E4 → chord barrier at 1000000 (G4+B4)
+    e.tick(1600000, gOut);    // holds at 1000000
+    e.onKeyDown(67, 1610000); // clear HALF the chord (G4); B4 still pending
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[71]") !=
+                     std::string::npos);
+    e.transport("play", 0, gOut);  // second play POST
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[71]") != std::string::npos,
+        "double play must not resurrect the already-cleared chord member");
+}
+
+// G8 — a no-op track PUT (setting the track to the hand/lights it already
+// has) must not reset chord progress.
+void test_w2_noop_settrack_keeps_partial_chord_progress() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.onKeyDown(60, 2000);
+    e.tick(600000, gOut);
+    e.onKeyDown(64, 610000);
+    e.tick(1600000, gOut);
+    e.onKeyDown(67, 1610000);  // half cleared
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[71]") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(e.setTrack(0, "both", true));  // identical config
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[71]") != std::string::npos,
+        "a no-op track PUT must not resurrect the cleared chord member");
+}
+
+// G9 — pause → resume mid-chord must not resurrect a cleared member (the most
+// likely real-practice trigger: pause to think, resume).
+void test_P13_pause_resume_keeps_partial_chord() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.onKeyDown(60, 2000);
+    e.tick(600000, gOut);
+    e.onKeyDown(64, 610000);
+    e.tick(1600000, gOut);
+    e.onKeyDown(67, 1610000);  // clear G4; B4 owed
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[71]") !=
+                     std::string::npos);
+    e.transport("pause", 0, gOut);
+    e.transport("play", 0, gOut);
+    e.tick(1700000, gOut);
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[71]") != std::string::npos,
+        "pause/resume must not resurrect the already-cleared chord member");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -806,5 +873,8 @@ int main(int, char**) {
     RUN_TEST(test_s2_loop_behind_playhead_still_reaches_finished);
     RUN_TEST(test_C9_microloop_guard_underadvances);
     RUN_TEST(test_C2_seek_beyond_duration_clamped);
+    RUN_TEST(test_w4_double_play_keeps_partial_chord_progress);
+    RUN_TEST(test_w2_noop_settrack_keeps_partial_chord_progress);
+    RUN_TEST(test_P13_pause_resume_keeps_partial_chord);
     return UNITY_END();
 }

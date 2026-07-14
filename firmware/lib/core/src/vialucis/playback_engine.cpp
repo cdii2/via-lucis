@@ -130,10 +130,10 @@ void PlaybackEngine::rebuildAfterLoad() {
     prevPosUs_ = 0;
     // Loop honesty (F2, A34) falls out by construction: statusJson derives
     // the loop from the Scheduler, and a fresh Scheduler has no loop.
-    applyMasks();
+    applyMasks(/*forceResync=*/true);  // a fresh song always (re)arms
 }
 
-void PlaybackEngine::applyMasks() {
+void PlaybackEngine::applyMasks(bool forceResync) {
     if (!sched_) return;
     if (mode_ == Mode::Demo)
         emitter_.setEmitMask(trackCfg_.audibleMask());
@@ -143,12 +143,25 @@ void PlaybackEngine::applyMasks() {
         emitter_.setEmitMask(0);  // wait/follow: the piano is the player's
 
     if (wait_) {
-        wait_->setPracticedMask(trackCfg_.practicedMask(practice_));
-        resetWaitPulse();  // mode/mask changes invalidate chord history
-        if (barrierMode())
-            wait_->resync();
-        else
+        uint32_t pm = trackCfg_.practicedMask(practice_);
+        // A resync reloads the whole chord, wiping pending_/cleared_. Only do
+        // it when something that affects the barrier actually changed: the
+        // practiced set, or a (re)entry into barrier mode — or on a forced
+        // (fresh-song) rebuild. An identical mode/track PUT is a no-op here,
+        // so half-cleared chord progress survives it (A-2 / G8).
+        bool changed = forceResync || pm != lastPracticedMask_ ||
+                       barrierMode() != wasBarrierMode_;
+        wait_->setPracticedMask(pm);
+        lastPracticedMask_ = pm;
+        wasBarrierMode_ = barrierMode();
+        if (barrierMode()) {
+            if (changed) {
+                resetWaitPulse();  // real change invalidates chord history
+                wait_->resync();
+            }
+        } else {
             sched_->clearBarrier();
+        }
     }
 }
 
@@ -192,8 +205,12 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
             sched_->seek(0);  // flushed note-offs are moot: nothing sounding
             prevPosUs_ = 0;
             resyncRepeatCursors(0);
+            // The seek moved the position, so re-arm the barrier. A plain
+            // resume (not Finished) must NOT resync — that would wipe a
+            // half-cleared chord on a web-remote double-tap (G7) or across a
+            // pause/resume (G9). A-2.
+            if (barrierMode()) wait_->resync();
         }
-        if (barrierMode()) wait_->resync();
         state_ = PlayState::Playing;
         lastTickUs_ = 0;  // next tick re-baselines the clock
         return true;
