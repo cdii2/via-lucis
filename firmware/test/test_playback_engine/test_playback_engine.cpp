@@ -7,6 +7,7 @@
 
 #include <ArduinoJson.h>
 
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -49,6 +50,23 @@ void assertRgb(Rgb expect, Rgb got) {
     TEST_ASSERT_EQUAL_UINT8(expect.r, got.r);
     TEST_ASSERT_EQUAL_UINT8(expect.g, got.g);
     TEST_ASSERT_EQUAL_UINT8(expect.b, got.b);
+}
+
+// Read the integer that follows "key": in a status JSON blob.
+long jsonInt(const std::string& j, const char* key) {
+    std::string k = std::string("\"") + key + "\":";
+    size_t p = j.find(k);
+    if (p == std::string::npos) return -1;
+    return std::strtol(j.c_str() + p + k.size(), nullptr, 10);
+}
+
+bool hasCc(const std::vector<MidiOutMsg>& v, size_t from, uint8_t ctl,
+           uint8_t val) {
+    for (size_t i = from; i < v.size(); ++i)
+        if (v[i].type == MidiOutType::Cc && v[i].data1 == ctl &&
+            v[i].data2 == val)
+            return true;
+    return false;
 }
 
 // Derived from the Settings defaults so these tests keep verifying the
@@ -677,6 +695,80 @@ void test_drive_show_clock_sets_song_time_only_while_stopped() {
     TEST_ASSERT_EQUAL_UINT64(owned, e.positionUs());
 }
 
+// --- A-1: loop/seek correctness (what-if audit G1/G2/G4/G6) --------------
+
+// G1 — wait + loop whose END coincides with a practiced onset. After the
+// player clears the barrier AT loopEnd, pos_ == loopEnd_; the loop must still
+// wrap, not let playback escape past it.
+void test_s1_wait_loop_wraps_after_barrier_exactly_at_loop_end() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    TEST_ASSERT_TRUE(e.setLoop(true, 0, 500));
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // barrier at 0 holds
+    TEST_ASSERT_EQUAL_UINT64(0, e.positionUs());
+    e.onKeyDown(60, 210000);  // clear C4 → barrier re-arms at 500000 == loopEnd
+    e.tick(900000, gOut);     // holds at the 500000 barrier
+    TEST_ASSERT_EQUAL_UINT64(500000, e.positionUs());
+    e.onKeyDown(64, 910000);  // clear E4 (the note AT loopEnd)
+    e.tick(3000000, gOut);    // 2+ seconds of playback
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.positionUs() < 500000,
+        "loop must wrap after a barrier at loopEnd, not escape");
+}
+
+// G2 — loop set entirely BEHIND the playhead while playing. The loop is
+// authoritative (A89): wrap into it; position must never run past duration.
+void test_s2_loop_behind_playhead_still_reaches_finished() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(1200000, gOut);  // pos ≈ 1.2s of a 1.5s song
+    TEST_ASSERT_TRUE(e.setLoop(true, 0, 500));  // loop is wholly behind us
+    e.tick(5000000, gOut);
+    e.tick(9000000, gOut);
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.positionUs() <= 1500000,
+        "position must not run past duration when a stale loop is set");
+    // A89: wrap into the loop.
+    TEST_ASSERT_TRUE_MESSAGE(e.positionUs() < 500000,
+                             "a loop behind the playhead must wrap in");
+}
+
+// G4 — micro-loop at high tempo: the O(1) modulo collapse must land at the
+// true modulo position (the old 64-iteration guard truncated the wrap count).
+void test_C9_microloop_guard_underadvances() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    TEST_ASSERT_TRUE(e.setLoop(true, 0, 100));  // 100ms loop
+    TEST_ASSERT_TRUE(e.setTempo(500));
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);                 // baseline pos 0
+    e.tick(1000 + 20010000ull, gOut);   // delta 20.01s → 100.05s song time
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(
+        50000ull, e.positionUs(),
+        "high-tempo micro-loop must land at the true modulo position");
+}
+
+// G6 — seek beyond duration must clamp; status must not report position >
+// duration.
+void test_C2_seek_beyond_duration_clamped() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "follow");
+    gOut.clear();
+    e.transport("seek", 99999999u, gOut);
+    std::string s = e.statusJson();
+    long pos = jsonInt(s, "positionMs");
+    long dur = jsonInt(s, "durationMs");
+    TEST_ASSERT_TRUE_MESSAGE(
+        pos <= dur, "seek past the end must clamp positionMs to durationMs");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -710,5 +802,9 @@ int main(int, char**) {
     RUN_TEST(test_status_top_fields_before_wifi_which_stays_last);
     RUN_TEST(test_follow_track_mask_resolution);
     RUN_TEST(test_drive_show_clock_sets_song_time_only_while_stopped);
+    RUN_TEST(test_s1_wait_loop_wraps_after_barrier_exactly_at_loop_end);
+    RUN_TEST(test_s2_loop_behind_playhead_still_reaches_finished);
+    RUN_TEST(test_C9_microloop_guard_underadvances);
+    RUN_TEST(test_C2_seek_beyond_duration_clamped);
     return UNITY_END();
 }

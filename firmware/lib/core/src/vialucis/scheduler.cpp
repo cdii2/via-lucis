@@ -1,6 +1,7 @@
 #include "vialucis/scheduler.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace vialucis {
 
@@ -81,6 +82,7 @@ void Scheduler::flushSounding(uint64_t atUs, std::vector<SchedEvent>& out) {
 
 void Scheduler::seek(uint64_t us, std::vector<SchedEvent>& out) {
     out.clear();
+    if (us > duration_) us = duration_;  // G6: a seek never lands past the end
     flushSounding(us, out);
     pos_ = static_cast<double>(us);
     idx_ = indexForTime(us);
@@ -95,8 +97,28 @@ std::vector<SchedEvent> Scheduler::seek(uint64_t us) {
 void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
     out.clear();
     double target = pos_ + static_cast<double>(realDeltaUs) * (tempo_ / 100.0);
+    const double loopLen = static_cast<double>(loopEnd_) -
+                           static_cast<double>(loopStart_);
 
     for (int guard = 0; guard < 64; ++guard) {
+        // Playhead already at/beyond loopEnd while looping: snap it back into
+        // the loop instead of escaping past it. Covers a barrier cleared
+        // exactly at loopEnd (G1) and a loop set wholly behind the playhead
+        // (G2/A89 — the loop is authoritative: wrap in). A barrier holding at
+        // this exact position wins (holding beats wrapping), so don't snap
+        // while held.
+        if (loopOn_ && pos_ >= static_cast<double>(loopEnd_) &&
+            !(barrierOn_ && posUs() == barrier_)) {
+            flushSounding(posUs(), out);
+            double leftover = target - pos_;
+            if (leftover >= loopLen)  // O(1) modulo collapse (G4)
+                leftover -= std::floor(leftover / loopLen) * loopLen;
+            pos_ = static_cast<double>(loopStart_);
+            idx_ = indexForTime(loopStart_);
+            target = pos_ + leftover;
+            continue;
+        }
+
         double stop = target;
         enum { kTarget, kLoop, kBarrier } reason = kTarget;
 
@@ -119,6 +141,8 @@ void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
         if (reason == kLoop) {
             flushSounding(loopEnd_, out);
             double leftover = target - static_cast<double>(loopEnd_);
+            if (leftover >= loopLen)  // O(1) modulo collapse (G4): a lag spike
+                leftover -= std::floor(leftover / loopLen) * loopLen;
             pos_ = static_cast<double>(loopStart_);
             idx_ = indexForTime(loopStart_);
             target = pos_ + leftover;
