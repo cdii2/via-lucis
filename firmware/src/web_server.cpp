@@ -299,6 +299,19 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("^\\/api\\/songs\\/([^\\/]+)$", HTTP_DELETE,
                [&app](AsyncWebServerRequest* req) {
                    std::string name = req->pathArg(0).c_str();
+                   // D2 (what-if audit, 2026-07-14 fix wave): refuse
+                   // deleting the currently-loaded song — otherwise status
+                   // keeps reporting a "loaded" song the song list no
+                   // longer has (a ghost the player can't unload or
+                   // re-select). No new engine API: the loaded name is
+                   // already on the wire via statusJson's "song" field.
+                   JsonDocument statusDoc;
+                   deserializeJson(statusDoc, app.statusJson());
+                   std::string loaded = statusDoc["song"] | "";
+                   if (!loaded.empty() && loaded == name) {
+                       sendError(req, 409, "song is loaded");
+                       return;
+                   }
                    if (!app.store().remove(name)) {
                        sendError(req, 404, "no such song");
                        return;

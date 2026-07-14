@@ -54,7 +54,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   (LittleFS `/songs/` directory listing; names are sanitized filenames.)
 - `POST /api/songs` — raw body upload, `?name=<filename>.mid` query param.
   → `201 {"name": "..."}`. Rejects non-`.mid` names and files > 256 KB.
-- `DELETE /api/songs/{name}` → `204`.
+- `DELETE /api/songs/{name}` → `204`, or `404 {"error": "no such song"}`, or
+  `409 {"error": "song is loaded"}` if it's the currently-loaded song
+  (`POST /api/songs/unload` it first — otherwise status/practice would keep
+  reporting a "loaded" song the list no longer has).
 - `POST /api/songs/{name}/load` → `200` + status JSON. Parses the file,
   resets transport to 0, state `idle`.
 - `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →

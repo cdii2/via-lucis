@@ -3,6 +3,23 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A97 (2026-07-14, FIX-B B-4, what-if audit D2, DECIDE): `DELETE /api/songs/
+  {name}` refuses (`409 {"error": "song is loaded"}`) rather than silently
+  unloading the song first. Rejected the "safely unload first" alternative
+  the brief also offered — a DELETE that also stops your live practice
+  session mid-chord is a surprising, destructive side effect for what reads
+  as a library-management action; the player almost certainly meant "free
+  up space," not "kick myself out of what I'm playing." An explicit `POST
+  /api/songs/unload` is one call away, matches the existing pattern (probe/
+  mode/test-pattern-during-show all refuse rather than silently tearing
+  something down), and needed no new engine API — web_server.cpp determines
+  "is this the loaded song" from the `"song"` field already on the wire in
+  `statusJson()`, so the guard stays entirely inside its D2 scope (no
+  App.h/PlaybackEngine change). No native test: web_server.cpp is a
+  structurally-untested device shim (compile-gated only, per the wave's
+  policy-logic-placement rule) and there's nothing decidable to hoist into
+  ModeDirector here — the "is this song loaded" fact is engine-owned name
+  string comparison, not a mode/show policy call.
 - A96 (2026-07-14, FIX-B B-3, what-if audit G14 + D3, DECIDE): mode PUT
   (`/api/mode`) is refused wholesale while any show plays, via a new
   `ModeDirector::setMode` wrapper App now routes through instead of calling
