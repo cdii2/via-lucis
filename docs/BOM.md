@@ -17,7 +17,7 @@ All links verified live on 2026-07-06. Total ≈ **$121**. No soldering required
 Adopted from WLED's wiring guidance (their 5V wiring diagram: *"for a safe setup,
 fuses are not optional… with multiple injections it is also recommended to fuse
 each injection wire separately"*), sized for this build. Links verified live
-2026-07-14. Total ≈ **$61**. Still no soldering — everything lands in lever nuts
+2026-07-14. Total ≈ **$59**. Still no soldering — everything lands in lever nuts
 or the breadboard — but the power runs need a few wire ends cut and stripped
 (hence the stripper). The kit's Dupont-style jumpers stay for the breadboard
 side only: they're too thin (~26 AWG) for the WAGOs to clamp and must never
@@ -25,7 +25,7 @@ carry strip current.
 
 | # | Part | Link | Price | Notes |
 |---|------|------|-------|-------|
-| 8 | **Inline fuse holders** — Parts Express ATO/ATC, 16AWG pigtails — **buy 2** | [amazon.com/dp/B003N8SD9G](https://www.amazon.com/dp/B003N8SD9G) | $3.65 ea | One per strip power feed (we inject at both ends) |
+| 8 | **Inline fuse holders** — UL-recognized ATC/ATO, 16AWG pigtails, IP67 — **2-pack** | [amazon.com/dp/B0H365LXSP](https://www.amazon.com/dp/B0H365LXSP) | $5.29 | One per strip power feed (we inject at both ends); the 2-pack is exactly two. Standard/medium ATC blade — matches row 9 (never *mini*). Also a stock AutoZone/Advance item if you'd rather skip shipping |
 | 9 | **5A blade fuses** — standard ATC, 10-pack, blown-fuse LED indicator | [amazon.com/dp/B074F1T16F](https://www.amazon.com/dp/B074F1T16F) | $10.95 | 2 used, 8 spares. Each feed carries ≤~4A under the firmware's 8A cap, so 5A never nuisance-blows; the LED lights when a fuse dies |
 | 10 | **Bulk capacitor** — 1000µF 16V radial electrolytic, 5-pack | [amazon.com/dp/B07YN6DS58](https://www.amazon.com/dp/B07YN6DS58) | $6.62 | 1 used, across the breadboard power rails. Smooths power-on inrush (WLED marks it recommended-to-optional) |
 | 11 | **Lever nuts** — WAGO 221-415, 5-conductor, 10-pack | [amazon.com/dp/B06XH47DC2](https://www.amazon.com/dp/B06XH47DC2) | $8.95 | 4 used: two power-distribution junctions at the PSU adapter, two fuse-to-strip splices. Tool-free, reusable. **Also on Home Depot/Lowe's shelves** (in-store pickup beats slow shipping). Substitutes OK if **lever-style** (never push-in — those grip solid wire only, ours are stranded), 24–12 AWG, with 5-port units; 3-port (e.g. 221-413) also works if the two breadboard-rail wires land directly in the adapter screws instead |
