@@ -21,6 +21,10 @@ void NoteEmitter::consume(const std::vector<SchedEvent>& events,
                 break;
             case SchedEventType::Pedal:
                 out.push_back({MidiOutType::Cc, e.channel, e.note, e.velocity});
+                // Latch sustain (CC64) per channel so allOff can release it
+                // (A-4/G17). MIDI: value >= 64 is pedal-down, < 64 is up.
+                if (e.note == 64 && e.channel < 16)
+                    pedalDown_[e.channel] = e.velocity >= 64;
                 break;
         }
     }
@@ -37,6 +41,14 @@ void NoteEmitter::allOff(std::vector<MidiOutMsg>& out) {
     sounding_.drain([&](const Sounding& s) {
         out.push_back({MidiOutType::NoteOff, s.channel, s.note, 0});
     });
+    // Release any still-held sustain pedal so the piano doesn't ring on after
+    // a pause/stop/seek/panic (A-4/G17).
+    for (uint8_t ch = 0; ch < 16; ++ch) {
+        if (pedalDown_[ch]) {
+            out.push_back({MidiOutType::Cc, ch, 64, 0});
+            pedalDown_[ch] = false;
+        }
+    }
 }
 
 std::vector<MidiOutMsg> NoteEmitter::allOff() {

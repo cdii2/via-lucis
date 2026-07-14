@@ -130,10 +130,10 @@ void PlaybackEngine::rebuildAfterLoad() {
     prevPosUs_ = 0;
     // Loop honesty (F2, A34) falls out by construction: statusJson derives
     // the loop from the Scheduler, and a fresh Scheduler has no loop.
-    applyMasks();
+    applyMasks(/*forceResync=*/true);  // a fresh song always (re)arms
 }
 
-void PlaybackEngine::applyMasks() {
+void PlaybackEngine::applyMasks(bool forceResync) {
     if (!sched_) return;
     if (mode_ == Mode::Demo)
         emitter_.setEmitMask(trackCfg_.audibleMask());
@@ -143,12 +143,25 @@ void PlaybackEngine::applyMasks() {
         emitter_.setEmitMask(0);  // wait/follow: the piano is the player's
 
     if (wait_) {
-        wait_->setPracticedMask(trackCfg_.practicedMask(practice_));
-        resetWaitPulse();  // mode/mask changes invalidate chord history
-        if (barrierMode())
-            wait_->resync();
-        else
+        uint32_t pm = trackCfg_.practicedMask(practice_);
+        // A resync reloads the whole chord, wiping pending_/cleared_. Only do
+        // it when something that affects the barrier actually changed: the
+        // practiced set, or a (re)entry into barrier mode — or on a forced
+        // (fresh-song) rebuild. An identical mode/track PUT is a no-op here,
+        // so half-cleared chord progress survives it (A-2 / G8).
+        bool changed = forceResync || pm != lastPracticedMask_ ||
+                       barrierMode() != wasBarrierMode_;
+        wait_->setPracticedMask(pm);
+        lastPracticedMask_ = pm;
+        wasBarrierMode_ = barrierMode();
+        if (barrierMode()) {
+            if (changed) {
+                resetWaitPulse();  // real change invalidates chord history
+                wait_->resync();
+            }
+        } else {
             sched_->clearBarrier();
+        }
     }
 }
 
@@ -192,8 +205,12 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
             sched_->seek(0);  // flushed note-offs are moot: nothing sounding
             prevPosUs_ = 0;
             resyncRepeatCursors(0);
+            // The seek moved the position, so re-arm the barrier. A plain
+            // resume (not Finished) must NOT resync — that would wipe a
+            // half-cleared chord on a web-remote double-tap (G7) or across a
+            // pause/resume (G9). A-2.
+            if (barrierMode()) wait_->resync();
         }
-        if (barrierMode()) wait_->resync();
         state_ = PlayState::Playing;
         lastTickUs_ = 0;  // next tick re-baselines the clock
         return true;
@@ -219,6 +236,11 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         resyncRepeatCursors(prevPosUs_);
         if (barrierMode()) wait_->resync();
         if (state_ == PlayState::Finished) state_ = PlayState::Idle;
+        // Echo-credit hygiene (A-3 / G12): a seek moves off wherever our
+        // demo/accompaniment emissions were made, so their in-flight echo
+        // credits are stale — they must not eat the first genuine press at
+        // the re-approached barrier.
+        guard_.clearCredits();
         return true;
     }
     return false;
@@ -227,6 +249,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
 bool PlaybackEngine::setMode(const std::string& mode,
                              const std::string& practice,
                              std::vector<MidiOutMsg>& out) {
+    Mode oldMode = mode_;
     if (mode == "wait") mode_ = Mode::Wait;
     else if (mode == "follow") mode_ = Mode::Follow;
     else if (mode == "demo") mode_ = Mode::Demo;
@@ -237,6 +260,12 @@ bool PlaybackEngine::setMode(const std::string& mode,
     else if (practice == "both" || practice.empty()) practice_ = Hand::Both;
     else return false;
     stopAllSound(out);
+    // Echo-credit hygiene (A-3 / G11): leaving an emitting mode (demo /
+    // accompaniment) ends its emissions; any in-flight echo credit is now
+    // stale and must not eat the first genuine press in the new mode.
+    if (oldMode != mode_ &&
+        (oldMode == Mode::Demo || oldMode == Mode::Accompaniment))
+        guard_.clearCredits();
     applyMasks();
     return true;
 }
@@ -378,9 +407,15 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
         uint64_t pos = sched_->positionUs();
         uint32_t lightsMask = trackCfg_.lightsMask();
 
-        // Ramp preview: notes coming up within the lead window.
+        // Ramp preview: notes coming up within the lead window. While
+        // looping, don't preview onsets at/beyond loopEnd — the loop wraps
+        // before reaching them, so their swell would be a phantom (A-5/G5).
         uint64_t lead = renderer_.ramp().leadUs;
-        sched_->onsetsBetween(pos + 1, pos + lead, lightsMask, queryBuf_);
+        uint64_t previewTo = pos + lead;
+        if (sched_->loopEnabled() && sched_->loopEndUs() > pos &&
+            previewTo >= sched_->loopEndUs())
+            previewTo = sched_->loopEndUs() - 1;
+        sched_->onsetsBetween(pos + 1, previewTo, lightsMask, queryBuf_);
         for (const SchedEvent& e : queryBuf_)
             renderer_.addUpcoming(e.note, colorForTrack(e.track), e.timeUs,
                                   pos);
@@ -398,6 +433,10 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
                 while (cur < v.size() && v[cur].onsetUs <= pos) ++cur;
                 if (cur >= v.size()) continue;
                 const RepeatWindow& w = v[cur];
+                // A window whose onset is at/beyond loopEnd is never reached
+                // while looping — skip its phantom crescendo (A-5/G5).
+                if (sched_->loopEnabled() && w.onsetUs >= sched_->loopEndUs())
+                    continue;
                 if (pos < w.fillStartUs) continue;
                 if (!trackInMask(lightsMask, w.track)) continue;
                 float frac = static_cast<float>(pos - w.fillStartUs) /

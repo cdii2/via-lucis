@@ -773,3 +773,34 @@ capture-timing upgrade (hardware-gated).
   beginner hole-by-hole companion to BUILD-GUIDE §4 (chip/ESP32/cap placement
   only, ends with no power connected; step↔row audit against the frozen
   table), cross-linked from BUILD-GUIDE §3/§4 and BRINGUP Step 6.
+- 2026-07-14 what-if-audit remediation, FIX-A wave (branch `w7/sched`,
+  scheduler/engine correctness pack): the 13-bug loop/chord/echo/pedal cluster
+  from the 2026-07-14 practice-mode audit, fixed TDD (each repro moved off the
+  throwaway `audit/whatif-throwaway` branch into the real suite, watched fail,
+  fixed, flipped to a pin), one commit per item. **A-1** (Scheduler,
+  G1/G2/G4/G6): `advance` snaps a playhead at/beyond loopEnd back into the loop
+  (fixes the wrap-guard escape after a barrier at loopEnd, and a loop set
+  behind the playhead — decision **A89**, loop is authoritative), the 64-wrap
+  guard became an O(1) modulo collapse (micro-loop under-advance), and `seek`
+  clamps to duration. **A-2** (PlaybackEngine, G7/G8/G9): `play` resync moved
+  inside the Finished-restart path and `applyMasks` gained change-detection, so
+  a double-play / no-op track PUT / pause→resume no longer wipes half-cleared
+  chord progress. **A-3** (PlaybackEngine, G11/G12): echo credits cleared on
+  setMode-away-from-emitting and on seek; **G10 (same-pitch accompaniment
+  echo) logged as A91 "needs bring-up data", no code change**. **A-4**
+  (NoteEmitter, G17): per-channel sustain latch, `allOff` releases a held
+  pedal (CC64=0). **A-5** (PlaybackEngine, G5): repeat-cue fill + ramp preview
+  skip onsets ≥ loopEnd while looping (no phantom cue in-loop). **A-6**
+  (WaitMode, G3, decision **A90**): a loop excluding the practiced hand now
+  HOLDS at loopEnd (visible dead-loop) instead of silent follow-along. Gates:
+  **native 374 → 388 ALL PASS** (12 audit repros + 2 note_emitter pedal unit
+  tests), zero new alloc/blocking/indirection on the BLE-in→match→LED-out hot
+  path. esp32dev firmware build could NOT be run in the isolated worktree — a
+  pre-existing NimBLE-Arduino fresh-compile failure (`../include/...` relative
+  headers) + SCons non-relocatable absolute-path cache, reproduces on a clean
+  checkout with zero source changes; each changed core file was instead
+  compiled clean with the xtensa g++ directly (pure C++, no Arduino headers,
+  only added `<cmath>`), so the changes are esp32-safe by construction — the
+  full firmware link should be re-verified at merge in the main tree (which
+  has a valid NimBLE cache; a 15s incremental build). A94–A97 reserved for the
+  parallel FIX-B (director/show policy) wave.
