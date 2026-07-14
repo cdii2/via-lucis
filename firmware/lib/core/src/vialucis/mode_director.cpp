@@ -121,6 +121,21 @@ bool ModeDirector::setPresentation(bool on) {
     return true;
 }
 
+bool ModeDirector::setMode(const std::string& mode, const std::string& practice,
+                           std::vector<MidiOutMsg>& out) {
+    // B-3/A96 (G14): a playing show owns the practice sub-mode as its own
+    // clock (demo/follow — score-follow's driver is layered on top of
+    // follow). Switching it mid-performance would arm a barrier (wait) or
+    // otherwise fight the show's own schedule; wait mode's barrier-holding
+    // in particular is inherent to the engine, so there is no partial
+    // "leave it running" option the way B-2 found for the test pattern —
+    // refuse wholesale. D3 falls out for free: App::setMode only updates
+    // its lastMode_/lastPractice_ bookkeeping when this call succeeds, so a
+    // refused switch never clobbers the player's real pre-show choice.
+    if (showPlaying_) return false;
+    return engine_.setMode(mode, practice, out);
+}
+
 TopMode ModeDirector::topMode(uint64_t nowUs) const {
     if (engine_.songLoaded())
         return presentation_ ? TopMode::Presentation : TopMode::Practice;

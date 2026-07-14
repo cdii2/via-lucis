@@ -184,6 +184,15 @@ public:
     bool setPresentation(bool on);
     bool presentation() const { return presentation_; }
 
+    // B-3/A96 (G14, D3): the practice sub-mode (wait/follow/demo/
+    // accompaniment) a playing show OWNS as its own clock — switching it
+    // mid-performance would arm a barrier (or otherwise disturb the
+    // schedule) and freeze the show on stage. Refused wholesale while
+    // showPlaying_; the caller (App) never reaches the engine, so it also
+    // never clobbers its own last-known-mode bookkeeping on a refused call.
+    bool setMode(const std::string& mode, const std::string& practice,
+                std::vector<MidiOutMsg>& out);
+
     void setIdleTimeoutSec(uint32_t s) { idleTimeoutSec_ = s; }
     uint32_t idleTimeoutSec() const { return idleTimeoutSec_; }
 

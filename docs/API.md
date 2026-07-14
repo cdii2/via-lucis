@@ -83,7 +83,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 ## Mode
 
 - `POST /api/mode` body `{"mode": "wait|follow|demo|accompaniment", "practice": "left|right|both"}`
-  → `200`.
+  → `200`, or `400 bad mode` (also returned while a Presentation show is
+  playing — a show owns its practice sub-mode as its own clock; switching it
+  mid-performance would freeze the show on stage. Stop the show first via
+  `POST /api/shows/stop`).
   - `practice` = the hand YOU play (default `both`). In `wait` mode it selects
     which tracks arm the barrier; in `accompaniment` the *other* hand's tracks
     are sent to the piano while wait mode watches the practiced hand.

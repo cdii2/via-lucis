@@ -231,7 +231,11 @@ bool App::setMode(const std::string& mode, const std::string& practice) {
     FenceGuard g(lock_);
     touchWriteActivity();
     std::vector<MidiOutMsg> out;
-    bool ok = engine_.setMode(mode, practice, out);
+    // D3/B-3 (A96): routes through the director now, not the engine
+    // directly — it refuses wholesale while a show is playing (G14), which
+    // also means a refused call never reaches the assignment below and
+    // never clobbers the player's real pre-show choice.
+    bool ok = director_.setMode(mode, practice, out);
     sendAll(out);
     if (ok) {  // remember the player's own choice (show stop restores it)
         lastMode_ = mode;

@@ -251,6 +251,39 @@ void test_C22_test_pattern_freezes_scorefollow_clock() {
         "a test pattern over a score-follow show must freeze its clock");
 }
 
+// B-3 (what-if audit G14, A96): a mode PUT during a playing show must not
+// freeze its clock. The original repro (test_s3, audit/whatif-throwaway)
+// called the raw PlaybackEngine::setMode directly, bypassing any policy
+// layer entirely — since wait mode's barrier-holding is inherent to the
+// engine (there is no way to "leave the clock running" once mode becomes
+// "wait"), the only fix that can work without touching PlaybackEngine
+// (FIX-A's territory) is to refuse the switch at the ModeDirector layer, so
+// it never reaches the engine at all. Adapted to exercise the new
+// ModeDirector::setMode wrapper (which App::setMode now routes through).
+void test_s3_setmode_during_show_does_not_freeze_show_clock() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("follow", "both", gOut);
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(0), 1234, gOut);  // demo clock
+    r.tick(1000);
+    r.tick(200000);   // demo clock moves
+    uint64_t before = r.engine.positionUs();
+    TEST_ASSERT_TRUE_MESSAGE(before > 0, "show clock advancing before setMode");
+    // Mid-show mode switch (the /api/mode route calls exactly this, via
+    // App::setMode -> ModeDirector::setMode):
+    bool ok = r.director.setMode("wait", "both", gOut);
+    TEST_ASSERT_FALSE_MESSAGE(ok,
+                              "mode PUT must be refused while a show plays");
+    r.tick(400000);
+    r.tick(1400000);  // well past where wait mode would have armed a barrier
+    uint64_t after = r.engine.positionUs();
+    TEST_ASSERT_TRUE_MESSAGE(after > 900000,
+                             "show clock must keep advancing after a mode PUT");
+}
+
 void test_stale_presentation_never_survives_unload() {
     Rig r;
     r.tick(1 * kSec);
@@ -600,6 +633,7 @@ int main(int, char**) {
     RUN_TEST(test_pattern_activation_auto_pauses_playback);
     RUN_TEST(test_w29_test_pattern_refused_or_inert_during_show);
     RUN_TEST(test_C22_test_pattern_freezes_scorefollow_clock);
+    RUN_TEST(test_s3_setmode_during_show_does_not_freeze_show_clock);
     RUN_TEST(test_stale_presentation_never_survives_unload);
     RUN_TEST(test_afk_plays_the_configured_playlist_not_the_fallback);
     RUN_TEST(test_presentation_plays_a_show_on_the_song_clock);

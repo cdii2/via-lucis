@@ -3,6 +3,34 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A96 (2026-07-14, FIX-B B-3, what-if audit G14 + D3, DECIDE): mode PUT
+  (`/api/mode`) is refused wholesale while any show plays, via a new
+  `ModeDirector::setMode` wrapper App now routes through instead of calling
+  `PlaybackEngine::setMode` directly. Rejected alternative: "route through
+  show teardown" (the brief's other offered option) — auto-stopping a live
+  show because the player poked an unrelated control felt too surprising
+  for a stage tool; an explicit `POST /api/shows/stop` is one call away.
+  Refusal is also the only fix possible without touching PlaybackEngine
+  (FIX-A's territory in this wave): wait mode's barrier-holding is inherent
+  to the engine, so there is no partial "leave the clock running" option
+  the way B-2 found for the test pattern — switching mode away from what
+  the show needs (demo/follow) WILL freeze it, full stop. D3 (App's
+  `lastMode_`/`lastPractice_` getting clobbered mid-show) falls out for
+  free: App::setMode only assigns them when the call succeeds, and a
+  refused call never does. Reuses the existing `400 bad mode` shape (no new
+  REST route/response shape) — the message text stays generic since
+  web_server.cpp's `/api/mode` handler is out of this pack's scope (D2 guard
+  only); a more specific error string is a nice-to-have for a later pack.
+- A94 (2026-07-14, FIX-B B-1, what-if audit G13): probe refusal (`ProbeArm::
+  Playing`) widened to `engine_.state()==Playing OR showPlaying_` — a
+  score-follow show's transport is deliberately stopped (the performer IS
+  the clock), so the old engine-state-only check never caught it, and an
+  armed probe would eat the performer's next key press before the follower
+  saw it (probe consumes before practice/follow, by design). The tick's
+  "playback starting cancels an armed probe" auto-cancel got the same
+  widening for symmetry, so a show that starts after the probe was armed
+  also clears it. No REST shape change — reuses the existing `409 playing`
+  typed refusal.
 - A95 (2026-07-14, FIX-B B-2, what-if audit G15/G16, DECIDE): one uniform
   rule for test-pattern-during-show, covering both clock kinds — **the
   pattern is a pure visual overlay that must never alter a playing show's
