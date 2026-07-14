@@ -722,14 +722,15 @@ capture-timing upgrade (hardware-gated).
   (§Needs Hardware) or Christian-gated (§Needs Christian). Assembly day needs only
   docs/BUILD-GUIDE.md → BRINGUP.md.
 - 2026-07-13 arch step C2 — **golden MIDI conformance corpus landed**
-  (`corpus/midi/` — the SMF-side twin of the `.vls` show corpus, A83). 8
-  fixtures each pin BOTH representations of one file: firmware raw-index
+  (`corpus/midi/` — the SMF-side twin of the `.vls` show corpus, A83). 9
+  fixtures (8 at landing + A87's `ambiguous-name`) each pin BOTH
+  representations of one file: firmware raw-index
   view (`parseMidi` + `TrackConfig::defaultsFor`) and the editor's
   canonical-hands view (`normalizeHands`) — the motivating bug is the A82
   hand-swap, which no prior artifact would have caught. Builder A:
   `corpus/gen/midi/gen_midi_fixtures.py` (declarative fixture models emit
-  both the `.mid` bytes and the expected twin independently), the 8
-  fixtures, firmware `test_midi_corpus` (~18 tests, A83/A84, incl. a
+  both the `.mid` bytes and the expected twin independently), the
+  fixtures, firmware `test_midi_corpus` (20 tests after A87, A83/A84, incl. a
   byte-compare of the real `writeSmf` against the `recording-shaped`
   fixture), and the editor selftest's `MIDI_CORPUS` hex embed + cross-pin
   (A85). Builder B (this entry): `tools/midi_dump.py` — a genuinely
@@ -741,8 +742,13 @@ capture-timing upgrade (hardware-gated).
   files (byte-match + key-set equality), so embed drift can no longer
   silently hollow out the editor cross-pin (A86). `corpus/midi/README.md`
   documents the fixture table, three consumers, twin schema, and
-  regeneration story. **372 native tests ALL PASS** (354 baseline + 18 from
-  `test_midi_corpus`); `check_midi_corpus.py` 8/8 fixtures PASS both checks;
+  regeneration story. Closing review: A87 CONFIRMED an editor hand-precedence
+  bug (left/lh must beat right/rh, matching firmware — "Left Rhythm" was
+  landing Right) — fixed in all three editor-view consumers and pinned by the
+  9th fixture `ambiguous-name`; A88 hardened the tooling (raise-not-assert,
+  byte-range validation, firmware-coverage check in the checker).
+  **374 native tests ALL PASS** (354 baseline + 20 from `test_midi_corpus`);
+  `check_midi_corpus.py` 9/9 fixtures PASS all three check classes;
   `check_corpus.py` still 4/4 PASS (untouched). Negative-tested: a flipped
   byte in a fixture's bytes, a flipped hex char in the extracted embed, and
   a fixture dropped from the embed's key set all correctly trip a FAIL — the

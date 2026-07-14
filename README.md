@@ -5,6 +5,8 @@ press, waits until you get it right, and can even play the piano for you.
 
 *Via Lucis* — "the Way of Light."
 
+Prefer the plain-English version? Read [docs/EXPLAINER.md](docs/EXPLAINER.md).
+
 ## What it does
 
 An ESP32 connects to your digital piano over Bluetooth MIDI and drives an addressable
@@ -24,7 +26,7 @@ LED strip mounted above the keys. Load a MIDI file, and:
 Everything is controlled from a web UI the ESP32 serves over WiFi — your phone is the
 remote. No PC at the piano, no app to install.
 
-## Hardware (~$120, no soldering)
+## Hardware (~$180, no soldering)
 
 See [docs/BOM.md](docs/BOM.md) for the full parts list with links. Summary:
 
@@ -36,6 +38,10 @@ See [docs/BOM.md](docs/BOM.md) for the full parts list with links. Summary:
 | 74AHCT125 level shifter | $4 |
 | Breadboard + jumper wires | $10 |
 | Aluminum mounting channel | $20 |
+
+Plus a **~$59 power-protection add-on** (BOM v2.1, adopted from WLED's wiring
+guidance): inline 5A fuses on both strip power feeds, a bulk capacitor, WAGO
+lever nuts, hookup wire, and a wire stripper. Still no soldering.
 
 Reference piano: **Roland FP-30X** (Bluetooth MIDI). Any piano with BLE-MIDI should
 work; piano-specific quirks are isolated behind one small interface.
@@ -59,7 +65,7 @@ engine itself is covered by the native test suite (see
 
 **Pre-hardware, code-complete for v1–v3.** Design is locked ([docs/SPEC.md](docs/SPEC.md)),
 parts are ordered. v1 (core engine), v2 (lightshow/aesthetics), v3 (on-device recording +
-editor note-editing), and score-follow are all built against the simulator — 372 native
+editor note-editing), and score-follow are all built against the simulator — 374 native
 tests, plus golden `.vls` and MIDI conformance corpora (`corpus/`) pinning the show-format
 and SMF parsers across firmware/editor/tools. Remaining work is hardware bring-up.
 
