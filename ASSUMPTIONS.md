@@ -3,6 +3,30 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A91 (2026-07-14, what-if audit FIX-A / G10, LOG-ONLY — needs bring-up
+  data): **same-pitch accompaniment echo can eat the player's genuine press —
+  deliberately NOT changed yet.** When accompaniment plays the muted hand at
+  the SAME pitch the practiced hand owes, within the echo window (default
+  250ms), the player's correct press is classified `Echo` → phantom wait (the
+  light stays; a second press clears it). Both candidate fixes trade one risk
+  for another and the right choice depends on real hardware: (a) scope echo
+  credits to the emit mask's pitches only — but the practiced and
+  accompaniment hands CAN legitimately share a pitch, so a shared-pitch emit
+  still mis-credits; (b) shorten the echo window — but too short lets genuine
+  slow echoes through as wrong-note red flashes. Decision deferred to FP-30X
+  bring-up: measure the piano's actual echo latency/duplication, then pick a
+  window and/or a source discriminator from data. Repro
+  `test_s5_genuine_press_not_eaten_by_accompaniment_echo_same_pitch` stays on
+  the audit branch; NOT added to the suite (it would fail by design).
+- A89 (2026-07-14, what-if audit FIX-A / G2): **a loop set entirely behind
+  the playhead wraps INTO the loop (the loop is authoritative), not
+  clamp+finish.** Enabling a time-range loop expresses intent to repeat that
+  region; letting the song free-run to the end instead is the more surprising
+  outcome, and the old behavior left `positionMs` running unbounded past
+  `durationMs` forever (`finished()` and the duration clamp were both gated
+  off by `loopOn_`). `Scheduler::advance` now snaps any playhead at/beyond
+  `loopEnd` back to `loopStart`, O(1)-modulo-collapsing the overshoot. A
+  barrier holding at the position still wins the tie (holding beats wrapping).
 - A88 (2026-07-13, arch C2 closing review, cleanups — no behavior change):
   batch of verified-finding hardening across the MIDI corpus tooling.
   (1) Generator replaces every invariant-guarding `assert` (the two

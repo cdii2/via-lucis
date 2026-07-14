@@ -236,6 +236,11 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         resyncRepeatCursors(prevPosUs_);
         if (barrierMode()) wait_->resync();
         if (state_ == PlayState::Finished) state_ = PlayState::Idle;
+        // Echo-credit hygiene (A-3 / G12): a seek moves off wherever our
+        // demo/accompaniment emissions were made, so their in-flight echo
+        // credits are stale — they must not eat the first genuine press at
+        // the re-approached barrier.
+        guard_.clearCredits();
         return true;
     }
     return false;
@@ -244,6 +249,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
 bool PlaybackEngine::setMode(const std::string& mode,
                              const std::string& practice,
                              std::vector<MidiOutMsg>& out) {
+    Mode oldMode = mode_;
     if (mode == "wait") mode_ = Mode::Wait;
     else if (mode == "follow") mode_ = Mode::Follow;
     else if (mode == "demo") mode_ = Mode::Demo;
@@ -254,6 +260,12 @@ bool PlaybackEngine::setMode(const std::string& mode,
     else if (practice == "both" || practice.empty()) practice_ = Hand::Both;
     else return false;
     stopAllSound(out);
+    // Echo-credit hygiene (A-3 / G11): leaving an emitting mode (demo /
+    // accompaniment) ends its emissions; any in-flight echo credit is now
+    // stale and must not eat the first genuine press in the new mode.
+    if (oldMode != mode_ &&
+        (oldMode == Mode::Demo || oldMode == Mode::Accompaniment))
+        guard_.clearCredits();
     applyMasks();
     return true;
 }

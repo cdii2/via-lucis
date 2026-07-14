@@ -76,6 +76,22 @@ const Rgb kLeft = Settings{}.leftColor;
 const Rgb kWrong = Settings{}.wrongColor;
 constexpr Rgb kBlack{0, 0, 0};
 
+// Two named-hand tracks, note 40 on BOTH. Left (non-practiced) 40 @ 50ms;
+// Right (practiced) 40 @ 200ms — the post-seek barrier. (A-3/G12 fixture)
+MidiSong dualForty() {
+    Bytes tR, tL;
+    smf::trackName(tR, 0, "Right");
+    smf::noteOn(tR, 192, 0, 40, 100);   // tick192 = 200000us
+    smf::noteOff(tR, 48, 0, 40);
+    smf::trackName(tL, 0, "Left");
+    smf::noteOn(tL, 48, 0, 40, 100);    // tick48 = 50000us
+    smf::noteOff(tL, 1, 0, 40);         // tick49
+    Bytes file = smf::header(1, 2, 480);
+    smf::append(file, smf::track(tR));
+    smf::append(file, smf::track(tL));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 }  // namespace
 
 void test_follow_mode_lights_sounding_note_full_color() {
@@ -836,6 +852,50 @@ void test_P13_pause_resume_keeps_partial_chord() {
         "pause/resume must not resurrect the already-cleared chord member");
 }
 
+// --- A-3: echo-credit hygiene (G11/G12) ----------------------------------
+
+// G11 — demo emits note 60 (echo credit), switch to wait; a genuine press of
+// 60 within the echo window must clear the barrier, not be eaten as a stale
+// echo (setMode away from an emitting mode clears credits).
+void test_P24_echo_credit_bleeds_across_mode_switch() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "demo");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);       // demo emits note-on 60 @ t=1000 (credit)
+    e.setMode("wait", "both", gOut);
+    e.transport("play", 0, gOut);
+    e.tick(100000, gOut);     // arm barrier on note 60
+    TEST_ASSERT_TRUE(e.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+    e.onKeyDown(60, 150000);  // genuine press, within 250ms of the emit
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"state\":\"waiting\"") == std::string::npos,
+        "a real key press after a mode switch must clear the barrier, "
+        "not be eaten as a stale echo");
+}
+
+// G12 — accompaniment emits (left) note 40 (echo credit), backward seek, then
+// a genuine barrier press of (right) 40 within the window must clear it, not
+// be eaten (seek clears credits).
+void test_C26_echo_credit_survives_backward_seek() {
+    PlaybackEngine e;
+    setupEngine(e, dualForty(), "accompaniment", "right");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(60000, gOut);         // emit left-40 @ 50ms; credit @ now=60000
+    e.transport("seek", 55, gOut);  // backward to 55ms (past left, before bar)
+    e.tick(205000, gOut);        // advance to the right-40 barrier @ 200ms
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[40]") !=
+                     std::string::npos);
+    e.onKeyDown(40, 206000);     // genuine press, within 250ms of the emit
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[40]") == std::string::npos,
+        "a real barrier press after a seek must clear it, not be eaten "
+        "as a stale echo");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -876,5 +936,7 @@ int main(int, char**) {
     RUN_TEST(test_w4_double_play_keeps_partial_chord_progress);
     RUN_TEST(test_w2_noop_settrack_keeps_partial_chord_progress);
     RUN_TEST(test_P13_pause_resume_keeps_partial_chord);
+    RUN_TEST(test_P24_echo_credit_bleeds_across_mode_switch);
+    RUN_TEST(test_C26_echo_credit_survives_backward_seek);
     return UNITY_END();
 }
