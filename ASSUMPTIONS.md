@@ -3,6 +3,16 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A94 (2026-07-14, FIX-B B-1, what-if audit G13): probe refusal (`ProbeArm::
+  Playing`) widened to `engine_.state()==Playing OR showPlaying_` — a
+  score-follow show's transport is deliberately stopped (the performer IS
+  the clock), so the old engine-state-only check never caught it, and an
+  armed probe would eat the performer's next key press before the follower
+  saw it (probe consumes before practice/follow, by design). The tick's
+  "playback starting cancels an armed probe" auto-cancel got the same
+  widening for symmetry, so a show that starts after the probe was armed
+  also clears it. No REST shape change — reuses the existing `409 playing`
+  typed refusal.
 - A91 (2026-07-14, what-if audit FIX-A / G10, LOG-ONLY — needs bring-up
   data): **same-pitch accompaniment echo can eat the player's genuine press —
   deliberately NOT changed yet.** When accompaniment plays the muted hand at

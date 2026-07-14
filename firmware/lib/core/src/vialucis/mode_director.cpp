@@ -170,7 +170,13 @@ bool ModeDirector::setTestPattern(const std::string& name,
 
 ModeDirector::ProbeArm ModeDirector::armProbe(uint16_t led, uint64_t nowUs,
                                               uint32_t timeoutMs) {
-    if (engine_.state() == PlayState::Playing) return ProbeArm::Playing;
+    // B-1/A94 (G13): a playing show must refuse the probe too, not just
+    // ordinary Playing practice — score-follow's transport is deliberately
+    // STOPPED (the performer IS the clock), so the Playing check alone
+    // never catches it, and an armed probe would eat the performer's next
+    // key press before the follower ever sees it.
+    if (engine_.state() == PlayState::Playing || showPlaying_)
+        return ProbeArm::Playing;
     if (led >= ledCount_) return ProbeArm::BadLed;
     if (timeoutMs < 1000) timeoutMs = 1000;
     if (timeoutMs > 300000) timeoutMs = 300000;
@@ -200,7 +206,9 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     if (probe_.tickExpire(nowUs)) engine_.markFrameDirty();
     // Playback starting cancels an armed probe — user intent wins, and the
     // rule holds for ANY path into Playing, not just one REST route.
-    if (probe_.armed() && engine_.state() == PlayState::Playing) {
+    // B-1/A94: a show starting after the probe was armed cancels it too
+    // (same reasoning as armProbe's refusal above).
+    if (probe_.armed() && (engine_.state() == PlayState::Playing || showPlaying_)) {
         probe_.cancel();
         engine_.markFrameDirty();
     }

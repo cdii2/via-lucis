@@ -486,6 +486,27 @@ void test_probe_refused_while_playing_and_cancelled_by_play() {
                      std::string::npos);
 }
 
+// B-1 (what-if audit G13, A94): the probe must refuse during ANY playing
+// show, including score-follow — its transport is deliberately STOPPED (the
+// performer is the only clock), so the ordinary engine-Playing check alone
+// never catches it, and an armed probe would eat the performer's next key
+// press before the follower sees it. Adapted from the audit repro
+// test_s4_probe_refused_during_score_follow_show (audit/whatif-throwaway).
+void test_s4_probe_refused_during_score_follow_show() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("follow", "both", gOut);
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 1234, gOut);
+    TEST_ASSERT_TRUE(r.director.scoreFollowActive());
+    TEST_ASSERT_EQUAL_MESSAGE(
+        static_cast<int>(ModeDirector::ProbeArm::Playing),
+        static_cast<int>(r.director.armProbe(5, 1 * kSec, 30000)),
+        "probe must be refused while a score-follow show performs");
+}
+
 void test_probe_bad_led_timeout_and_cancel() {
     Rig r;
     r.tick(1 * kSec);
@@ -539,6 +560,7 @@ int main(int, char**) {
     RUN_TEST(test_probe_dot_outranks_test_pattern_and_modes);
     RUN_TEST(test_probe_capture_consumes_before_practice);
     RUN_TEST(test_probe_refused_while_playing_and_cancelled_by_play);
+    RUN_TEST(test_s4_probe_refused_during_score_follow_show);
     RUN_TEST(test_probe_bad_led_timeout_and_cancel);
     RUN_TEST(test_probe_arm_counts_as_activity_but_capture_wakes_too);
     return UNITY_END();

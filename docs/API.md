@@ -244,8 +244,9 @@ inputs — changing them (either route) rebuilds the table on that tier only.
   that LED and captures the NEXT piano note-on as the answer (the press
   never reaches practice/wait mode). → `200` + probe status, `400 missing
   led` (no `led` in the body), `400 bad led` (off the strip), `409 playing`
-  (probe never arms during playback; starting playback cancels an armed
-  probe).
+  (probe never arms during playback OR a playing Presentation show — including
+  score-follow, whose transport stays stopped; starting playback or a show
+  cancels an armed probe).
 - `GET /api/calibration/probe` → `{"armed": true, "led": 123, "note": null}`
   (`note` = the captured MIDI note after the press; poll ~2×/s while armed).
 - `DELETE /api/calibration/probe` — cancel; clears any capture. → `200`.
