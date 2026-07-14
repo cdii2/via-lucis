@@ -189,6 +189,15 @@ The mature light-show sequencers (xLights, Vixen, Falcon Player) are GPL/copylef
 apps, not embeddable — borrow their data-model/UX ideas and optionally *import* their
 sequences later, but the editor is ours.
 
+*As-built note (2026-07-10, P3):* the outsource table above was the pre-build plan;
+`file://` distribution (VL3) rules out any CDN dependency, so the shipped
+`editor/editor.html` uses a **built-in SMF parser** instead of `@tonejs/midi`, and never
+pulled in Tone.js, the Magenta visualizer, or a React timeline base — the piano-roll,
+timeline, and compositor are hand-rolled canvas/vanilla-JS. Only **MidiWriterJS (MIT)**
+ended up vendored, inlined for the v3 `.mid` *export* path (REC6). "We own" grew to cover
+the SMF parser too. See `corpus/midi/README.md` for the golden MIDI corpus that now pins
+that parser's behavior.
+
 *Approach note:* one position clock, three feeders (device playback / tempo-scaled
 scheduler / a wait-mode-derived matcher that advances on match instead of halting).
 Score-follow likely reuses `wait_mode`'s existing note-matching machinery.

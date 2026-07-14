@@ -27,6 +27,7 @@ twin computed from the same declarative model that authored the bytes (see
 | `tie-order` | running status ON; one track, three notes exercising: clean off then re-strike at the same tick (off-before-on tie), a re-strike with no prior off (auto-close at the re-strike tick), and a velocity-0 note-on used as a note-off |
 | `vlq-tempo` | multi-byte VLQ deltas (2-byte and 3-byte) crossing three tempo segments — exercises `tickToMicros`'s per-segment integer division across tempo-map boundaries |
 | `recording-shaped` | emitted by a byte-for-byte python replica of firmware `writeSmf` (not hand-authored bytes) — pedal/note/off collision ordering at the same millisecond, cross-checked against the real `writeSmf` by a firmware byte-compare test |
+| `ambiguous-name` | (A87) a name matching BOTH hand token sets (`"Left Rhythm"` — "rhythm" contains "rh") FIRST in file order + a "Right" track — pins left-tokens-win precedence (firmware, editor, and `midi_dump` all check left/lh before right/rh) and that the LEFT-named track's note sorts first at an onTick tie even though the canonical track list is `[Right, Left]` |
 
 ## The three consumers (all must stay green)
 
