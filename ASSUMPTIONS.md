@@ -18,6 +18,20 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   window and/or a source discriminator from data. Repro
   `test_s5_genuine_press_not_eaten_by_accompaniment_echo_same_pitch` stays on
   the audit branch; NOT added to the suite (it would fail by design).
+- A90 (2026-07-14, what-if audit FIX-A / G3): **a loop that excludes every
+  practiced onset HOLDS wait mode at loopEnd, not refuse-the-loop.** When
+  practicing a hand whose notes all sit outside the loop, the barrier used to
+  arm beyond loopEnd and never hold — wait mode silently degraded to
+  follow-along forever (a practice softlock). Decision (per SPEC "wait mode is
+  the product"): `WaitMode::armFrom` clamps the barrier to loopEnd whenever
+  the next practiced onset is at/beyond loopEnd and we're arming from inside
+  the loop. The dead loop is then VISIBLE — status shows "waiting" at the
+  boundary with no lit chord — so the player fixes the loop range or the
+  practiced hand, instead of a silent never-gating loop. Chosen over
+  refuse-the-loop-PUT because the practiced set can change (mode/track PUTs)
+  after the loop is set; a per-arm hold stays correct across those, a
+  set-time refusal does not. An onset exactly at loopEnd coincides with the
+  hold and gates as usual (e.g. the G1 re-gate).
 - A89 (2026-07-14, what-if audit FIX-A / G2): **a loop set entirely behind
   the playhead wraps INTO the loop (the loop is authoritative), not
   clamp+finish.** Enabling a time-range loop expresses intent to repeat that

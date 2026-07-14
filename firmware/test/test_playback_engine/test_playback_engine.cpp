@@ -105,6 +105,22 @@ MidiSong pedalSong() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// Two named-hand tracks. Right: note 60 @ tick 960 (=1000ms). Left: note 40
+// @ tick 0. A loop 0..500ms contains ONLY the left onset. (A-6/G3 fixture)
+MidiSong rightBeyondLoopSong() {
+    Bytes t0, t1;
+    smf::trackName(t0, 0, "Right");
+    smf::noteOn(t0, 960, 0, 60, 100);
+    smf::noteOff(t0, 480, 0, 60);
+    smf::trackName(t1, 0, "Left");
+    smf::noteOn(t1, 0, 0, 40, 100);
+    smf::noteOff(t1, 240, 0, 40);
+    Bytes file = smf::header(1, 2, 480);
+    smf::append(file, smf::track(t0));
+    smf::append(file, smf::track(t1));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 // Single key 60: sounds 0..30ms, dark, then re-presses at 1.5s (beyond the 1s
 // ramp lead). The only thing that can light key 60 mid-loop is the repeat
 // fill window [30ms, 1500ms). A loop ending at 100ms straddles it. (A-5/G5)
@@ -964,6 +980,33 @@ void test_C34_phantom_repeat_cue_inside_loop() {
                 "reaches (phantom cue)");
 }
 
+// --- A-6: loop without a practiced onset (G3, decision A90) ---------------
+
+// G3 — practicing the right hand while the loop covers only left-hand
+// material. The barrier used to arm beyond loopEnd and never hold → silent
+// follow-along forever. Decision A90: hold at loopEnd so practice still gates
+// (the dead loop becomes visible as "waiting").
+void test_w5_loop_without_practiced_onset_still_waits_eventually() {
+    PlaybackEngine e;
+    setupEngine(e, rightBeyondLoopSong(), "wait", "right");
+    TEST_ASSERT_TRUE(e.setLoop(true, 0, 500));  // right onset at 1000ms is OUT
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    uint64_t now = 1000;
+    bool everWaiting = false;
+    for (int i = 0; i < 50; ++i) {  // ~10 simulated seconds, loop wraps ~20x
+        now += 200000;
+        e.tick(now, gOut);
+        if (e.statusJson().find("\"state\":\"waiting\"") != std::string::npos)
+            everWaiting = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(
+        everWaiting,
+        "wait mode must still gate (hold at loopEnd) when the loop excludes "
+        "the practiced hand — not free-run silently");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -1008,5 +1051,6 @@ int main(int, char**) {
     RUN_TEST(test_C26_echo_credit_survives_backward_seek);
     RUN_TEST(test_P11_pause_flushes_sustain_pedal);
     RUN_TEST(test_C34_phantom_repeat_cue_inside_loop);
+    RUN_TEST(test_w5_loop_without_practiced_onset_still_waits_eventually);
     return UNITY_END();
 }

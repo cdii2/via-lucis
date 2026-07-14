@@ -9,6 +9,21 @@ void WaitMode::armFrom(uint64_t us) {
     cleared_.clear();
     chordLoaded_ = false;
     barrierTime_ = sched_.nextOnsetAfter(us, mask_);
+    // A-6 / G3 / A90: while looping, a practiced onset at or beyond loopEnd is
+    // never reached — the loop wraps first. Left alone the barrier arms past
+    // the loop and never holds, so wait mode silently degrades to follow-along
+    // forever (a practice softlock). Instead HOLD at loopEnd: the dead loop
+    // becomes visible (state "waiting" at the boundary) and the player can fix
+    // the loop range or the practiced hand. Only clamp when arming from
+    // strictly inside the loop (us < loopEnd); an onset within the loop still
+    // gates normally, and an onset exactly at loopEnd already coincides with
+    // this hold point (it gates as usual).
+    if (sched_.loopEnabled() && us < sched_.loopEndUs() &&
+        (barrierTime_ == kNoOnset || barrierTime_ >= sched_.loopEndUs())) {
+        barrierTime_ = sched_.loopEndUs();
+        sched_.setBarrier(barrierTime_);
+        return;
+    }
     if (barrierTime_ == kNoOnset)
         sched_.clearBarrier();  // no more practiced notes: run free
     else
