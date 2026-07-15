@@ -3,6 +3,40 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A102 (2026-07-15, DECIDE-D FIX-D build): sub-decisions on the A98 seam.
+  (1) The gather window is HALF-OPEN `[barrierTime, barrierTime + eps)` — a
+  practiced onset at EXACTLY +epsilon opens the NEXT barrier, never doubles in;
+  proven by `test_gap_at_epsilon_stays_sequential`. (2) The next barrier arms
+  from `lastAbsorbedOnsetUs + 1` (the max onset absorbed into the chord),
+  captured in `WaitMode::update()` — NOT `barrierTime + eps` (would skip a real
+  onset sitting between the last absorbed note and +eps) and NOT `barrierTime+1`
+  (the old value — that IS the softlock: re-arms on the +1-tick second note).
+  (3) While looping, the gather window is capped at `loopEndUs + 1` so onsets
+  strictly past loopEnd (unreachable, A90) are never absorbed while an onset
+  exactly AT loopEnd still gates; keeps the A89/A90 dead-loop hold byte-identical
+  (`test_epsilon_does_not_absorb_across_loop_end`). (4) `Scheduler::notesOnAt`
+  (exact instant) and `onsetsBetween` (inclusive) were left untouched — added a
+  new `Scheduler::notesInWindow(from, end, mask, out)` for the gate/render, so
+  the score-follower and ramp callers stay exact.
+- A101 (2026-07-15, DECIDE-D FIX-D build): A99/G19 implemented as a RENDER-time
+  override in `playback_engine.cpp` — the wait-mode due-chord block drops its
+  `!trackInMask(lightsMask, e.track)` skip and lights any note `wait_->isPending`
+  reports as owed, regardless of the track's `lights` flag. The render drives off
+  `isPending()` (the one source of "still owed") over the same epsilon window the
+  gate absorbed (via `notesInWindow`), so every held note is covered even when
+  light-vs-gate timestamps disagree by <=eps (A98's accepted cost). `trackCfg_`
+  is NEVER mutated; every other visual path keeps its `lightsMask` filter (proven
+  both ways: `test_w8_barrier_lights_even_when_track_lights_off` and
+  `test_lights_off_still_dark_in_follow`).
+- A100 (2026-07-15, DECIDE-D FIX-D build): A98/G18 chord-gather epsilon =
+  `constexpr uint64_t kChordEpsilonUs = 10000` (10 ms) in `wait_mode.h`
+  (namespace vialucis; visible to both the gate and the render via the existing
+  include). Compile-time constant only, NOT a settings key (comment marks
+  "revisit at hardware bring-up"). Integer-microsecond math on the existing
+  sorted-events walk, zero new allocation on the onKeyDown/gather hot path
+  (chordBuf_ reused). No load-time timeline normalization — demo/follow play the
+  file exactly as authored (`test_timeline_onsets_stay_distinct`,
+  `test_demo_plays_both_onsets_unmerged`).
 - A99 (2026-07-15, DECIDE-D grill, what-if audit G19, CHRISTIAN'S RULING):
   **practiced-implies-lit.** Wait mode's barrier/due notes always render,
   regardless of the track's `lights` flag — you can never owe an invisible

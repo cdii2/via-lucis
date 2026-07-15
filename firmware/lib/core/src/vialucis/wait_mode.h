@@ -12,6 +12,14 @@
 
 namespace vialucis {
 
+// A98/G18 chord-gather epsilon: practiced onsets closer together than this are
+// one barrier chord (the gate absorbs MIDI-export slop / rounding). Below
+// deliberate human two-note playability, so a real roll/flam (gap >= epsilon)
+// still gates one press at a time. Compile-time constant ONLY — never a
+// settings key. The song timeline/audio is NEVER touched; this lives purely in
+// the wait-gate. Revisit at hardware bring-up.
+constexpr uint64_t kChordEpsilonUs = 10000;  // 10 ms
+
 enum class KeyVerdict : uint8_t {
     Cleared,  // correct pending note; light it up / release if chord done
     Wrong,    // red flash at this key
@@ -79,6 +87,10 @@ private:
     std::vector<uint8_t> lastChordKeys_;  // previous chord (re-due compare)
     std::vector<uint8_t> reDue_;
     uint64_t barrierTime_ = kNoOnset;
+    // Latest onset absorbed into the current barrier chord (A98/G18). The next
+    // barrier arms strictly AFTER this, not after barrierTime_ — else a note a
+    // tick past the barrier re-arms as a phantom second barrier (the softlock).
+    uint64_t lastAbsorbedOnsetUs_ = kNoOnset;
     bool chordLoaded_ = false;
 };
 

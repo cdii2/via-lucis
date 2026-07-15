@@ -180,6 +180,25 @@ std::vector<SchedEvent> Scheduler::notesOnAt(uint64_t us,
     return out;
 }
 
+void Scheduler::notesInWindow(uint64_t fromUs, uint64_t endUs,
+                              uint32_t trackMask,
+                              std::vector<SchedEvent>& out) const {
+    out.clear();
+    for (size_t i = indexForTime(fromUs);
+         i < events_.size() && events_[i].timeUs < endUs; ++i) {
+        const SchedEvent& e = events_[i];
+        if (e.type == SchedEventType::NoteOn && trackInMask(trackMask, e.track))
+            out.push_back(e);
+    }
+}
+
+std::vector<SchedEvent> Scheduler::notesInWindow(uint64_t fromUs, uint64_t endUs,
+                                                 uint32_t trackMask) const {
+    std::vector<SchedEvent> out;
+    notesInWindow(fromUs, endUs, trackMask, out);
+    return out;
+}
+
 void Scheduler::onsetsBetween(uint64_t fromUs, uint64_t toUs,
                               uint32_t trackMask,
                               std::vector<SchedEvent>& out) const {
