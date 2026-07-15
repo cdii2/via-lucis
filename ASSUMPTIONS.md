@@ -3,6 +3,30 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A104 (2026-07-15, PIN-E coverage pack): **§3 item 13 substituted, not
+  skipped.** The literal item ("wizard-tier geometry reverting on scalar
+  edit mid-practice") names the "dials-win" rule in `app.cpp::applySettings`
+  (`bool rebuild = calib_.tier == "twoPoint" || calibScalarsChanged;`) —
+  that decision line lives in `src/app.cpp`, which includes `<Arduino.h>`
+  and is esp32dev-only (never compiled under `native`), so it cannot be
+  natively pinned as written without a production seam (extracting the
+  rule into core, or building a native App test harness) — out of scope
+  for a test-only builder. Substituted the core-testable HALF of the same
+  concern: `PlaybackEngine::setTable` landing live and leaving a wait-mode
+  barrier hold undisturbed mid-swap (`test_p13_table_swap_mid_wait_hold_is_
+  live_and_state_preserving`, test_playback_engine.cpp). The tier-SELECTION
+  policy itself remains unpinned — flagged for a later wave once a seam
+  exists, not built here.
+- A103 (2026-07-15, PIN-E coverage pack): **PIN-E coverage pack added —
+  15 §3 pinning tests, test-only, no production change.** One test per
+  what-if-audit §3 item (`test_p<item#>_*` naming), added to the suite each
+  item's own file already lives in (test_scheduler ×4, test_wait_mode ×1,
+  test_midi_capture ×1, test_playback_engine ×2, test_mode_director ×7).
+  `pio test -e native`: 404 → 419 (+15) after rebasing onto FIX-D (on its
+  own branch point it was 392 → 407), ALL PASS, zero FAIL/ERROR. `git
+  diff --stat` against the branch point touches only the 5 test files
+  above — no `lib/core/src` or `firmware/src` edits. See A104 for the one
+  item (13) that needed substitution rather than a literal pin.
 - A102 (2026-07-15, DECIDE-D FIX-D build): sub-decisions on the A98 seam.
   (1) The gather window is HALF-OPEN `[barrierTime, barrierTime + eps)` — a
   practiced onset at EXACTLY +epsilon opens the NEXT barrier, never doubles in;
