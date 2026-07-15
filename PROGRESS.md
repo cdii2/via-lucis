@@ -849,3 +849,16 @@ capture-timing upgrade (hardware-gated).
   PowerShell to even delete the too-long original path first). Not
   merged to main — FIX-A merges first per the wave's merge order; this
   branch rebases onto the new main next.
+- 2026-07-15 DECIDE-D grill (Christian live, batch grill): both remaining
+  audit product calls RULED, logged as **A98 (G18)** and **A99 (G19)** —
+  design only, NOT built yet. G18: chord-gather epsilon in the wait-gate
+  ONLY (~10ms compile-time constant), song timeline never altered ("style
+  lives in those" — rolls/flams play as authored and gate sequentially;
+  the editor's drag/quantize is the per-note override). G19:
+  practiced-implies-lit at render time — you can never owe an invisible
+  note; blind/memorization practice deferred to a future purpose-built
+  mode. Build lands in a later wave alongside PIN-E; the audit-branch
+  repros `test_C28a/b_*_split_chord` and
+  `test_w8_barrier_never_gates_on_unlit_notes` become the pins. Remaining
+  from the audit after that wave: FIX-C (MidiIo disconnect seam,
+  lead-only) and G10 (A91, needs FP-30X bring-up data).

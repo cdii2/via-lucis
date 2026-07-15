@@ -3,7 +3,34 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
-- A97 (2026-07-14, FIX-B B-4, what-if audit D2, DECIDE): `DELETE /api/songs/
+- A99 (2026-07-15, DECIDE-D grill, what-if audit G19, CHRISTIAN'S RULING):
+  **practiced-implies-lit.** Wait mode's barrier/due notes always render,
+  regardless of the track's `lights` flag — you can never owe an invisible
+  note. The `lights` flag keeps governing every non-gating visual
+  (follow-along glow, demo, ramp on non-practiced tracks). Rejected: gate
+  only lit notes (the silent-degrade shape A90 already rejected) and
+  keep-blind-gating-with-a-warning. Deliberate blind/memorization practice
+  is explicitly deferred to a future purpose-built mode (it would want its
+  own affordances, e.g. hint-after-N-seconds), not inherited from a flag
+  collision. Render-time override only — the track config itself is never
+  mutated. Repro `test_w8_barrier_never_gates_on_unlit_notes` (audit
+  branch) becomes the pin when built.
+- A98 (2026-07-15, DECIDE-D grill, what-if audit G18, CHRISTIAN'S RULING):
+  **chord-gather epsilon lives in the wait-gate ONLY; the song timeline is
+  never altered — "style lives in those" (his words).** Micro-offsets in a
+  file can be intentional performance (rolls, flams, grace notes): demo/
+  accompaniment must play them exactly as authored, so no load-time
+  normalization. The gate groups practiced onsets closer than
+  **~10ms (compile-time constant, NOT a settings key; revisit at hardware
+  bring-up)** into one barrier chord — below deliberate human playability,
+  so it only ever absorbs export slop (the G18 softlock: a together-press
+  eaten because the second sub-ms barrier armed after the press). Gaps ≥
+  epsilon stay SEQUENTIAL gates — a deliberate roll is preserved and
+  taught, one press at a time. Per-note override = the existing editor
+  (drag/quantize past or under the threshold); no new file-format flags,
+  no per-note metadata on the device. Known accepted cost: gate chord vs
+  light timestamps can disagree by ≤ epsilon (beneath perception). Repros
+  `test_C28a/b_*_split_chord` (audit branch) become the pins when built.
   {name}` refuses (`409 {"error": "song is loaded"}`) rather than silently
   unloading the song first. Rejected the "safely unload first" alternative
   the brief also offered — a DELETE that also stops your live practice
