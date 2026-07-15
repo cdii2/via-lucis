@@ -33,8 +33,20 @@ void WaitMode::armFrom(uint64_t us) {
 bool WaitMode::update() {
     if (barrierTime_ == kNoOnset || chordLoaded_ || !sched_.atBarrier())
         return false;
-    sched_.notesOnAt(barrierTime_, mask_, chordBuf_);
+    // A98/G18: gather practiced onsets in the half-open window
+    // [barrierTime_, barrierTime_ + kChordEpsilonUs) into ONE barrier chord —
+    // integer-microsecond math on the existing sorted-events walk, no alloc
+    // (chordBuf_ is reused). Cap the window at loopEnd while looping: onsets
+    // strictly past loopEnd are never reached (A90), so they must not be
+    // absorbed; onsets exactly AT loopEnd still gate as usual (loopEndUs()+1
+    // keeps the half-open end inclusive of that instant).
+    uint64_t windowEnd = barrierTime_ + kChordEpsilonUs;
+    if (sched_.loopEnabled() && sched_.loopEndUs() + 1 < windowEnd)
+        windowEnd = sched_.loopEndUs() + 1;
+    sched_.notesInWindow(barrierTime_, windowEnd, mask_, chordBuf_);
+    lastAbsorbedOnsetUs_ = barrierTime_;
     for (const SchedEvent& e : chordBuf_) {
+        if (e.timeUs > lastAbsorbedOnsetUs_) lastAbsorbedOnsetUs_ = e.timeUs;
         if (std::find(pending_.begin(), pending_.end(), e.note) ==
             pending_.end())
             pending_.push_back(e.note);
@@ -63,10 +75,13 @@ KeyFeedback WaitMode::onKeyDown(uint8_t note, uint64_t nowUs) {
         pending_.erase(it);
         cleared_.push_back(note);
         if (pending_.empty()) {
-            // Chord complete: release and arm the next one.
-            uint64_t completed = barrierTime_;
+            // Chord complete: release and arm the next one. Arm strictly AFTER
+            // the LAST absorbed onset (A98/G18), not after barrierTime_: a
+            // together-press absorbed up to +epsilon must not leave its later
+            // sub-ms onset behind as a phantom second barrier (the softlock).
+            uint64_t resumeFrom = lastAbsorbedOnsetUs_ + 1;
             sched_.clearBarrier();
-            armFrom(completed + 1);
+            armFrom(resumeFrom);
         }
         return {KeyVerdict::Cleared, note};
     }

@@ -84,6 +84,17 @@ public:
                    std::vector<SchedEvent>& out) const;
     std::vector<SchedEvent> notesOnAt(uint64_t us, uint32_t trackMask) const;
 
+    // Note-ons in the HALF-OPEN window [fromUs, endUs) on masked-in tracks —
+    // wait mode's chord-gather epsilon (A98/G18). Exclusive upper bound so a
+    // note exactly at endUs opens the NEXT barrier instead of doubling into
+    // this one. Distinct from onsetsBetween (inclusive both ends, ramp preview)
+    // and notesOnAt (exact instant, score-follower/render) — those stay
+    // byte-identical.
+    void notesInWindow(uint64_t fromUs, uint64_t endUs, uint32_t trackMask,
+                       std::vector<SchedEvent>& out) const;
+    std::vector<SchedEvent> notesInWindow(uint64_t fromUs, uint64_t endUs,
+                                          uint32_t trackMask) const;
+
     // Note-ons with fromUs <= onset <= toUs on masked-in tracks (ramp preview).
     void onsetsBetween(uint64_t fromUs, uint64_t toUs, uint32_t trackMask,
                        std::vector<SchedEvent>& out) const;
