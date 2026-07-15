@@ -388,6 +388,28 @@ static void test_roundtrip_capture_to_smf() {
     TEST_ASSERT_EQUAL_UINT8(127, r.song.pedal[0].value);
 }
 
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+
+// §3 item 9: a re-trigger of an already-open (channel,note) with no
+// note-off in between pairs correctly — the STOP-mirroring rule in
+// midi_capture.cpp:113-121 closes the previous instance at the re-onset and
+// opens a fresh one, exactly like the SMF-writer/parser round trip does.
+static void test_p9_retriggered_note_without_off_pairs_correctly() {
+    MidiCapture cap;
+    cap.arm(4096, 600000, 0);
+    cap.onNoteOn(60, 100, 0, 0);
+    cap.onNoteOn(60, 80, 0, 300 * MS);  // re-strike, no off in between
+    cap.onNoteOff(60, 0, 500 * MS);
+    CaptureTake take = cap.stop(500 * MS);
+    TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
+    TEST_ASSERT_EQUAL_UINT32(0, take.notes[0].onMs);
+    TEST_ASSERT_EQUAL_UINT32(300, take.notes[0].offMs);
+    TEST_ASSERT_EQUAL_UINT8(100, take.notes[0].velocity);
+    TEST_ASSERT_EQUAL_UINT32(300, take.notes[1].onMs);
+    TEST_ASSERT_EQUAL_UINT32(500, take.notes[1].offMs);
+    TEST_ASSERT_EQUAL_UINT8(80, take.notes[1].velocity);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_free_capture_happy_path);
@@ -408,5 +430,6 @@ int main(int, char**) {
     RUN_TEST(test_stop_zero_events_empty);
     RUN_TEST(test_arm_refusals);
     RUN_TEST(test_roundtrip_capture_to_smf);
+    RUN_TEST(test_p9_retriggered_note_without_off_pairs_correctly);
     return UNITY_END();
 }
