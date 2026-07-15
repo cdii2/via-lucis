@@ -1007,6 +1007,67 @@ void test_w5_loop_without_practiced_onset_still_waits_eventually() {
         "the practiced hand — not free-run silently");
 }
 
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+
+// §3 item 12: a colors/settings PUT mid-wait-hold repaints live. The follow-
+// mode analog is test_configure_between_tick_and_frame_uses_new_config; this
+// pins the SAME mechanism at a barrier — the due chord's color must reflect
+// a configure() that lands between the tick and the render, exactly like an
+// ordinary sounding note does.
+void test_p12_colors_put_mid_wait_hold_repaints_live() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // barrier holds at chord1 {60}, chord pending
+    TEST_ASSERT_TRUE(e.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+    Settings s;
+    s.rightColor = Rgb{123, 45, 67};
+    e.configure(s);
+    const std::vector<Rgb>& frame = e.renderFrame(200000);
+    assertRgb(Rgb{123, 45, 67}, ledAt(frame, 60));
+}
+
+// §3 item 13: a mid-session table swap while a barrier is held — the
+// "dials-win" tier-revert consequence at the core layer PlaybackEngine::
+// setTable exercises directly (the app.cpp-level tier-SELECTION policy
+// itself lives behind Arduino.h and isn't natively reachable — see the
+// PIN-E report). The swap must (a) land live immediately and (b) never
+// disturb the wait-mode hold or wipe pending progress.
+void test_p13_table_swap_mid_wait_hold_is_live_and_state_preserving() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);  // barrier holds at chord1 {60}, chord pending
+    TEST_ASSERT_TRUE(e.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+
+    KeyLedTable fresh;
+    fresh.setLedCount(360);
+    fresh.set(60, LedRange{200, 201, true});  // a spot the formula never picks
+
+    e.setTable(fresh);
+
+    // The hold survived the swap untouched.
+    TEST_ASSERT_TRUE(e.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+    // The new geometry is live immediately: the due chord paints at the
+    // swapped table's position, not the old formula's.
+    const std::vector<Rgb>& frame = e.renderFrame(200000);
+    assertRgb(kRight, frame[200]);
+    assertRgb(kRight, frame[201]);
+    LedRange oldPos = ledsForNote(60, LedMapConfig{});
+    assertRgb(kBlack, frame[oldPos.first]);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
@@ -1052,5 +1113,7 @@ int main(int, char**) {
     RUN_TEST(test_P11_pause_flushes_sustain_pedal);
     RUN_TEST(test_C34_phantom_repeat_cue_inside_loop);
     RUN_TEST(test_w5_loop_without_practiced_onset_still_waits_eventually);
+    RUN_TEST(test_p12_colors_put_mid_wait_hold_repaints_live);
+    RUN_TEST(test_p13_table_swap_mid_wait_hold_is_live_and_state_preserving);
     return UNITY_END();
 }

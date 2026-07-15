@@ -195,6 +195,63 @@ static void test_wait_mode_ignores_echoes_via_guard() {
     TEST_ASSERT_FALSE(wm.chordPending());
 }
 
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+
+namespace {
+// Two consecutive chords sharing a note across the barrier: chord1 {60,64}
+// onset@0, chord2 {60,67} onset@480t (500ms) — note 60 re-dues.
+vialucis::MidiSong heldKeySong() {
+    smf::Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOn(ev, 0, 0, 64, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::noteOff(ev, 0, 0, 64);
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOn(ev, 0, 0, 67, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::noteOff(ev, 0, 0, 67);
+    smf::Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return vialucis::parseMidi(file.data(), file.size()).song;
+}
+}  // namespace
+
+// §3 item 1: held-key across two chord boundaries — WaitMode is onset-edge-
+// only by design (wait_mode.h header contract). A note pressed to clear
+// chord1 must NOT silently carry over and clear chord2's re-due of the SAME
+// pitch; only a fresh onKeyDown for the new chord counts.
+static void test_p1_held_key_across_two_boundaries_not_double_counted() {
+    MidiSong song = heldKeySong();
+    Scheduler sched(song);
+    WaitMode wm(sched, kTrackMaskAll);
+    wm.begin();
+    sched.advance(1);
+    wm.update();
+    TEST_ASSERT_EQUAL_size_t(2, wm.pendingNotes().size());  // chord1 {60,64}
+    wm.onKeyDown(60, 0);
+    auto fb = wm.onKeyDown(64, 1000);
+    TEST_ASSERT_EQUAL(KeyVerdict::Cleared, fb.verdict);
+    TEST_ASSERT_FALSE(wm.chordPending());  // chord1 fully cleared
+
+    sched.advance(2000000);
+    wm.update();
+    TEST_ASSERT_EQUAL_UINT64(500000, sched.positionUs());
+    TEST_ASSERT_TRUE(wm.chordPending());
+    TEST_ASSERT_TRUE(wm.isPending(60));
+    TEST_ASSERT_TRUE(wm.isPending(67));
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(
+        2, wm.pendingNotes().size(),
+        "chord1's press of 60 must not carry over into chord2's re-due 60");
+
+    fb = wm.onKeyDown(67, 2100);
+    TEST_ASSERT_EQUAL(KeyVerdict::Cleared, fb.verdict);
+    TEST_ASSERT_TRUE_MESSAGE(wm.chordPending(),
+                             "60 still owed — a fresh press is required");
+    fb = wm.onKeyDown(60, 2200);
+    TEST_ASSERT_EQUAL(KeyVerdict::Cleared, fb.verdict);
+    TEST_ASSERT_FALSE(wm.chordPending());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_chord_loads_at_start);
@@ -210,5 +267,6 @@ int main(int, char**) {
     RUN_TEST(test_echo_guard_counts_multiple_sends);
     RUN_TEST(test_echo_guard_is_per_note);
     RUN_TEST(test_wait_mode_ignores_echoes_via_guard);
+    RUN_TEST(test_p1_held_key_across_two_boundaries_not_double_counted);
     return UNITY_END();
 }
