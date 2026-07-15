@@ -619,6 +619,254 @@ void test_probe_arm_counts_as_activity_but_capture_wakes_too() {
                      TopMode::Reactive);
 }
 
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+
+// §3 item 2: CC64 (sustain pedal) during a wait hold is a no-op for the
+// verdict — WaitMode has no pedal path at all, and renderFrame never reads
+// a pedal latch. Pedal traffic during a barrier hold must leave the wait
+// state (and the piano's position) completely untouched.
+void test_p2_cc64_during_wait_hold_is_noop_for_verdict() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("wait", "both", gOut);
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 50000);  // barrier holds at chord1 {60}
+    std::string before = r.engine.statusJson();
+    TEST_ASSERT_TRUE(before.find("\"state\":\"waiting\"") != std::string::npos);
+    TEST_ASSERT_TRUE(before.find("\"pendingNotes\":[60]") != std::string::npos);
+    uint64_t posBefore = r.engine.positionUs();
+
+    r.director.onPedal(127, 2 * kSec + 60000);  // sustain down mid-hold
+    r.tick(2 * kSec + 70000);
+    r.director.onPedal(0, 2 * kSec + 80000);    // sustain up
+    r.tick(2 * kSec + 90000);
+
+    std::string after = r.engine.statusJson();
+    TEST_ASSERT_TRUE(after.find("\"state\":\"waiting\"") != std::string::npos);
+    TEST_ASSERT_TRUE(after.find("\"pendingNotes\":[60]") != std::string::npos);
+    TEST_ASSERT_EQUAL_UINT64(posBefore, r.engine.positionUs());
+}
+
+// §3 item 3: presses while Paused/Finished are inert for practice
+// (playback_engine.cpp's onKeyDown early-returns when state_ != Playing)
+// but still feed capture/reactive (mode_director.cpp's onKeyDown calls
+// capture_.onNoteOn unconditionally). Covers both the Paused mid-hold case
+// and the Finished-after-song-end case with a Play-along take running
+// throughout.
+void test_p3_presses_while_paused_or_finished_are_inert_for_practice_but_feed_capture() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("wait", "both", gOut);
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      r.director.armRecord(1 << 20, false, 90, 1 * kSec));
+
+    // --- Paused sub-case ---------------------------------------------------
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 50000);  // barrier holds at chord1 {60}
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+    gOut.clear();
+    r.engine.transport("pause", 0, gOut);
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+    r.director.onKeyDown(60, 100, 2 * kSec + 100000);  // pressed WHILE paused
+    // Practice never saw it: the due chord is untouched.
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(r.director.recordState() == CaptureState::Recording);
+    // Resume: the SAME key must be pressed AGAIN to actually clear it — proof
+    // the paused press was truly inert, not silently consumed by practice.
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(3 * kSec);
+    r.director.onKeyDown(60, 100, 3 * kSec + 10000);
+    r.tick(3 * kSec + 700000);  // advance to and hold at chord2 {64}
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[64]") !=
+                     std::string::npos);
+
+    // --- Finished sub-case ---------------------------------------------------
+    r.director.onKeyDown(64, 100, 3 * kSec + 710000);
+    r.tick(3 * kSec + 1200000);  // advance to and hold at the final chord
+    r.director.onKeyDown(67, 100, 3 * kSec + 1210000);
+    r.director.onKeyDown(71, 100, 3 * kSec + 1220000);
+    r.tick(3 * kSec + 2000000);  // song completes
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"state\":\"finished\"") !=
+                     std::string::npos);
+    r.director.onKeyDown(100, 100, 3 * kSec + 2100000);  // pressed WHILE finished
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"state\":\"finished\"") !=
+                     std::string::npos);  // still inert for practice
+
+    CaptureTake take = r.director.stopRecord(3 * kSec + 2300000);
+    TEST_ASSERT_FALSE(take.empty);
+    bool sawPausedPress = false, sawFinishedPress = false;
+    for (const auto& n : take.notes) {
+        if (n.note == 60) sawPausedPress = true;
+        if (n.note == 100) sawFinishedPress = true;
+    }
+    TEST_ASSERT_TRUE_MESSAGE(sawPausedPress, "paused press still fed capture");
+    TEST_ASSERT_TRUE_MESSAGE(sawFinishedPress,
+                             "finished-state press still fed capture");
+}
+
+// §3 item 6: AFK unreachable during a PAUSED (not merely loaded) practice
+// session — topMode's gate is engine_.songLoaded() only, with no PlayState
+// check, so a real play-then-pause session must stay just as AFK-proof as
+// a song that was merely loaded and never played.
+void test_p6_afk_unreachable_while_paused_mid_practice() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("follow", "both", gOut);
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 300000);  // real playback happened
+    gOut.clear();
+    r.engine.transport("pause", 0, gOut);
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+    for (int m = 1; m <= 60; ++m) {
+        uint64_t t = (2 + 60ull * m) * kSec;
+        r.tick(t);
+        TEST_ASSERT_TRUE(r.director.topMode(t) == TopMode::Practice);
+    }
+}
+
+// §3 item 7: test-pattern auto-pause during a LIVE barrier hold — the
+// pending chord must survive the F3/A35 auto-pause, and "off" (which never
+// auto-resumes) followed by an explicit resume must re-arm the exact same
+// hold rather than losing or corrupting it.
+void test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.engine.setMode("wait", "both", gOut);
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);
+    r.tick(2 * kSec + 50000);  // barrier holds at chord1 {60}
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+
+    std::vector<MidiOutMsg> patOut;
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", patOut));  // auto-pause
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.engine.statusJson().find("\"pendingNotes\":[60]") !=
+            std::string::npos,
+        "the pending chord must survive the auto-pause, not wipe");
+
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off", patOut));  // no auto-resume
+    TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
+
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);  // explicit resume re-arms
+    r.tick(3 * kSec);
+    r.tick(3 * kSec + 10000);
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+    // The still-owed note now clears normally — the hold truly survived.
+    r.director.onKeyDown(60, 100, 3 * kSec + 20000);
+    r.tick(3 * kSec + 700000);
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"state\":\"waiting\"") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[64]") !=
+                     std::string::npos);
+}
+
+// §3 item 8: double-arm record race at the ModeDirector layer — the second
+// arm must be refused (AlreadyArmed) AND must leave the director's OWN
+// bookkeeping (countIn_/bpm_) exactly as the first arm set it, not
+// partially overwritten by the refused call's parameters.
+void test_p8_double_arm_record_race_at_director_layer() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      r.director.armRecord(1 << 20, true, 120, 1 * kSec));
+    ArmResult second =
+        r.director.armRecord(1 << 20, false, 60, 1 * kSec + 500);
+    TEST_ASSERT_EQUAL(ArmResult::AlreadyArmed, second);
+    TEST_ASSERT_EQUAL_UINT16(120, r.director.recordBpm());
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.recordCountIn(),
+        "the refused second arm must not clobber the first arm's countIn");
+}
+
+// §3 item 10: director-level pedal-echo integration. mode_director.cpp's
+// tick() scans the engine's MIDI-out for a Cc(64) message and credits
+// capture's OWN echo guard (capture_.pedalSent) — unit-tested only via
+// direct pedalSent() calls until now; this exercises the actual scan.
+void test_p10_director_level_pedal_echo_excludes_song_cc64_echo() {
+    Rig r;
+    r.tick(1 * kSec);
+    // Custom song: C4 on@0 off@480t (500ms), sustain pedal CC64=127 @480t.
+    smf::Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::cc(ev, 0, 0, 64, 127);
+    smf::Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    MidiSong song = parseMidi(file.data(), file.size()).song;
+
+    gOut.clear();
+    r.engine.loadSong(std::move(song), "pedal.mid", gOut);
+    r.engine.setMode("demo", "both", gOut);
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      r.director.armRecord(1 << 20, false, 90, 1 * kSec));
+    // A real user press (distinct pitch from the song) starts the tape.
+    r.director.onKeyDown(72, 100, 1 * kSec + 10000);
+    TEST_ASSERT_TRUE(r.director.recordState() == CaptureState::Recording);
+
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);
+    r.tick(2 * kSec);                    // baseline
+    r.tick(2 * kSec + 501000);           // crosses the pedal event at 500ms
+
+    // The piano echoes the CC64 it just received back over BLE — must be
+    // excluded from the take by the tick-scan credit, not double-captured.
+    r.director.onPedal(127, 2 * kSec + 502000);
+    CaptureTake take = r.director.stopRecord(2 * kSec + 600000);
+    TEST_ASSERT_EQUAL_size_t(0, take.pedals.size());
+    TEST_ASSERT_EQUAL_size_t(1, take.notes.size());
+    TEST_ASSERT_EQUAL_UINT8(72, take.notes[0].note);
+}
+
+// §3 item 15: a Play-along take survives a song unload mid-take — topMode
+// ordering (songLoaded() > Record > idle-timeout) means losing the song
+// degrades a live take to Free capture WITHOUT dropping or resetting it.
+void test_p15_playalong_take_survives_song_unload_mid_take() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      r.director.armRecord(1 << 20, false, 90, 1 * kSec));
+    r.director.onKeyDown(60, 100, 2 * kSec);  // starts the tape (Play-along)
+    TEST_ASSERT_TRUE(r.director.recordState() == CaptureState::Recording);
+    TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Practice);
+
+    r.unload();  // mid-take song unload
+    r.tick(2 * kSec + 1000);
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.topMode(2 * kSec + 1000) == TopMode::Record,
+        "losing the song must degrade to Free capture, not hide the take");
+    TEST_ASSERT_TRUE(r.director.recordState() == CaptureState::Recording);
+
+    r.director.onKeyDown(64, 100, 2 * kSec + 2000);  // still the same take
+    r.director.onKeyUp(60, 2 * kSec + 3000);
+    r.director.onKeyUp(64, 2 * kSec + 4000);
+    CaptureTake take = r.director.stopRecord(2 * kSec + 5000);
+    TEST_ASSERT_FALSE(take.empty);
+    TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_boot_state_is_reactive);
@@ -649,5 +897,12 @@ int main(int, char**) {
     RUN_TEST(test_s4_probe_refused_during_score_follow_show);
     RUN_TEST(test_probe_bad_led_timeout_and_cancel);
     RUN_TEST(test_probe_arm_counts_as_activity_but_capture_wakes_too);
+    RUN_TEST(test_p2_cc64_during_wait_hold_is_noop_for_verdict);
+    RUN_TEST(test_p3_presses_while_paused_or_finished_are_inert_for_practice_but_feed_capture);
+    RUN_TEST(test_p6_afk_unreachable_while_paused_mid_practice);
+    RUN_TEST(test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes);
+    RUN_TEST(test_p8_double_arm_record_race_at_director_layer);
+    RUN_TEST(test_p10_director_level_pedal_echo_excludes_song_cc64_echo);
+    RUN_TEST(test_p15_playalong_take_survives_song_unload_mid_take);
     return UNITY_END();
 }
