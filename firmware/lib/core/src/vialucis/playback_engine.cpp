@@ -463,11 +463,18 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
         // re-due pulse window, which flash repeatColor first ("this key
         // AGAIN") and then settle into the ordinary due light.
         if (barrierMode() && wait_->chordPending()) {
-            sched_->notesOnAt(wait_->barrierTimeUs(),
-                              trackCfg_.practicedMask(practice_), queryBuf_);
+            // A98/G18: query the SAME epsilon window the gate absorbed so every
+            // note WaitMode is holding is covered; isPending() (the one source
+            // of "still owed") filters to the genuinely-pending set.
+            sched_->notesInWindow(wait_->barrierTimeUs(),
+                                  wait_->barrierTimeUs() + kChordEpsilonUs,
+                                  trackCfg_.practicedMask(practice_), queryBuf_);
             for (const SchedEvent& e : queryBuf_) {
-                if (!wait_->isPending(e.note) ||
-                    !trackInMask(lightsMask, e.track))
+                // A99/G19 practiced-implies-lit: a genuinely-owed barrier note
+                // ALWAYS renders, even if its track's `lights` flag is off —
+                // you can never owe an invisible note. lightsMask still governs
+                // every OTHER visual path (glow, demo, ramp). No config mutated.
+                if (!wait_->isPending(e.note))
                     continue;
                 if (repeatCue_.enabled && e.note >= 21 && e.note <= 108 &&
                     nowUs < waitPulseUntilUs_[e.note - 21])
