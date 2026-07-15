@@ -229,6 +229,113 @@ static void test_out_param_seek_flushes_into_buffer() {
     TEST_ASSERT_EQUAL_UINT64(700000, s.positionUs());
 }
 
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+
+// §3 item 4: song end while holding at the final barrier. A song whose only
+// note is zero-length (onTick == offTick == 0) puts the final practiced
+// onset exactly at durationUs — the exact "final-onset==duration" case the
+// audit flagged as untested. Held at that barrier, the scheduler must stay
+// "waiting" (not Finished) even though positionUs already equals durationUs;
+// only clearing the barrier lets it actually finish (scheduler.cpp:45-47 +
+// emitUpTo's barrier semantics).
+static void test_p4_finished_stays_waiting_at_final_barrier_when_onset_equals_duration() {
+    MidiSong song;
+    song.notes.push_back(MidiNote{0, 0, 60, 100, 0, 0});
+    Scheduler s(song);
+    TEST_ASSERT_EQUAL_UINT64(0, s.durationUs());
+    s.setBarrier(0);  // holds exactly at the only (final) practiced onset
+    s.advance(1000000);
+    TEST_ASSERT_EQUAL_UINT64(0, s.positionUs());
+    TEST_ASSERT_TRUE(s.atBarrier());
+    TEST_ASSERT_FALSE_MESSAGE(
+        s.finished(),
+        "must stay waiting at the barrier, not Finished, even though "
+        "positionUs already equals durationUs");
+    s.clearBarrier();
+    s.advance(1000000);
+    TEST_ASSERT_TRUE_MESSAGE(s.finished(),
+                             "Finished only after the barrier clears");
+}
+
+// §3 item 5: seek-to-exact-onset / seek-to-exact-barrier-time inclusive
+// boundary semantics (indexForTime's lower_bound). Querying or seeking to an
+// onset's OWN timestamp must land ON it, not skip past it.
+static void test_p5_seek_and_next_onset_inclusive_at_exact_boundary() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    TEST_ASSERT_EQUAL_UINT64(500000, s.nextOnsetAfter(500000, kTrackMaskAll));
+    s.seek(500000);
+    TEST_ASSERT_EQUAL_UINT64(500000, s.positionUs());
+    auto onsets = s.notesOnAt(500000, kTrackMaskAll);
+    TEST_ASSERT_EQUAL_size_t(1, onsets.size());
+    TEST_ASSERT_EQUAL_UINT8(64, onsets[0].note);
+    // A barrier set at the same exact time a seek lands on reads as "at
+    // barrier" immediately — no extra advance() needed.
+    Scheduler s2(song);
+    s2.setBarrier(500000);
+    s2.seek(500000);
+    TEST_ASSERT_TRUE(s2.atBarrier());
+}
+
+// §3 item 11: tempo change while barrier-held is inert — the barrier clamp
+// compares raw target/barrier values, never the tempo-scaled real-time
+// delta, so a tempo jump while held must never move the playhead.
+static void test_p11_tempo_change_while_barrier_held_is_inert() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    s.setBarrier(500000);
+    s.advance(2000000);
+    TEST_ASSERT_EQUAL_UINT64(500000, s.positionUs());
+    TEST_ASSERT_TRUE(s.atBarrier());
+    s.setTempoPercent(400.0f);
+    auto evs = s.advance(3000000);
+    TEST_ASSERT_EQUAL_size_t(0, evs.size());
+    TEST_ASSERT_EQUAL_UINT64(500000, s.positionUs());
+    TEST_ASSERT_TRUE(s.atBarrier());
+}
+
+namespace {
+// C4 on@0 off@480t; at the same instant (480t/500000us) a CC64 pedal event
+// AND E4's onset — a three-way same-timestamp tie for the stable_sort
+// comparator (§3 item 14).
+MidiSong pedalTieSong() {
+    smf::Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::cc(ev, 0, 0, 64, 127);
+    smf::noteOn(ev, 0, 0, 64, 100);
+    smf::noteOff(ev, 480, 0, 64);
+    smf::Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return parseMidi(file.data(), file.size()).song;
+}
+}  // namespace
+
+// §3 item 14: pedal event ordering at same-timestamp ties. The construction
+// sort is Off(0) < Pedal(1) < On(2); only the Off-before-On half was ever
+// exercised (test_off_sorts_before_on_at_same_instant) — pin the full
+// three-way order including Pedal.
+static void test_p14_pedal_sorts_between_off_and_on_at_same_instant() {
+    MidiSong song = pedalTieSong();
+    Scheduler s(song);
+    auto evs = s.advance(510000);  // crosses t=500000 (off, pedal, on tie)
+    int offIdx = -1, pedalIdx = -1, onIdx = -1;
+    for (size_t i = 0; i < evs.size(); ++i) {
+        if (evs[i].timeUs != 500000) continue;
+        if (evs[i].type == SchedEventType::NoteOff && evs[i].note == 60)
+            offIdx = static_cast<int>(i);
+        if (evs[i].type == SchedEventType::Pedal)
+            pedalIdx = static_cast<int>(i);
+        if (evs[i].type == SchedEventType::NoteOn && evs[i].note == 64)
+            onIdx = static_cast<int>(i);
+    }
+    TEST_ASSERT_TRUE(offIdx >= 0 && pedalIdx >= 0 && onIdx >= 0);
+    TEST_ASSERT_TRUE_MESSAGE(offIdx < pedalIdx,
+                             "Off must sort before Pedal at a tie");
+    TEST_ASSERT_TRUE_MESSAGE(pedalIdx < onIdx,
+                             "Pedal must sort before On at a tie");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_events_arrive_in_time_windows);
@@ -246,5 +353,9 @@ int main(int, char**) {
     RUN_TEST(test_out_param_advance_matches_by_value_and_clears_buffer);
     RUN_TEST(test_out_param_queries_clear_then_fill);
     RUN_TEST(test_out_param_seek_flushes_into_buffer);
+    RUN_TEST(test_p4_finished_stays_waiting_at_final_barrier_when_onset_equals_duration);
+    RUN_TEST(test_p5_seek_and_next_onset_inclusive_at_exact_boundary);
+    RUN_TEST(test_p11_tempo_change_while_barrier_held_is_inert);
+    RUN_TEST(test_p14_pedal_sorts_between_off_and_on_at_same_instant);
     return UNITY_END();
 }
