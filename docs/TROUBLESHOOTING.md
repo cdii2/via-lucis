@@ -279,6 +279,36 @@ Fix:
    if it persists, note exactly when it happens; that's a firmware bug worth
    reporting.
 
+## A chord (together-press) won't clear, or a roll gates as one note
+
+**Looks like:** either (a) you press a two- or three-note chord together and one
+note stays lit as if still owed, no matter how cleanly you play it; or (b) a
+passage you meant as a fast roll/arpeggio lights all its notes at once and clears
+in a single press.
+
+Why: a MIDI file almost never puts the notes of a "chord" at the *exact* same
+microsecond — export tools scatter them a millisecond or so apart. So wait mode
+groups practiced onsets that land within a small window — **about 10 ms** — into
+**one barrier chord**. That is below anything a human can play deliberately, so
+it only ever mops up this export slop; it never merges notes you actually meant
+to separate. Onsets **10 ms or more apart stay separate gates** and are taught
+one press at a time (that is exactly what a roll is). The window is a fixed
+firmware constant — there is no setting to change it, by design.
+
+What this means for you:
+
+1. **A chord that won't clear is almost always a wrong note, not the gather.**
+   Check the lit color: any **red flash** means one of your fingers hit the wrong
+   key. The chord holds until every lit note is pressed and no extra keys fire.
+2. **A "chord" whose notes are more than ~10 ms apart in the file will gate one
+   note at a time** — that is correct behavior, not a bug. If a passage was
+   authored as a roll but you want to practice it as a single block chord (or the
+   reverse), fix it at the source: line the onsets up (or spread them out) in your
+   MIDI editor — e.g. MuseScore's *quantize* — then re-upload. The device plays
+   the file exactly as authored; the editor is where note timing is decided.
+3. Demo and Follow-along always play the file's original timing untouched (rolls
+   sound like rolls); the ~10 ms grouping affects **only** the wait-mode gate.
+
 ## Wrong keys light up (calibration)
 
 **Looks like:** the light for a note sits above the wrong key, or is off by a
