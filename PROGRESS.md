@@ -862,3 +862,33 @@ capture-timing upgrade (hardware-gated).
   `test_w8_barrier_never_gates_on_unlit_notes` become the pins. Remaining
   from the audit after that wave: FIX-C (MidiIo disconnect seam,
   lead-only) and G10 (A91, needs FP-30X bring-up data).
+- 2026-07-15 DECIDE-D BUILD WAVE (Fable lead, 2 parallel builders) —
+  **A98 + A99 built+pinned and PIN-E landed; merged to main and pushed,
+  origin/main = cdfdea7.** Native 392 → **419** ALL PASS, esp32dev SUCCESS
+  (flash 48.7% / RAM 22.7%, binary byte-identical after PIN-E confirming
+  test-only), songs/local clean.
+  - **FIX-D (opus, merged f724983):** A98/G18 — new `Scheduler::notesInWindow`
+    half-open `[barrierTime, +kChordEpsilonUs)` gather (10ms compile-time
+    constant in wait_mode.h, NOT a settings key), `armFrom(lastAbsorbedOnsetUs_
+    + 1)` fixes the together-press softlock; loop-cap at `loopEnd+1` keeps
+    A89/A90 byte-identical; `notesOnAt`/`onsetsBetween` untouched so
+    score-follower/ramp stay exact. A99/G19 — due/barrier render drops its
+    `lightsMask` skip and drives off `isPending()`, config never mutated. +12
+    pins in `test_decide_d/` (incl. the 3 audit repros flipped + softlock +
+    roll-still-gates-N + timeline-unmerged guards); builder red-checked the
+    bug-targeting pins against original code. A100–A102. TROUBLESHOOTING
+    "chord won't clear" entry added.
+  - **PIN-E (sonnet, merged cdfdea7, rebased on FIX-D):** the audit §3
+    HANDLED-UNTESTED pack — 15 honest pinning tests, **test files only, zero
+    production edits**, spread across their owning suites (scheduler ×4,
+    mode_director ×7, playback_engine ×2, wait_mode ×1, midi_capture ×1).
+    Item 13 (wizard-tier dials-win) substituted with the core-testable
+    `setTable`-live-mid-hold half — the literal rule lives in Arduino-gated
+    `app.cpp`, unreachable natively without a production seam; flagged A104
+    for a later wave. A103–A104. Conflict-avoidance with A98/A99 respected
+    (onsets ≥500ms apart, no lights-off-due-note pin).
+  - Merge order held: FIX-D first (production owner), PIN-E rebased onto it;
+    ASSUMPTIONS.md append-on-top conflict reconciled by the lead (A104→A100
+    newest-on-top). codebase-memory re-indexed after each merge. Builder
+    worktrees removed; `vl-audit-wt` (branch audit/whatif-throwaway @ 9708a05)
+    KEPT for FIX-C/G10. **Remaining audit items: FIX-C and G10 only.**
