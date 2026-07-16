@@ -13,7 +13,18 @@ bool SongParseCache::needsRecompute(const std::string& name,
 
 void SongParseCache::set(const std::string& name, size_t size,
                          bool parseOk) {
-    entries_[name] = Entry{size, parseOk};
+    entries_[name] =
+        Entry{size, parseOk, parseOk ? ParseFail::None : ParseFail::Corrupt};
+}
+
+void SongParseCache::set(const std::string& name, size_t size, bool parseOk,
+                         ParseFail fail) {
+    entries_[name] = Entry{size, parseOk, parseOk ? ParseFail::None : fail};
+}
+
+ParseFail SongParseCache::failReason(const std::string& name) const {
+    auto it = entries_.find(name);
+    return it == entries_.end() ? ParseFail::None : it->second.fail;
 }
 
 bool SongParseCache::get(const std::string& name) const {

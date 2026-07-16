@@ -14,11 +14,18 @@
 // LittleFS + parseMidi) is the esp32-only glue in App::songsForList().
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace vialucis {
+
+// Why a song's parse check failed (A185), surfaced additively as a per-song
+// reason so the webui can tell the player "too big for this device" apart from
+// "corrupt/unparseable". None = parsed fine (or the reason is simply not
+// distinguished).
+enum class ParseFail : uint8_t { None, Corrupt, Memory };
 
 class SongParseCache {
 public:
@@ -28,8 +35,16 @@ public:
     bool needsRecompute(const std::string& name, size_t size) const;
 
     // Record the parse result for (name, size). Overwrites any prior entry
-    // for `name` (a size change always supersedes the old one).
+    // for `name` (a size change always supersedes the old one). The bool-only
+    // overload keeps the failure reason undistinguished (Corrupt when !parseOk,
+    // matching pre-A185 behavior); the ParseFail overload records the reason.
     void set(const std::string& name, size_t size, bool parseOk);
+    void set(const std::string& name, size_t size, bool parseOk, ParseFail fail);
+
+    // The cached failure reason for `name` (A185): Memory / Corrupt when the
+    // last check failed, None for a song that parsed fine or that the cache has
+    // never seen. Only meaningful once get(name) is known false.
+    ParseFail failReason(const std::string& name) const;
 
     // The cached result for `name`. Only meaningful right after a
     // needsRecompute(name, size) check for the SAME size returned false;
@@ -53,6 +68,7 @@ private:
     struct Entry {
         size_t size;
         bool parseOk;
+        ParseFail fail = ParseFail::None;
     };
     std::unordered_map<std::string, Entry> entries_;
 };

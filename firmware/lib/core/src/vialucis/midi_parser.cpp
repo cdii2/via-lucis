@@ -1,23 +1,32 @@
 #include "vialucis/midi_parser.h"
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 
 namespace vialucis {
 namespace {
 
-// Bounds-checked big-endian reader over the raw file bytes.
+// ---------------------------------------------------------------------------
+// Streaming Reader (A185): bounds-checked big-endian reader that pulls bytes
+// FORWARD from a ByteSource through a small fixed refill buffer. The parser
+// never seeks backward within a pass, so a 256-byte gulp buffer is all the RAM
+// the file itself ever occupies — the whole-file RAM buffer is gone from the
+// parse budget. pos() is the absolute byte offset consumed; remaining() is the
+// bytes left of the source's declared size().
+// ---------------------------------------------------------------------------
 class Reader {
 public:
-    Reader(const uint8_t* data, size_t len) : data_(data), len_(len) {}
+    explicit Reader(ByteSource& src) : src_(src), len_(src.size()) {}
 
     bool ok() const { return ok_; }
     size_t pos() const { return pos_; }
     size_t remaining() const { return ok_ ? len_ - pos_ : 0; }
 
     uint8_t u8() {
-        if (pos_ + 1 > len_) { ok_ = false; return 0; }
-        return data_[pos_++];
+        int b = next();
+        if (b < 0) { ok_ = false; return 0; }
+        return static_cast<uint8_t>(b);
     }
 
     uint16_t u16() {
@@ -43,32 +52,77 @@ public:
     }
 
     bool match4(const char* tag) {
-        if (pos_ + 4 > len_) { ok_ = false; return false; }
-        bool m = data_[pos_] == static_cast<uint8_t>(tag[0]) &&
-                 data_[pos_ + 1] == static_cast<uint8_t>(tag[1]) &&
-                 data_[pos_ + 2] == static_cast<uint8_t>(tag[2]) &&
-                 data_[pos_ + 3] == static_cast<uint8_t>(tag[3]);
-        pos_ += 4;
-        return m;
+        if (remaining() < 4) { ok_ = false; return false; }
+        bool m = true;
+        for (int i = 0; i < 4; ++i)
+            if (u8() != static_cast<uint8_t>(tag[i])) m = false;
+        return m;  // consumes 4 bytes either way (mirrors the old random reader)
     }
 
     void skip(size_t n) {
-        if (pos_ + n > len_) { ok_ = false; return; }
-        pos_ += n;
+        if (remaining() < n) { ok_ = false; return; }
+        while (n > 0) {
+            if (bufPos_ >= bufLen_ && !refill()) { ok_ = false; return; }
+            size_t avail = bufLen_ - bufPos_;
+            size_t take = n < avail ? n : avail;
+            bufPos_ += take;
+            pos_ += take;
+            n -= take;
+        }
     }
 
     std::string str(size_t n) {
-        if (pos_ + n > len_) { ok_ = false; return {}; }
-        std::string s(reinterpret_cast<const char*>(data_ + pos_), n);
-        pos_ += n;
+        if (remaining() < n) { ok_ = false; return {}; }
+        std::string s;
+        s.reserve(n);
+        for (size_t i = 0; i < n; ++i) s.push_back(static_cast<char>(u8()));
         return s;
     }
+
+private:
+    bool refill() {
+        bufLen_ = src_.read(buf_, sizeof(buf_));
+        bufPos_ = 0;
+        return bufLen_ > 0;
+    }
+    int next() {
+        if (bufPos_ >= bufLen_ && !refill()) return -1;
+        ++pos_;
+        return buf_[bufPos_++];
+    }
+
+    ByteSource& src_;
+    size_t len_;
+    size_t pos_ = 0;
+    bool ok_ = true;
+    uint8_t buf_[256];
+    size_t bufLen_ = 0;
+    size_t bufPos_ = 0;
+};
+
+// ---------------------------------------------------------------------------
+// Concrete source over an in-RAM byte buffer — backs the (data, len) overload
+// and every existing native caller.
+// ---------------------------------------------------------------------------
+class BufferByteSource : public ByteSource {
+public:
+    BufferByteSource(const uint8_t* data, size_t len) : data_(data), len_(len) {}
+    size_t size() const override { return len_; }
+    size_t read(uint8_t* dst, size_t max) override {
+        size_t n = len_ - pos_;
+        if (n > max) n = max;
+        if (n && data_) {
+            std::memcpy(dst, data_ + pos_, n);
+            pos_ += n;
+        }
+        return n;
+    }
+    void reset() override { pos_ = 0; }
 
 private:
     const uint8_t* data_;
     size_t len_;
     size_t pos_ = 0;
-    bool ok_ = true;
 };
 
 struct OpenNote {
@@ -77,7 +131,8 @@ struct OpenNote {
 };
 
 // One slot per (channel, note); overlapping same-note re-triggers close the
-// previous instance first, which is the sane behavior for a trainer.
+// previous instance first, which is the sane behavior for a trainer. ~18 KB —
+// heap-allocated once per FILL pass (A181), never on the count pass.
 struct NoteTracker {
     OpenNote open[16][128];
     bool active[16][128] = {};
@@ -106,24 +161,94 @@ struct NoteTracker {
     }
 };
 
-MidiParseError parseTrack(Reader& r, uint8_t trackIndex, MidiSong& song) {
+// ---------------------------------------------------------------------------
+// Sink: the ONE seam between counting and filling. The event walker
+// (parseTrack) is mode-agnostic — it always reads the same bytes and routes
+// every output through this sink, so the count pass can never diverge from the
+// fill pass. Count mode only tallies; fill mode tallies AND emits into the
+// (already exactly-reserved) song vectors via the NoteTracker.
+//
+// The emitted-note count equals the note-on(vel>0) count exactly: every on()
+// opens one note, and every opened note is closed (emitted) exactly once — by a
+// later note-off, a same-note retrigger's implicit close, or closeAll. So
+// counting note-ons in pass 1 yields the precise reserve size for pass 2.
+// ---------------------------------------------------------------------------
+class Sink {
+public:
+    Sink() : counting_(true) {}  // count-only
+    Sink(MidiSong& song, NoteTracker& tracker)
+        : counting_(false), song_(&song), tracker_(&tracker) {}
+
+    void beginTrack() {
+        ++trackCount_;
+        if (!counting_) song_->tracks.push_back({});
+    }
+    // Consumes `len` bytes either way, so both passes stay byte-aligned.
+    void trackName(uint8_t idx, Reader& r, uint32_t len) {
+        if (counting_) { r.skip(len); return; }
+        if (song_->tracks[idx].name.empty())
+            song_->tracks[idx].name = r.str(len);
+        else
+            r.skip(len);
+    }
+    void tempo(uint32_t tick, uint32_t us) {
+        ++tempoCount_;
+        if (!counting_) song_->tempo.push_back({tick, us});
+    }
+    void pedal(uint32_t tick, uint8_t value, uint8_t ch, uint8_t track) {
+        ++pedalCount_;
+        if (!counting_) song_->pedal.push_back({tick, value, ch, track});
+    }
+    void noteOn(uint8_t ch, uint8_t note, uint8_t vel, uint32_t tick,
+                uint8_t track) {
+        ++noteCount_;
+        if (!counting_) tracker_->on(ch, note, vel, tick, track, song_->notes);
+    }
+    void noteOff(uint8_t ch, uint8_t note, uint32_t tick, uint8_t track) {
+        if (!counting_) tracker_->off(ch, note, tick, track, song_->notes);
+    }
+    void closeAll(uint32_t tick, uint8_t track) {
+        if (!counting_) tracker_->closeAll(tick, track, song_->notes);
+    }
+
+    size_t noteCount() const { return noteCount_; }
+    size_t tempoCount() const { return tempoCount_; }
+    size_t pedalCount() const { return pedalCount_; }
+
+private:
+    bool counting_;
+    MidiSong* song_ = nullptr;
+    NoteTracker* tracker_ = nullptr;
+    size_t noteCount_ = 0;
+    size_t tempoCount_ = 0;
+    size_t pedalCount_ = 0;
+    size_t trackCount_ = 0;
+};
+
+MidiParseError parseHeader(Reader& r, uint16_t& ntrks, uint16_t& tpq) {
+    if (!r.match4("MThd")) return MidiParseError::NotMidi;
+    uint32_t headerLen = r.u32();
+    if (!r.ok() || headerLen < 6) return MidiParseError::NotMidi;
+    r.u16();  // format (0/1 both handled identically; 2 parses as-is)
+    ntrks = r.u16();
+    uint16_t division = r.u16();
+    r.skip(headerLen - 6);
+    if (!r.ok()) return MidiParseError::NotMidi;
+    if (division & 0x8000) return MidiParseError::SmpteDivision;
+    tpq = division;
+    return MidiParseError::Ok;
+}
+
+MidiParseError parseTrack(Reader& r, uint8_t trackIndex, Sink& sink) {
     if (!r.match4("MTrk")) return r.ok() ? MidiParseError::BadTrack
                                          : MidiParseError::Truncated;
     uint32_t chunkLen = r.u32();
     if (!r.ok() || chunkLen > r.remaining()) return MidiParseError::Truncated;
     size_t end = r.pos() + chunkLen;
 
-    // A181: NoteTracker is 16x128 slots = ~18 KB — bigger than the whole
-    // 16 KB async_tcp stack this parser runs on for HTTP song load and the
-    // songs-list parse check (stack overflow proven live 2026-07-16; the
-    // route shadowing fixed in Wave A means this path never executed
-    // on-device before). Heap-allocate it; the A180 read guard's margin
-    // already keeps this allocation safe alongside the file buffer.
-    auto tracker_ = std::make_unique<NoteTracker>();
-    NoteTracker& tracker = *tracker_;
+    sink.beginTrack();
     uint32_t tick = 0;
     uint8_t runningStatus = 0;
-    song.tracks.push_back({});
 
     while (r.pos() < end && r.ok()) {
         tick += r.vlq();
@@ -141,12 +266,9 @@ MidiParseError parseTrack(Reader& r, uint8_t trackIndex, MidiSong& song) {
                 uint32_t us = (static_cast<uint32_t>(r.u8()) << 16);
                 us |= (static_cast<uint32_t>(r.u8()) << 8);
                 us |= r.u8();
-                song.tempo.push_back({tick, us});
+                sink.tempo(tick, us);
             } else if (type == 0x03) {  // Track Name
-                if (song.tracks[trackIndex].name.empty())
-                    song.tracks[trackIndex].name = r.str(len);
-                else
-                    r.skip(len);
+                sink.trackName(trackIndex, r, len);
             } else {
                 r.skip(len);
             }
@@ -178,22 +300,20 @@ MidiParseError parseTrack(Reader& r, uint8_t trackIndex, MidiSong& song) {
         switch (kind) {
             case 0x80: {  // note off
                 r.u8();   // release velocity, unused
-                tracker.off(ch, data1 & 0x7F, tick, trackIndex, song.notes);
+                sink.noteOff(ch, data1 & 0x7F, tick, trackIndex);
                 break;
             }
             case 0x90: {  // note on (velocity 0 == off)
                 uint8_t vel = r.u8();
                 if (vel == 0)
-                    tracker.off(ch, data1 & 0x7F, tick, trackIndex, song.notes);
+                    sink.noteOff(ch, data1 & 0x7F, tick, trackIndex);
                 else
-                    tracker.on(ch, data1 & 0x7F, vel, tick, trackIndex,
-                               song.notes);
+                    sink.noteOn(ch, data1 & 0x7F, vel, tick, trackIndex);
                 break;
             }
             case 0xB0: {  // control change — keep CC64 only
                 uint8_t value = r.u8();
-                if (data1 == 64)
-                    song.pedal.push_back({tick, value, ch, trackIndex});
+                if (data1 == 64) sink.pedal(tick, value, ch, trackIndex);
                 break;
             }
             case 0xA0:    // poly aftertouch (2 data bytes)
@@ -210,46 +330,84 @@ MidiParseError parseTrack(Reader& r, uint8_t trackIndex, MidiSong& song) {
     }
 
     if (!r.ok() || r.pos() > end) return MidiParseError::Truncated;
-    tracker.closeAll(tick, trackIndex, song.notes);
+    sink.closeAll(tick, trackIndex);
     r.skip(end - r.pos());  // tolerate events after EoT inside the declared chunk
+    return MidiParseError::Ok;
+}
+
+// One pass over the source: header + every track, routed through `sink`.
+MidiParseError runPass(ByteSource& src, Sink& sink, uint16_t& ntrks,
+                       uint16_t& tpq) {
+    Reader r(src);
+    MidiParseError e = parseHeader(r, ntrks, tpq);
+    if (e != MidiParseError::Ok) return e;
+    for (uint16_t i = 0; i < ntrks; ++i) {
+        e = parseTrack(r, static_cast<uint8_t>(i), sink);
+        if (e != MidiParseError::Ok) return e;
+    }
     return MidiParseError::Ok;
 }
 
 }  // namespace
 
-MidiParseResult parseMidi(const uint8_t* data, size_t len) {
+size_t midiParseFixedOverhead() { return sizeof(NoteTracker); }
+
+size_t midiParseOutputBytes(size_t notes, size_t tempo, size_t pedal) {
+    return notes * sizeof(MidiNote) + tempo * sizeof(TempoChange) +
+           pedal * sizeof(PedalEvent);
+}
+
+MidiParseError checkMidi(ByteSource& src, size_t budgetBytes) {
+    src.reset();
+    Sink counter;  // count-only: no NoteTracker, no output vectors
+    uint16_t ntrks = 0, tpq = 480;
+    MidiParseError e = runPass(src, counter, ntrks, tpq);
+    if (e != MidiParseError::Ok) return e;
+    if (midiParseOutputBytes(counter.noteCount(), counter.tempoCount(),
+                             counter.pedalCount()) > budgetBytes)
+        return MidiParseError::TooBigForMemory;
+    return MidiParseError::Ok;
+}
+
+MidiParseResult parseMidi(ByteSource& src, size_t budgetBytes) {
     MidiParseResult result;
-    Reader r(data, len);
 
-    if (data == nullptr || len < 14 || !r.match4("MThd")) {
-        result.error = MidiParseError::NotMidi;
-        return result;
-    }
-    uint32_t headerLen = r.u32();
-    if (headerLen < 6) {
-        result.error = MidiParseError::NotMidi;
-        return result;
-    }
-    r.u16();  // format (0/1 both handled identically; 2 parses as-is)
-    uint16_t ntrks = r.u16();
-    uint16_t division = r.u16();
-    r.skip(headerLen - 6);
-    if (!r.ok()) {
-        result.error = MidiParseError::NotMidi;
-        return result;
-    }
-    if (division & 0x8000) {
-        result.error = MidiParseError::SmpteDivision;
-        return result;
-    }
-    result.song.ticksPerQuarter = division;
-
-    for (uint16_t i = 0; i < ntrks; ++i) {
-        MidiParseError err = parseTrack(r, static_cast<uint8_t>(i), result.song);
-        if (err != MidiParseError::Ok) {
-            result.error = err;
+    // --- Pass 1: count (allocates nothing large) so the exact output size is
+    //     known BEFORE any big allocation. This is what makes the refusal
+    //     honest: an over-budget song is rejected here, never by gambling on
+    //     an allocation that aborts on -fno-exceptions. ---
+    uint16_t ntrks = 0, tpq = 480;
+    {
+        src.reset();
+        Sink counter;
+        MidiParseError e = runPass(src, counter, ntrks, tpq);
+        if (e != MidiParseError::Ok) {
+            result.error = e;
             return result;
         }
+        if (midiParseOutputBytes(counter.noteCount(), counter.tempoCount(),
+                                 counter.pedalCount()) > budgetBytes) {
+            result.error = MidiParseError::TooBigForMemory;
+            return result;  // song stays empty — hand back nothing on refusal
+        }
+        result.song.ticksPerQuarter = tpq;
+        // Exact reserves — each vector is allocated ONCE at its final size, so
+        // there is zero doubling transient (the ~2x realloc spike A182 fought).
+        result.song.notes.reserve(counter.noteCount());
+        result.song.tempo.reserve(counter.tempoCount());
+        result.song.pedal.reserve(counter.pedalCount());
+        result.song.tracks.reserve(ntrks);
+    }
+
+    // --- Pass 2: fill (the NoteTracker is the only big allocation, ~18 KB). ---
+    src.reset();
+    auto tracker = std::make_unique<NoteTracker>();
+    Sink filler(result.song, *tracker);
+    MidiParseError e = runPass(src, filler, ntrks, tpq);
+    if (e != MidiParseError::Ok) {  // unreachable for identical bytes; stay safe
+        result.error = e;
+        result.song = MidiSong{};
+        return result;
     }
 
     std::stable_sort(result.song.notes.begin(), result.song.notes.end(),
@@ -265,6 +423,11 @@ MidiParseResult parseMidi(const uint8_t* data, size_t len) {
                          return a.tick < b.tick;
                      });
     return result;
+}
+
+MidiParseResult parseMidi(const uint8_t* data, size_t len, size_t budgetBytes) {
+    BufferByteSource src(data, len);
+    return parseMidi(src, budgetBytes);
 }
 
 uint64_t tickToMicros(const MidiSong& song, uint32_t tick) {

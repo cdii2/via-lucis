@@ -14,13 +14,20 @@
 
 namespace vialucis {
 
-enum class SongLoadOutcome : uint8_t { Ok, NotFound, ParseError };
+// TooBig (A185) is split OUT of ParseError so the load route can answer
+// honestly: a song that parses fine but is beyond this device's RAM ceiling is
+// "too big for this device", NOT "corrupt". The player can keep the file (it's
+// valid) and load it on a roomier boot / a PSRAM board, instead of deleting a
+// good song they were told was broken.
+enum class SongLoadOutcome : uint8_t { Ok, NotFound, ParseError, TooBig };
 
-// `fileRead` = the store read succeeded (the file exists and was read in
-// full). `parseErr` is only meaningful when `fileRead` is true.
+// `fileRead` = the store read succeeded (the file exists and was opened).
+// `parseErr` is only meaningful when `fileRead` is true.
 inline SongLoadOutcome classifySongLoad(bool fileRead,
                                         MidiParseError parseErr) {
     if (!fileRead) return SongLoadOutcome::NotFound;
+    if (parseErr == MidiParseError::TooBigForMemory)
+        return SongLoadOutcome::TooBig;
     if (parseErr != MidiParseError::Ok) return SongLoadOutcome::ParseError;
     return SongLoadOutcome::Ok;
 }

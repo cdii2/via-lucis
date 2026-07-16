@@ -36,10 +36,25 @@ static void test_read_file_parsed_ok_is_ok() {
                      SongLoadOutcome::Ok);
 }
 
+// A185: "too big for this device's memory" is its OWN outcome, distinct from a
+// corrupt/unparseable file — the load route maps it to a distinct typed error
+// so a valid-but-large song is never mislabeled corrupt.
+static void test_too_big_for_memory_is_its_own_outcome() {
+    TEST_ASSERT_TRUE(classifySongLoad(true, MidiParseError::TooBigForMemory) ==
+                     SongLoadOutcome::TooBig);
+    // A genuine parse error stays ParseError, not TooBig.
+    TEST_ASSERT_TRUE(classifySongLoad(true, MidiParseError::Truncated) ==
+                     SongLoadOutcome::ParseError);
+    // A missing file wins over any parse verdict, TooBig included.
+    TEST_ASSERT_TRUE(classifySongLoad(false, MidiParseError::TooBigForMemory) ==
+                     SongLoadOutcome::NotFound);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_missing_file_is_not_found_regardless_of_parse_error);
     RUN_TEST(test_read_file_with_parse_error_is_parse_error);
     RUN_TEST(test_read_file_parsed_ok_is_ok);
+    RUN_TEST(test_too_big_for_memory_is_its_own_outcome);
     return UNITY_END();
 }
