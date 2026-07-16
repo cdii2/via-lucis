@@ -6,6 +6,10 @@ ArmResult MidiCapture::arm(size_t budgetBytes, uint32_t maxDurationMs,
                            uint64_t nowUs) {
     (void)nowUs;
     if (state_ != CaptureState::Idle) return ArmResult::AlreadyArmed;
+    // Clamp BEFORE anything is consumed (B5): the requested budget can never
+    // exceed what a saved take could ever fit, so a take can't be recorded
+    // only to become unsaveable at stop() time.
+    if (budgetBytes > kMaxRecordBudgetBytes) budgetBytes = kMaxRecordBudgetBytes;
     size_t maxEvents = budgetBytes / sizeof(CaptureEvent);
     if (maxEvents == 0)  // can't hold even one event
         return ArmResult::BadBudget;
@@ -71,7 +75,16 @@ void MidiCapture::onPedal(uint8_t value, uint8_t channel, uint64_t nowUs) {
         }
         pedalCredits_ = 0;  // stale credits die
     }
-    if (state_ != CaptureState::Recording) return;
+    if (state_ == CaptureState::Idle) return;
+    if (state_ == CaptureState::Armed) {
+        // A pedal-DOWN while Armed opens the take exactly like a note-on
+        // would (B5: the opening sustain must not be lost); a pedal-UP has
+        // nothing to open, so it stays dropped (mirrors onNoteOn/onNoteOff's
+        // "nothing before the first note" rule).
+        if (value == 0) return;
+        firstNoteUs_ = nowUs;
+        state_ = CaptureState::Recording;
+    }
     append(CaptureEventType::Pedal, 0, static_cast<uint8_t>(value & 0x7F),
            channel, nowUs);
 }

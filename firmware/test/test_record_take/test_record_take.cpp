@@ -122,6 +122,57 @@ static void test_next_name_after_contiguous() {
                              nextRecordingName(existing).c_str());
 }
 
+// --- takeWasTruncated (B5: Saved vs SavedTruncated) -------------------------
+
+static void test_take_was_truncated_reflects_capture_status() {
+    CaptureTake ok = takeWith({{0, 500, 60, 90, 0}});
+    ok.status = CaptureStatus::Ok;
+    TEST_ASSERT_FALSE(takeWasTruncated(ok));
+
+    CaptureTake overflowed = takeWith({{0, 500, 60, 90, 0}});
+    overflowed.status = CaptureStatus::Overflowed;
+    TEST_ASSERT_TRUE(takeWasTruncated(overflowed));
+}
+
+// --- PendingSave: a failed save keeps the take retryable (B5) ---------------
+
+static void test_pending_save_starts_empty() {
+    PendingSave pending;
+    TEST_ASSERT_FALSE(pending.held());
+    pending.clear();  // no-op, must not crash/assert on an unheld clear
+    TEST_ASSERT_FALSE(pending.held());
+}
+
+static void test_pending_save_holds_and_returns_the_take() {
+    PendingSave pending;
+    CaptureTake t = takeWith({{0, 500, 64, 90, 0}}, {{100, 127, 0}});
+    pending.hold(t);
+    TEST_ASSERT_TRUE(pending.held());
+    TEST_ASSERT_EQUAL_size_t(1, pending.take().notes.size());
+    TEST_ASSERT_EQUAL_UINT8(64, pending.take().notes[0].note);
+    TEST_ASSERT_EQUAL_size_t(1, pending.take().pedals.size());
+}
+
+static void test_pending_save_clear_drops_the_take() {
+    PendingSave pending;
+    pending.hold(takeWith({{0, 500, 60, 90, 0}}));
+    TEST_ASSERT_TRUE(pending.held());
+    pending.clear();
+    TEST_ASSERT_FALSE(pending.held());
+}
+
+static void test_pending_save_hold_replaces_prior_take() {
+    // Only the MOST RECENT failed take is retryable — a second failed save
+    // (e.g. retry-save itself failing again) replaces the first, it never
+    // accumulates a queue.
+    PendingSave pending;
+    pending.hold(takeWith({{0, 500, 60, 90, 0}}));
+    pending.hold(takeWith({{0, 500, 72, 90, 0}}));
+    TEST_ASSERT_TRUE(pending.held());
+    TEST_ASSERT_EQUAL_size_t(1, pending.take().notes.size());
+    TEST_ASSERT_EQUAL_UINT8(72, pending.take().notes[0].note);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_split_at_middle_c);
@@ -132,5 +183,10 @@ int main(int, char**) {
     RUN_TEST(test_next_name_empty_is_one);
     RUN_TEST(test_next_name_fills_gap);
     RUN_TEST(test_next_name_after_contiguous);
+    RUN_TEST(test_take_was_truncated_reflects_capture_status);
+    RUN_TEST(test_pending_save_starts_empty);
+    RUN_TEST(test_pending_save_holds_and_returns_the_take);
+    RUN_TEST(test_pending_save_clear_drops_the_take);
+    RUN_TEST(test_pending_save_hold_replaces_prior_take);
     return UNITY_END();
 }

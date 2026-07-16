@@ -76,6 +76,41 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   per-song save ceiling `kMaxSongBytes`, so a bigger take was unsaveable);
   test_settings updated. pendingSave_ is HTTP-task-owned (all record routes run
   on async_tcp), read unfenced like store_.
+- A124 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::onPedal` now
+  starts the clock on a pedal-DOWN (value > 0) while merely Armed** — mirrors
+  `onNoteOn`'s "first real event anchors t=0" rule; a pedal-UP (value 0) while
+  Armed still has nothing to open and stays dropped. Fixes the reported bug
+  (opening sustain lost); `midi_capture.cpp` only, no ModeDirector change
+  needed — it already forwards `onPedal` straight through, gate-free.
+- A123 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::arm` clamps
+  the requested budget to a new `kMaxRecordBudgetBytes = 256 * 1024`**
+  (`midi_capture.h`), matching `SongStore::kMaxSongBytes` (firmware/src,
+  duplicated not shared — lib/core can't include firmware/src). Settings
+  still allows `recordBudgetKB` up to 1024 (`settings.cpp`, not mine to
+  touch); the core clamp is the real safety net so an over-budget take can
+  never become unsaveable by construction regardless of what the settings
+  layer permits. ASK filed for B4 to optionally tighten settings.cpp's clamp
+  to match (better UX: reject at the settings layer with a clear message
+  instead of a silent deep clamp) — not required for correctness.
+- A122 (2026-07-16, Wave B-ii, wbii/record B5): **Added `PendingSave`
+  (`record_take.h`), a pure state holder that keeps a `CaptureTake` alive
+  after a failed save** so a retry-save can reuse it instead of the take
+  being destroyed. It only holds state — App still owns the actual
+  hand-split/writeSmf/LittleFS I/O on each attempt (mine to build; the App
+  wiring + REST route are ASKs, since `app.cpp`/`app.h`/`web_server.cpp` are
+  outside my ownership). `hold()` always replaces any prior held take (one
+  take in flight, matching the rest of record mode).
+- A121 (2026-07-16, Wave B-ii, wbii/record B5): **Added `takeWasTruncated()`
+  (`record_take.h`)** — a one-line named predicate (`take.status ==
+  CaptureStatus::Overflowed`) so App's `recordStop()`/retry-save don't inline
+  the enum compare at each call site when deciding `Saved` vs
+  `SavedTruncated`. The underlying `CaptureStatus::Overflowed` signal and
+  `ModeDirector::recordStatus()` accessor already existed pre-B5 (built in
+  the earlier Wave B-i `wbi/director`/`wbi/engine` merges) — B5's job was
+  wiring it into a stop-result distinction, which is an ASK (touches
+  `app.h`/`app.cpp`/`web_server.cpp`, none mine) plus surfacing `overflowed`
+  in `/api/status`'s `record` object (touches `playback_engine.h/.cpp`, also
+  not mine).
 - A120 (2026-07-16, Wave B-i, wbi/director B1a): **Test-pattern orphan timeout =
   5 minutes (`kTestPatternTimeoutMs = 300000` in mode_director.h).** Long enough
   to physically inspect the strip end to end, short enough that a vanished
