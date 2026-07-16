@@ -43,17 +43,40 @@ Errors: non-2xx with `{"error": "<human message>"}`.
       "countIn": false,               //   Free-capture count-in requested
       "bpm": 90                       //   count-in BPM (clamped 20-300)
     },
+    "fs": "ok",                       // A3: "ok" | "error" — LittleFS health
+                                      //   ("error" = mount failed OR wedged)
+    "fsFree": 512000,                 // LittleFS free bytes
+    "fsTotal": 917504,                // LittleFS total bytes (partition size)
+    "fsUsed": 405504,                 // LittleFS used bytes
+    "heapFree": 142000,               // ESP.getFreeHeap()
+    "heapMaxAlloc": 110000,           // largest contiguous heap block
+    "uptimeMs": 3600000,              // ms since boot
+                                      //   (the seven fields above appear ONLY
+                                      //   on GET /api/status, like wifi)
     "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap — LAST key
   }
   ```
   The UI polls this (~2×/s while open). Cheap to serve; no allocation storms.
+  The `fs*` fields are the single source of storage capacity — the library
+  capacity gauge reads them here (GET /api/songs stays a bare list).
 
 ## Songs
 
 - `GET /api/songs` → `[{"name": "ode-to-joy.mid", "size": 4321}]`
-  (LittleFS `/songs/` directory listing; names are sanitized filenames.)
+  (LittleFS `/songs/` directory listing; names are sanitized filenames.) A
+  bare array — capacity/free space is NOT here; read `fsFree`/`fsTotal` from
+  `GET /api/status`.
 - `POST /api/songs` — raw body upload, `?name=<filename>.mid` query param.
   → `201 {"name": "..."}`. Rejects non-`.mid` names and files > 256 KB.
+  Errors are deferred to the end of the transfer and returned as JSON (never a
+  mid-body TCP reset), and a rejected upload leaves no partial file behind:
+  - `400` — missing `?name=`, bad/non-`.mid` name.
+  - `413 {"error": "file too large (256KB max)"}` — announced size over 256 KB.
+  - `507 {"error": "insufficient storage"}` — block-rounded size plus a safety
+    reserve wouldn't fit in free space (checked before the first byte is
+    written, so it can never wedge the filesystem).
+  - `409 {"error": "song is loaded"}` — the target name is the currently-loaded
+    song; unload it first (overwriting a live song would desync playback).
 - `DELETE /api/songs/{name}` → `204`, or `404 {"error": "no such song"}`, or
   `409 {"error": "song is loaded"}` if it's the currently-loaded song
   (`POST /api/songs/unload` it first — otherwise status/practice would keep
@@ -256,6 +279,19 @@ inputs — changing them (either route) rebuilds the table on that tier only.
 - `GET /api/calibration/probe` → `{"armed": true, "led": 123, "note": null}`
   (`note` = the captured MIDI note after the press; poll ~2×/s while armed).
 - `DELETE /api/calibration/probe` — cancel; clears any capture. → `200`.
+
+## Storage (A3)
+
+- `POST /api/storage/format` body `{"confirm": "ERASE"}` → `200 {"formatting":
+  true}`, then LittleFS is wiped and re-mounted. The **only** recovery from a
+  hard-full wedge (see below) short of a USB reflash — destroys ALL songs,
+  shows, settings, calibration, and ambient config. `400 {"error": "confirm
+  token required"}` without the exact token. The reply is sent immediately; the
+  seconds-long format runs on the device loop task (never on the network task),
+  so poll `GET /api/status` (`fs` back to `"ok"`, `fsUsed` near zero) to confirm
+  completion. Storage health is in `GET /api/status`'s `fs` field: `"error"`
+  means the FS won't mount or has wedged (new-file creates fail while overwrites
+  and deletes still work — the failure mode that motivated this route).
 
 ## Utility
 
