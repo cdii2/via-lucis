@@ -3,6 +3,50 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A157 (2026-07-16, Wave D, wd/wizard): **Slider re-arm debounce = 220ms**
+  (`calOnSliderInput` in webui/index.html). No prior art specified a number —
+  chosen as comfortably above a single requestAnimationFrame-driven drag
+  tick's input-event cadence but well under human perception of "the light
+  followed my drag," so a fast end-to-end slider sweep across all 360 LEDs
+  sends exactly one `POST /api/calibration/probe` after the drag settles
+  instead of one per pixel. Verified live: 4 rapid synthetic `input` events
+  dispatched in one JS tick collapsed to exactly one network POST (armed at
+  the last value only).
+- A156 (2026-07-16, Wave D, wd/wizard): **One shared error-panel component
+  (`calErrPanelHtml`/`calWireErrPanel`/`calSetProbeError`) drives every
+  probe-arm screen** (step1 anchor capture, step3 verify, fine-tune's
+  "Show") — not a per-screen toast. This directly replaces two pre-existing
+  bugs the audit named: the old code silently re-armed forever on a bare
+  `armed:false` (read as "still waiting," no way out) and bounced any 409
+  straight back to the preflight screen with no explanation. Now `timedOut`,
+  `409 recording`, `409 playing`, and network-unreachable all render the same
+  persistent inline panel with a Retry button that re-invokes the exact
+  failed action's closure (re-arm same LED, or re-show same fine-tune key).
+  Verified live against the mock for both 409 recording (panel renders "The
+  device is recording — stop recording first," Retry recovers once the mock
+  flag clears) and REST-level for timedOut/409 playing.
+- A155 (2026-07-16, Wave D, wd/wizard): **mock_device.py's probe additively
+  gained a real `timedOut` field (mirrors firmware B6d/A119) and a mock-only
+  `POST /api/mock/set-recording` control endpoint** (same spirit as A153's
+  `fail-uploads` — NOT part of docs/API.md, a real device has no such
+  route). The Record feature itself has NO mock support at all yet (no
+  `/api/record/*` routes, no `record` object in status) — building that out
+  is a separate, unclaimed task; this wave only needed a way to force the
+  probe-arm-while-recording 409 deterministically for its own E2E, so it
+  added the narrowest possible hook rather than partially building someone
+  else's feature.
+- A154 (2026-07-16, Wave D, wd/wizard): **The wizard never sends an explicit
+  `reversed` field in the multiPoint PUT body** — docs/API.md's multiPoint
+  shape only lists `tier`/`landmarks`; `reversed` is a response-only field
+  the device infers from landmark LED order (ruling §6-5). The Done screen's
+  "Reversed strip" toggle (§3-D item 4) surfaces that inferred value and,
+  when the user flips it, re-submits the SAME landmarks with every LED
+  mirrored about the strip center (`ledCount-1-led`) rather than swapping
+  just the two endpoints — this stays correct after a mismatch-fix has added
+  a 3rd guide point mid-flow, and it's the general "flip the whole strip"
+  operation rather than a two-point special case. Verified live: toggling
+  on a 3-landmark table flipped `reversed` true→false→true server-side with
+  each landmark's `led` mirrored correctly.
 - A153 (2026-07-16, Wave L2, wl2/library): **mock_device.py gets two additive
   fixes beyond the strict T5/T6 ask, same spirit as A146.** (1)
   `POST /api/songs/{name}/rename` was completely unhandled (fell through to
