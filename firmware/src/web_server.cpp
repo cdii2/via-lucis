@@ -296,7 +296,9 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
             JsonObject o = arr.add<JsonObject>();
             o["name"] = s.name;
             o["size"] = s.size;
-            o["parseOk"] = s.parseOk;
+            // A183: omitted while unchecked (budgeted warm-up) — absent
+            // means "not checked yet", never "bad".
+            if (s.parseKnown) o["parseOk"] = s.parseOk;
         }
         std::string out;
         serializeJson(doc, out);

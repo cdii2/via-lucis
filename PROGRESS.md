@@ -973,5 +973,24 @@ capture-timing upgrade (hardware-gated).
   - **PIPELINE STOPPED here by design: library Phase 2 (T7 watched-folder
     semantics, T8 sync agent) NOT built — HELD pending Christian living
     with Phase 1.**
-  - Device recovery (reflash w/ new table → erase → format → bulk re-upload
-    → §5 REST checklist) = Needs Christian (USB re-seat first).
+  - **DEVICE RECOVERY EXECUTED 2026-07-16 (same day, USB re-seated):** config
+    backed up off the old firmware → chip erase → flash at head (2 MB/1.9 MB
+    table LIVE: fsTotal=1,966,080) → first boot = MountFailed + AP recovery
+    UI exactly per §6-2 → one-time format via the guarded endpoint → settings/
+    calibration/afk restored (wifiPassSet:true, no secret in GET — C4 proven
+    on hardware) → **all 47 songs uploaded** (incl. ZeldaWW + sanitized
+    paren/length names) → **§5 checklist 11/11 PASS**, incl. fill-to-507
+    with NO partial and NO wedge (small upload 201 at near-full). The
+    original wedge had self-healed (dir-pair compacted after deletes+reboot)
+    so the NOSPC errno was never captured — moot now.
+  - **THREE hardware-only crash bugs found+fixed live at first flash
+    (A180–A183, hotfixed same session):** (1) parseTrack's 18 KB NoteTracker
+    overflowed the 16 KB async_tcp stack — latent since v1, unreachable
+    until Wave A un-shadowed the load route; heap-allocated. (2) parse of a
+    105 KB MIDI blew the heap mid-notes-vector (uncatchable bad_alloc, no
+    -fexceptions) — `parseWorkFits` guard: file×4 + 16 KB margin vs
+    maxAlloc (factor BRING-UP-TUNABLE; live maxAlloc ≈ 64 KB → current
+    parse/load ceiling ≈ 12 KB files). (3) cold-cache parseOk sweep starved
+    the core-0 task-watchdog (`task_wdt: Aborting`) — budgeted to 4
+    checks/list call + yield; `parseOk` now absent-until-checked (A183,
+    webui already feature-detects). Native 519 → 522.

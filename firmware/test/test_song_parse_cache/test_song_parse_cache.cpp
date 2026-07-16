@@ -75,8 +75,24 @@ static void test_prune_forces_recompute_for_a_readded_same_name_song() {
     TEST_ASSERT_TRUE(c.needsRecompute("x.mid", 20));
 }
 
+// A183: has() separates "checked" from "good" so the budgeted warm-up can
+// report an unchecked file as UNKNOWN (no parseOk on the wire) instead of
+// falsely badging it bad via get()'s safe-default false.
+void test_has_tracks_known_separately_from_good() {
+    SongParseCache c;
+    TEST_ASSERT_FALSE(c.has("x.mid"));       // never seen: unknown
+    c.set("x.mid", 20, false);
+    TEST_ASSERT_TRUE(c.has("x.mid"));        // seen and BAD: known
+    TEST_ASSERT_FALSE(c.get("x.mid"));
+    c.set("y.mid", 9, true);
+    TEST_ASSERT_TRUE(c.has("y.mid"));        // seen and good: known
+    c.prune({"y.mid"});
+    TEST_ASSERT_FALSE(c.has("x.mid"));       // pruned: unknown again
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_has_tracks_known_separately_from_good);
     RUN_TEST(test_unseen_name_needs_recompute);
     RUN_TEST(test_get_returns_false_for_unseen_name);
     RUN_TEST(test_matching_size_after_set_does_not_need_recompute);

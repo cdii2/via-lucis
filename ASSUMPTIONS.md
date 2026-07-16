@@ -57,6 +57,18 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
   multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
   exactly as before (L2's mock upload path untouched).
+- A183 (2026-07-16, bring-up hotfix, dispatcher): **`App::songsForList`
+  parse-checks at most `kParseChecksPerListCall` (4) uncached files per call,
+  yields (`delay(1)`) between each, and reports still-unchecked files with
+  `parseKnown=false` — the route then OMITS `parseOk` (absent = "not checked
+  yet", never "bad"; `SongParseCache::has()` added as the known-vs-good
+  axis, native-pinned).** Third live crash mode of the day: an unbounded
+  cold-cache sweep (13+ files, one HTTP request on async_tcp) starved the
+  core-0 IDLE task past the 5 s task-watchdog → `task_wdt: Aborting` →
+  reboot, which made bulk_upload's per-file verify GET look like a network
+  failure on every attempt. The webui's badge already feature-detects
+  `parseOk === false` only, so absent-while-warming needs zero webui change;
+  the cache fills across subsequent polls. API.md updated.
 - A182 (2026-07-16, bring-up hotfix, dispatcher): **`SongStore::read`'s guard
   upgraded from read-fits (A180) to `parseWorkFits`: file bytes ×
   `kParseExpansionFactor` (4) + margin must fit `getMaxAllocHeap()`** —

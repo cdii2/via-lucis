@@ -37,6 +37,12 @@ public:
     // for a name the cache has never seen.
     bool get(const std::string& name) const;
 
+    // True when the cache holds ANY result for `name` (A183: the budgeted
+    // warm-up needs "checked vs not-yet-checked" as a separate axis from
+    // good-vs-bad, so an unchecked file can be reported as UNKNOWN — no
+    // parseOk field on the wire — instead of falsely badged bad).
+    bool has(const std::string& name) const;
+
     // Drop every entry whose name isn't in `currentNames` (deleted/renamed
     // songs) so the cache never grows across a device's uptime.
     void prune(const std::vector<std::string>& currentNames);

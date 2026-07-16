@@ -87,7 +87,13 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   bare array — capacity/free space is NOT here; read `fsFree`/`fsTotal` from
   `GET /api/status`. `parseOk` (A164, §3-E item 12 — the queued Wave C ask)
   is `false` when the file's MIDI fails to parse (a corrupt/partial upload
-  that still landed on the device) — the webui badges it so a player isn't
+  that still landed on the device) OR when the file is beyond what the
+  device's RAM can parse/load at all (A182 — such a song can't play on this
+  hardware, so the badge is honest). `parseOk` may be **absent** on a song
+  the device simply hasn't checked yet: checks are budgeted a few per list
+  call (A183) so a cold cache can't stall the request — absent means
+  "unknown, warming up", never "bad"; it fills in across subsequent list
+  fetches. The webui badges only an explicit `parseOk: false`, so a player isn't
   left guessing why a song silently won't load. It's cheap: a per-boot,
   in-RAM cache keyed by (name, size) means re-parsing only happens for a
   song this call has never seen or whose byte size just changed (a

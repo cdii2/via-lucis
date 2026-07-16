@@ -138,7 +138,14 @@ public:
     BleMidiIo& ble() { return ble_; }
 
     // --- songs list w/ parse status (A164, §3-E item 12) -------------------
-    struct SongListEntry { std::string name; size_t size; bool parseOk; };
+    // parseKnown=false means the budgeted warm-up (A183) hasn't checked this
+    // file yet — the route omits parseOk entirely rather than badging it.
+    struct SongListEntry {
+        std::string name;
+        size_t size;
+        bool parseOk;
+        bool parseKnown;
+    };
     // GET /api/songs annotated with parseOk — cached per (name,size) via
     // parseCache_ so a ~2x/s poll never re-parses every file; only a
     // never-seen name or a changed size (re-upload/overwrite) triggers one

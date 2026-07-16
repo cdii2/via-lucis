@@ -21,6 +21,10 @@ bool SongParseCache::get(const std::string& name) const {
     return it != entries_.end() && it->second.parseOk;
 }
 
+bool SongParseCache::has(const std::string& name) const {
+    return entries_.find(name) != entries_.end();
+}
+
 void SongParseCache::prune(const std::vector<std::string>& currentNames) {
     std::unordered_set<std::string> keep(currentNames.begin(),
                                          currentNames.end());

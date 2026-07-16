@@ -168,17 +168,30 @@ std::vector<App::SongListEntry> App::songsForList() {
     for (const SongFileInfo& f : files) names.push_back(f.name);
     parseCache_.prune(names);  // forget deleted/renamed songs
 
+    // A183: parse-check at most a few uncached files PER CALL, with a yield
+    // between each. An unbounded cold-cache sweep (40+ files, one HTTP
+    // request) starved the core-0 IDLE task past the 5 s task-watchdog and
+    // ABORTED the device (proven live: "task_wdt: Aborting" during
+    // bulk_upload's verify GETs). Unchecked files report parseKnown=false —
+    // the route omits parseOk and the cache warms across subsequent polls.
+    constexpr size_t kParseChecksPerListCall = 4;
+    size_t budget = kParseChecksPerListCall;
+
     std::vector<SongListEntry> out;
     out.reserve(files.size());
     for (const SongFileInfo& f : files) {
-        if (parseCache_.needsRecompute(f.name, f.size)) {
+        if (parseCache_.needsRecompute(f.name, f.size) && budget > 0) {
+            --budget;
             std::vector<uint8_t> data;
             bool ok = store_.read(f.name, data);
             if (ok) ok = parseMidi(data.data(), data.size()).error ==
                          MidiParseError::Ok;
             parseCache_.set(f.name, f.size, ok);
+            delay(1);  // feed IDLE/watchdog + let TCP breathe between parses
         }
-        out.push_back({f.name, f.size, parseCache_.get(f.name)});
+        bool known = !parseCache_.needsRecompute(f.name, f.size);
+        out.push_back(
+            {f.name, f.size, known ? parseCache_.get(f.name) : false, known});
     }
     return out;
 }
