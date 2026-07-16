@@ -20,6 +20,13 @@ namespace vialucis {
 // the wait-gate. Revisit at hardware bring-up.
 constexpr uint64_t kChordEpsilonUs = 10000;  // 10 ms
 
+// B7 (BUGFIX-PLAN §3-B): sensible pre-reserve capacity for the per-chord
+// hot-path vectors (pending_/cleared_) — generous headroom over a two-hand
+// chord (max ~10 fingers) so a normal song never forces a reallocation on
+// the onKeyDown/update() path. Not a hard cap: vectors still grow past it
+// if a pathological song genuinely needs more (correctness > memory here).
+constexpr size_t kMaxChordNotes = 16;
+
 enum class KeyVerdict : uint8_t {
     Cleared,  // correct pending note; light it up / release if chord done
     Wrong,    // red flash at this key
@@ -35,7 +42,12 @@ struct KeyFeedback {
 class WaitMode {
 public:
     WaitMode(Scheduler& sched, uint32_t practicedMask)
-        : sched_(sched), mask_(practicedMask) {}
+        : sched_(sched), mask_(practicedMask) {
+        // B7: reserved once at construction — the hot onKeyDown/update()
+        // path never reallocates mid-practice.
+        pending_.reserve(kMaxChordNotes);
+        cleared_.reserve(kMaxChordNotes);
+    }
 
     void setEchoGuard(EchoGuard* g) { guard_ = g; }
     void setPracticedMask(uint32_t m) { mask_ = m; }
@@ -73,6 +85,9 @@ public:
         return false;
     }
     const std::vector<uint8_t>& pendingNotes() const { return pending_; }
+    // Members already struck this chord (B7: exposed alongside pendingNotes()
+    // for the same reason — test/inspection access to the hot-path vectors).
+    const std::vector<uint8_t>& clearedNotes() const { return cleared_; }
     uint64_t barrierTimeUs() const { return barrierTime_; }
 
 private:

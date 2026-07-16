@@ -11,6 +11,11 @@ namespace vialucis {
 namespace {
 constexpr uint64_t kWrongFlashUs = 300000;   // red flash duration
 constexpr uint64_t kFramePeriodUs = 16667;   // ~60 fps LED refresh
+// B7 (BUGFIX-PLAN §3-B): sensible pre-reserve for the wrong-flash hot-path
+// vector — generous headroom over how many keys can plausibly be mid-flash
+// at once (bounded by fingers, same reasoning as wait_mode's
+// kMaxChordNotes). Not a hard cap.
+constexpr size_t kMaxSimultaneousWrongFlashes = 16;
 // Off-gaps below this collapse to one visual event (brief §2's 3ms
 // pathology): no human re-press has a sub-10ms silent gap — that's a MIDI
 // artifact, and cueing it would flicker.
@@ -25,6 +30,7 @@ PlaybackEngine::PlaybackEngine() {
     wrongColor_ = defaults.wrongColor;
     eventsBuf_.reserve(64);
     queryBuf_.reserve(64);
+    wrongFlashes_.reserve(kMaxSimultaneousWrongFlashes);  // B7
 }
 
 void PlaybackEngine::configure(const Settings& s) {
@@ -371,13 +377,35 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         // Q2: WaitMode owns the chord lifecycle and reports the edge (new
         // chord loaded) plus its same-key re-dues — no barrier-time mirror
         // to forget to reset (Q-wave closing review).
-        if (wait_->update() && repeatCue_.enabled) {
-            for (uint8_t n : wait_->reDueKeys()) {
-                if (n < 21 || n > 108) continue;
-                waitPulseUntilUs_[n - 21] =
-                    nowUs +
-                    static_cast<uint64_t>(repeatCue_.waitPulseMs) * 1000;
-                frameDirty_ = true;
+        if (wait_->update()) {
+            // B7: a note that just became a member of the newly-loaded due
+            // chord must never still paint red from a stale wrong-flash left
+            // by a PREVIOUS chord — WaitMode::onKeyDown only ever reports
+            // Wrong for a note that is NOT pending at press-time, so a flash
+            // can only go stale across exactly this transition (never within
+            // one chord's lifetime). Drop it now instead of leaving it to
+            // time out up to kWrongFlashUs later (today: solid red on a key
+            // the player must press).
+            for (uint8_t n : wait_->pendingNotes()) {
+                size_t w = 0;
+                while (w < wrongFlashes_.size()) {
+                    if (wrongFlashes_[w].note == n)
+                        wrongFlashes_.erase(wrongFlashes_.begin() + w);
+                    else
+                        ++w;
+                }
+            }
+            // A chord transition is always a visual change (new due chord
+            // lit, any stale wrong-flash just dropped) — render it on the
+            // very next tick rather than waiting up to one 60fps period.
+            frameDirty_ = true;
+            if (repeatCue_.enabled) {
+                for (uint8_t n : wait_->reDueKeys()) {
+                    if (n < 21 || n > 108) continue;
+                    waitPulseUntilUs_[n - 21] =
+                        nowUs +
+                        static_cast<uint64_t>(repeatCue_.waitPulseMs) * 1000;
+                }
             }
         }
     }
