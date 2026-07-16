@@ -214,6 +214,99 @@ void test_config_json_round_trip_and_typed_errors() {
     TEST_ASSERT_TRUE(err.find("nope") != std::string::npos);
 }
 
+// A4 (BUGFIX-PLAN §3-A, R3): afkConfigFromJson must PATCH into the current
+// config, not reset it — a partial/foreign body used to "validate" and wipe
+// everything (persisted to flash). These pin the fix.
+
+void test_partial_body_preserves_untouched_fields() {
+    AfkConfig current;
+    current.tracks.push_back({"fire2012", "heat"});
+    current.tracks.push_back({"pacifica", "ocean"});
+    current.shuffle = true;
+    current.repeatCurrent = false;
+    current.dwellSec = 45;
+    current.crossfadeMs = 3000;
+    current.brightnessCap = 36;
+    current.masterSpeed = 1.5f;
+    current.aboveKeysOnly = true;
+
+    AfkConfig patched = current;
+    std::string err;
+    // Only brightnessCap is present — everything else must survive.
+    TEST_ASSERT_TRUE(
+        fx::afkConfigFromJson("{\"brightnessCap\":50}", patched, &err));
+    TEST_ASSERT_EQUAL_UINT8(50, patched.brightnessCap);
+    TEST_ASSERT_EQUAL_size_t(2, patched.tracks.size());
+    TEST_ASSERT_EQUAL_STRING("fire2012", patched.tracks[0].effect.c_str());
+    TEST_ASSERT_EQUAL_STRING("heat", patched.tracks[0].palette.c_str());
+    TEST_ASSERT_EQUAL_STRING("pacifica", patched.tracks[1].effect.c_str());
+    TEST_ASSERT_TRUE(patched.shuffle);
+    TEST_ASSERT_FALSE(patched.repeatCurrent);
+    TEST_ASSERT_EQUAL_UINT32(45, patched.dwellSec);
+    TEST_ASSERT_EQUAL_UINT32(3000, patched.crossfadeMs);
+    TEST_ASSERT_EQUAL_FLOAT(1.5f, patched.masterSpeed);
+    TEST_ASSERT_TRUE(patched.aboveKeysOnly);
+}
+
+void test_foreign_body_rejected_config_unchanged() {
+    // The exact route-shadowed body from the audit (§2-R1): a swallowed
+    // AFK-control POST used to "validate" as an all-defaults config PUT.
+    AfkConfig current;
+    current.tracks.push_back({"pacifica", ""});
+    current.brightnessCap = 36;
+    current.aboveKeysOnly = true;
+    AfkConfig before = current;
+
+    std::string err;
+    TEST_ASSERT_FALSE(
+        fx::afkConfigFromJson("{\"action\":\"stop\"}", current, &err));
+    TEST_ASSERT_TRUE(err.length() > 0);
+    TEST_ASSERT_EQUAL_size_t(before.tracks.size(), current.tracks.size());
+    TEST_ASSERT_EQUAL_STRING(before.tracks[0].effect.c_str(),
+                              current.tracks[0].effect.c_str());
+    TEST_ASSERT_EQUAL_UINT8(before.brightnessCap, current.brightnessCap);
+    TEST_ASSERT_EQUAL(before.aboveKeysOnly, current.aboveKeysOnly);
+}
+
+void test_empty_object_body_rejected() {
+    AfkConfig current;
+    current.dwellSec = 45;
+    AfkConfig before = current;
+    std::string err;
+    TEST_ASSERT_FALSE(fx::afkConfigFromJson("{}", current, &err));
+    TEST_ASSERT_TRUE(err.length() > 0);
+    TEST_ASSERT_EQUAL_UINT32(before.dwellSec, current.dwellSec);
+}
+
+void test_master_speed_and_dwell_sec_clamped() {
+    AfkConfig c;
+    std::string err;
+    TEST_ASSERT_TRUE(
+        fx::afkConfigFromJson("{\"masterSpeed\":100.0}", c, &err));
+    TEST_ASSERT_EQUAL_FLOAT(4.0f, c.masterSpeed);
+    TEST_ASSERT_TRUE(
+        fx::afkConfigFromJson("{\"masterSpeed\":0.001}", c, &err));
+    TEST_ASSERT_EQUAL_FLOAT(0.25f, c.masterSpeed);
+    TEST_ASSERT_TRUE(fx::afkConfigFromJson("{\"dwellSec\":1}", c, &err));
+    TEST_ASSERT_EQUAL_UINT32(5, c.dwellSec);
+    TEST_ASSERT_TRUE(
+        fx::afkConfigFromJson("{\"dwellSec\":999999}", c, &err));
+    TEST_ASSERT_EQUAL_UINT32(86400, c.dwellSec);
+}
+
+void test_unknown_effect_in_patch_leaves_out_untouched() {
+    AfkConfig current;
+    current.tracks.push_back({"pacifica", ""});
+    current.dwellSec = 30;
+    AfkConfig before = current;
+    std::string err;
+    TEST_ASSERT_FALSE(fx::afkConfigFromJson(
+        "{\"tracks\":[{\"effect\":\"nope\"}]}", current, &err));
+    TEST_ASSERT_EQUAL_size_t(1, current.tracks.size());
+    TEST_ASSERT_EQUAL_STRING("pacifica", current.tracks[0].effect.c_str());
+    TEST_ASSERT_EQUAL_UINT32(before.dwellSec, current.dwellSec);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_empty_playlist_falls_back_to_stub);
@@ -226,5 +319,10 @@ int main(int, char**) {
     RUN_TEST(test_manual_next_previous_move_tracks);
     RUN_TEST(test_repeat_current_never_advances);
     RUN_TEST(test_config_json_round_trip_and_typed_errors);
+    RUN_TEST(test_partial_body_preserves_untouched_fields);
+    RUN_TEST(test_foreign_body_rejected_config_unchanged);
+    RUN_TEST(test_empty_object_body_rejected);
+    RUN_TEST(test_master_speed_and_dwell_sec_clamped);
+    RUN_TEST(test_unknown_effect_in_patch_leaves_out_untouched);
     return UNITY_END();
 }
