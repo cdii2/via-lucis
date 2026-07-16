@@ -346,6 +346,7 @@ std::string App::statusJson(const WifiStatus* wifi) {
         dev.heapFree = static_cast<uint32_t>(ESP.getFreeHeap());
         dev.heapMaxAlloc = static_cast<uint32_t>(ESP.getMaxAllocHeap());
         dev.uptimeMs = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+        dev.configReset = configReset_;
     }
     FenceGuard g(lock_);
     uint64_t now = static_cast<uint64_t>(esp_timer_get_time());
@@ -364,7 +365,8 @@ std::string App::statusJson(const WifiStatus* wifi) {
     RecordStatus rec{rState, director_.recordElapsedMs(now),
                      static_cast<uint32_t>(director_.recordUsedBytes()),
                      static_cast<uint32_t>(director_.recordBudgetBytes()),
-                     director_.recordCountIn(), director_.recordBpm()};
+                     director_.recordCountIn(), director_.recordBpm(),
+                     director_.recordStatus() == CaptureStatus::Overflowed};
     return engine_.statusJson(wifi, &top, &rec, wifi ? &dev : nullptr);
 }
 

@@ -86,6 +86,7 @@ struct RecordStatus {
     uint32_t budgetBytes;
     bool countIn;
     uint16_t bpm;
+    bool overflowed;      // capture hit its budget; the take is truncated (B5)
 };
 
 // Device telemetry for GET /api/status (A3) — storage + heap + uptime + the FS
@@ -100,6 +101,7 @@ struct DeviceStatus {
     uint32_t heapFree;      // ESP.getFreeHeap()
     uint32_t heapMaxAlloc;  // ESP.getMaxAllocHeap() (largest contiguous block)
     uint32_t uptimeMs;      // ms since boot
+    bool configReset;       // boot self-heal replaced a corrupt config doc (B4)
 };
 
 class PlaybackEngine {

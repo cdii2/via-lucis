@@ -156,12 +156,26 @@ e.g. `C:\Users\you\via-lucis`.)
 password, calibration, ambient config) — that is expected and unavoidable for
 this one-time step, not a bug. After the upload finishes:
 
+- **Format the song storage once.** The very first boot after an erase shows
+  a storage error in the web UI (the Songs screen's gauge reads as an error)
+  because the brand-new song-storage area is still unformatted — and the
+  firmware deliberately **never** formats storage on its own, so a glitch can
+  never wipe your songs. Formatting is a one-time, on-purpose step. Easiest
+  path: the bulk re-upload command in the next bullet with `--format` added
+  does it for you. Doing it by hand instead? Paste this into PowerShell
+  (replace the address with your device's):
+
+  ```powershell
+  Invoke-RestMethod -Method Post -Uri "http://<device-ip>/api/storage/format" -ContentType "application/json" -Body '{"confirm":"ERASE"}'
+  ```
+
 - **Songs:** the fastest way back is
-  `python tools/bulk_upload.py --src "<folder with your MIDI files>" --device http://<device-ip>`
-  from a PC with Python installed — it re-uploads a whole folder of MIDIs in
-  one go and verifies each one landed. No Python handy? Re-upload one file at
-  a time from the web UI's **Songs** screen instead — slower, but no extra
-  install.
+  `python tools/bulk_upload.py --format --src "<folder with your MIDI files>" --device http://<device-ip>`
+  from a PC with Python installed — the `--format` does the one-time format
+  from the bullet above, then it re-uploads a whole folder of MIDIs in
+  one go and verifies each one landed. No Python handy? Do the by-hand format
+  above first, then re-upload one file at a time from the web UI's **Songs**
+  screen instead — slower, but no extra install.
 - **WiFi + calibration:** redo section 6 (WiFi) and the calibration wizard
   in [BRINGUP.md](BRINGUP.md) — same steps as a first-time bring-up.
 

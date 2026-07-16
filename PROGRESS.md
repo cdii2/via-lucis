@@ -892,3 +892,41 @@ capture-timing upgrade (hardware-gated).
     newest-on-top). codebase-memory re-indexed after each merge. Builder
     worktrees removed; `vl-audit-wt` (branch audit/whatif-throwaway @ 9708a05)
     KEPT for FIX-C/G10. **Remaining audit items: FIX-C and G10 only.**
+- 2026-07-16 unified wave pipeline (BUGFIX-PLAN 2026-07-15 + DESIGN-library
+  Phase 0/1 merged into ONE pipeline; two prior sessions + this one):
+  - **WAVE A (landed @ 544b041/8dbfb02/3f3e97c/d6ca240, prev session):** A1
+    exact matchers on all 5 shadowed parent routes + `espressif32@7.0.1` /
+    `ESPAsyncWebServer@3.11.2` pins; A2 upload overhaul (block-aware 507
+    precheck w/ 32 KB reserve in `storage_budget.h`, single File handle,
+    deferred JSON errors, 409 via `App::loadedSongName()`, cleanup on
+    disconnect); A3 `POST /api/storage/format` + FsHealth + fs/heap/uptime
+    telemetry; A4 AFK PATCH semantics; A5 webui strikes. Library T1/T2/T4
+    subsumed (A111: `/api/songs` stays a bare array). `tools/bulk_upload.py`
+    (a8d0c5e). A105–A112.
+  - **WAVE B-i (landed @ 425434d/8b35991/3cd569c, prev session):** B3 engine
+    (setTrack out-param + stuck-note flush, Finished-replay credit clear,
+    scheduler wrap flag), C1-firmware `practice` in TopStatus, B1 test-pattern
+    timeout + show-Finished teardown, B2 afkControl no-wake, B6 calibration
+    (reversed inference, degenerate-table reject, probe-vs-record 409,
+    timedOut). A113–A120. Native 466.
+  - **WAVE B-ii (landed this session, merges wbii/persist → wbii/record →
+    wbii/runtime → wbii/partition + dispatcher integration):** B4 persistence
+    (atomic tmp+rename everywhere incl. uploads via `atomic_store.h`, 507 on
+    save-fail, file-layer `"schema":1` in `config_schema.*`, boot health,
+    **`formatOnFail=false` flip** superseding A108 + `config_boot.h` self-heal
+    + `configReset` status flag); B5 record (pedal-arms-clock, budget clamp
+    ≤256 KB, `PendingSave` + `POST /api/record/retry-save`, `SavedTruncated`
+    + `truncated`/`overflowed` surfacing); B7 runtime (1 ms loop yield,
+    setFrame/show fence split — FastLED.show() now OUTSIDE the fence, reboot
+    via `reboot_request.h` loop-task flag, hot-path reserves, wrong-flash
+    drop on chord transition); T3 repartition (**2 MB app + 1.9 MB LittleFS**
+    `partitions.csv`, BUILD-GUIDE §2d custom-flash + mandatory migrate-erase
+    + one-time format step). Sibling asks relayed mid-run and applied by the
+    B4 lead; dispatcher applied the cross-ownership `configReset`/`overflowed`
+    status fields at merge. A-collisions renumbered → **A121–A138**. Gate on
+    merged tree: **native 494/494**, esp32 SUCCESS (RAM 22.8%, Flash 73.7% of
+    the new 2 MB slot), songs/local clean.
+  - Device recovery (reflash w/ new table → format → bulk re-upload → §5 REST
+    checklist) = Needs Christian (USB re-seat first). Remaining waves: C
+    (webui flows + wifiPass), L2 (T5/T6 library Phase-1 finish), D (wizard
+    rebuild), E (polish). Library Phase 2 (T7/T8 sync agent) HELD.

@@ -605,6 +605,7 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
         r["budgetBytes"] = rec->budgetBytes;
         r["countIn"] = rec->countIn;
         r["bpm"] = rec->bpm;
+        r["overflowed"] = rec->overflowed;
     }
 
     if (dev) {  // A3 telemetry — also BEFORE wifi (wifi stays last)
@@ -615,6 +616,7 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
         doc["heapFree"] = dev->heapFree;
         doc["heapMaxAlloc"] = dev->heapMaxAlloc;
         doc["uptimeMs"] = dev->uptimeMs;
+        doc["configReset"] = dev->configReset;
     }
 
     if (wifi) {

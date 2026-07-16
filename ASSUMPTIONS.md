@@ -3,17 +3,17 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
-- A121 (2026-07-16, Wave B-ii, wbii/persist B4): **`SongStore::begin()`
+- A138 (2026-07-16, Wave B-ii, wbii/persist B4): **`SongStore::begin()`
   flips `formatOnFail` to FALSE (ruling §6-2), SUPERSEDING A108.** A boot must
-  never wipe real user data as a reflex. A121's safety net for the replicability
+  never wipe real user data as a reflex. A138's safety net for the replicability
   regression A108 feared (a fresh device stranded in MountFailed) is threefold:
   (1) the web UI is served from the firmware image, NOT LittleFS, so a
   mount-failed device still serves the recovery UI; (2) the guarded
   `POST /api/storage/format` initialises the empty FS in one click (documented
   in docs/API.md as the expected first-run step); (3) boot config self-heal
-  (A124) turns a corrupt doc into defaults, not a wipe. The Wedged signal is
+  (A135) turns a corrupt doc into defaults, not a wipe. The Wedged signal is
   still classified. First-boot format path documented in API.md "Storage".
-- A122 (2026-07-16, Wave B-ii, wbii/persist B4): **Atomic-persist seam =
+- A137 (2026-07-16, Wave B-ii, wbii/persist B4): **Atomic-persist seam =
   pure template `atomicPersist()` in `lib/core/atomic_store.h` (stage to a
   `.tmp`, rename over target, remove tmp on any failure) over injectable FS
   primitives, so the decision path is native-tested (test_atomic_store) while
@@ -26,7 +26,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   it in place at the first chunk, so a failed/interrupted overwrite DESTROYED
   the old good file. `list()`/`listShows()` filter `*.tmp`; `begin()` sweeps
   crash-orphaned temps. `.tmp` is deliberately not a valid song/show name.
-- A123 (2026-07-16, Wave B-ii, wbii/persist B4): **Schema versioning lives at
+- A136 (2026-07-16, Wave B-ii, wbii/persist B4): **Schema versioning lives at
   the SongStore FILE layer, not in each doc's parser.** `writeTextFile` stamps
   `"schema":kConfigSchema` (config_schema.cpp, ArduinoJson, native-tested);
   `readTextFile` rejects an unknown-HIGHER schema as corrupt and tolerates an
@@ -37,7 +37,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   and (c) all three docs' parsers already ignore unknown keys, so a leftover
   `schema` field is harmless. The pure `schemaAccepted()` decision is tested in
   test_config_schema.
-- A124 (2026-07-16, Wave B-ii, wbii/persist B4): **Boot self-heal decision =
+- A135 (2026-07-16, Wave B-ii, wbii/persist B4): **Boot self-heal decision =
   pure `decideSelfHeal(DocLoad, parsedOk)` in `lib/core/config_boot.h`
   (native-tested).** ABSENT is the first-boot / v1 upgrade path — silent
   defaults, NO reset flag (nothing was lost; for calibration, the settings'
@@ -46,14 +46,14 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   REAL doc gone bad → defaults + atomic re-save + raise `configReset_`. The
   loaders now return a tri-state `DocLoad` (was bool) so App::begin can tell
   absent from corrupt.
-- A125 (2026-07-16, Wave B-ii, wbii/persist B4): **Save failures propagate to
+- A134 (2026-07-16, Wave B-ii, wbii/persist B4): **Save failures propagate to
   507; the config still applies LIVE first.** `applySettings` returns bool;
   `applyCalibration`/`applyAfk` gained a `bool* saveFailed` out-param (additive,
   default nullptr). The handlers answer `507 "insufficient storage"` when the
   atomic write fails instead of the old lying 200. Deliberate ordering: the
   in-RAM apply happens before the persist attempt, so a full FS doesn't block a
   live settings/calibration/ambient change — it just warns it isn't durable.
-- A126 (2026-07-16, Wave B-ii, wbii/persist B4): **`configReset` surfacing in
+- A133 (2026-07-16, Wave B-ii, wbii/persist B4): **`configReset` surfacing in
   statusJson is BLOCKED on a `DeviceStatus.configReset` field in
   `playback_engine.h` — B7-owned, which my brief forbids me to touch, and which
   B7's finished branch did NOT add.** The App-side half is COMPLETE: self-heal
@@ -64,8 +64,12 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   patch (struct field + `doc["configReset"]` emit + the app.cpp populate)
   handed to the dispatcher in the final report. Same blocker applies to B5's
   `overflowed` RecordStatus field (its value is already available on my branch
-  via `director_.recordStatus() == CaptureStatus::Overflowed`).
-- A127 (2026-07-16, Wave B-ii, wbii/persist B4, B5 ask 3): **`recordArm`
+  via `director_.recordStatus() == CaptureStatus::Overflowed`). [Merge note,
+  same day: the dispatcher applied the handed-off patch on the merged tree —
+  `DeviceStatus.configReset` + `RecordStatus.overflowed` struct fields, both
+  emits in playback_engine.cpp, both populates in app.cpp statusJson — so
+  BOTH fields are LIVE as documented in API.md; this blocker is resolved.]
+- A132 (2026-07-16, Wave B-ii, wbii/persist B4, B5 ask 3): **`recordArm`
   REFUSES with `409 "unsaved take pending"` while `pendingSave_.held()`**
   (new `RecordArm::PendingUnsaved`), rather than silently dropping the retained
   failed take — chosen per B5's recommendation because arming would re-create
@@ -76,13 +80,13 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   per-song save ceiling `kMaxSongBytes`, so a bigger take was unsaveable);
   test_settings updated. pendingSave_ is HTTP-task-owned (all record routes run
   on async_tcp), read unfenced like store_.
-- A124 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::onPedal` now
+- A131 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::onPedal` now
   starts the clock on a pedal-DOWN (value > 0) while merely Armed** — mirrors
   `onNoteOn`'s "first real event anchors t=0" rule; a pedal-UP (value 0) while
   Armed still has nothing to open and stays dropped. Fixes the reported bug
   (opening sustain lost); `midi_capture.cpp` only, no ModeDirector change
   needed — it already forwards `onPedal` straight through, gate-free.
-- A123 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::arm` clamps
+- A130 (2026-07-16, Wave B-ii, wbii/record B5): **`MidiCapture::arm` clamps
   the requested budget to a new `kMaxRecordBudgetBytes = 256 * 1024`**
   (`midi_capture.h`), matching `SongStore::kMaxSongBytes` (firmware/src,
   duplicated not shared — lib/core can't include firmware/src). Settings
@@ -92,7 +96,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   layer permits. ASK filed for B4 to optionally tighten settings.cpp's clamp
   to match (better UX: reject at the settings layer with a clear message
   instead of a silent deep clamp) — not required for correctness.
-- A122 (2026-07-16, Wave B-ii, wbii/record B5): **Added `PendingSave`
+- A129 (2026-07-16, Wave B-ii, wbii/record B5): **Added `PendingSave`
   (`record_take.h`), a pure state holder that keeps a `CaptureTake` alive
   after a failed save** so a retry-save can reuse it instead of the take
   being destroyed. It only holds state — App still owns the actual
@@ -100,7 +104,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   wiring + REST route are ASKs, since `app.cpp`/`app.h`/`web_server.cpp` are
   outside my ownership). `hold()` always replaces any prior held take (one
   take in flight, matching the rest of record mode).
-- A121 (2026-07-16, Wave B-ii, wbii/record B5): **Added `takeWasTruncated()`
+- A128 (2026-07-16, Wave B-ii, wbii/record B5): **Added `takeWasTruncated()`
   (`record_take.h`)** — a one-line named predicate (`take.status ==
   CaptureStatus::Overflowed`) so App's `recordStop()`/retry-save don't inline
   the enum compare at each call site when deciding `Saved` vs
@@ -111,7 +115,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   `app.h`/`app.cpp`/`web_server.cpp`, none mine) plus surfacing `overflowed`
   in `/api/status`'s `record` object (touches `playback_engine.h/.cpp`, also
   not mine).
-- A125 (2026-07-16, Wave B-ii, wbii/runtime B7): **Wrong-flash entries are
+- A127 (2026-07-16, Wave B-ii, wbii/runtime B7): **Wrong-flash entries are
   dropped for every note in a newly-loaded chord's `pendingNotes()`, inside
   `PlaybackEngine::tick()`'s `wait_->update()` branch** — not in `onKeyDown`.
   `WaitMode::onKeyDown` only ever reports `Wrong` for a note NOT currently
@@ -125,7 +129,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   renders on the very next tick instead of waiting up to one ~16.7ms frame
   period. Minor, deliberate behavior delta (not zero-change); logged per the
   project's convention for such deltas (cf. A32).
-- A124 (2026-07-16, Wave B-ii, wbii/runtime B7): **`pending_`/`cleared_`
+- A126 (2026-07-16, Wave B-ii, wbii/runtime B7): **`pending_`/`cleared_`
   (`WaitMode`, reserved in its constructor) and `wrongFlashes_`
   (`PlaybackEngine`, reserved in its constructor) get `reserve(16)`** —
   `kMaxChordNotes` in wait_mode.h, `kMaxSimultaneousWrongFlashes` in
@@ -136,7 +140,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   capacity; no such accessor was added for `wrongFlashes_` (private, no
   existing test-facing precedent) — its capacity test is skipped per the
   brief's "where observable" carve-out.
-- A123 (2026-07-16, Wave B-ii, wbii/runtime B7): **Reboot moves off the
+- A125 (2026-07-16, Wave B-ii, wbii/runtime B7): **Reboot moves off the
   async_tcp task via a NEW header-only seam, `firmware/src/reboot_request.h`
   (`RebootRequest::pending`/`requestedAtMs`, inline C++17 statics)** — not a
   member on `App` (app.h is B4-owned this wave). `main.cpp`'s `loop()` is the
@@ -145,7 +149,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   replying immediately instead of `delay(200)`) is an ASK for B4 — my tree
   compiles either way since the old handler still compiles unchanged against
   the new header (the header is simply unused until B4 wires it in).
-- A122 (2026-07-16, Wave B-ii, wbii/runtime B7): **`LedOutput::show(frame)`
+- A124 (2026-07-16, Wave B-ii, wbii/runtime B7): **`LedOutput::show(frame)`
   split into `setFrame(frame)` (copy into the `gLeds` shadow buffer — cheap,
   fence-safe) + `show()` (the ~10.8ms `FastLED.show()` bit-bang, must run
   OUTSIDE any cross-task fence) — the OLD combined `show(frame)` overload is
@@ -161,7 +165,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   task — a single-byte FastLED brightness-scale write/read, not the power
   cap itself (untouched, set once in `begin()`), so left as a documented,
   practically-benign timing note rather than adding a second lock.
-- A121 (2026-07-16, Wave B-ii, wbii/runtime B7): **`main.cpp`'s `loop()` gets
+- A123 (2026-07-16, Wave B-ii, wbii/runtime B7): **`main.cpp`'s `loop()` gets
   an unconditional `delay(1)` at the end of every iteration** (task-watchdog
   risk: arduino-esp32's `loopTask` calls `loop()` in a tight `for(;;)` with no
   inherent yield, so a `loop()` that never blocks can starve the idle task
@@ -186,7 +190,11 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   stale byte pattern parsing as a corrupt-but-mountable filesystem is a worse
   failure mode than a clean, deliberate wipe. Documented the erase step as
   mandatory (not conditional/best-effort) in BUILD-GUIDE.md §2d for exactly
-  this reason.
+  this reason. [Merge note, same day: B4's A138 flipped `formatOnFail` to
+  FALSE in this same wave, so the "would auto-reformat anyway" fallback no
+  longer exists at all — after the migration erase, the fresh partition sits
+  in MountFailed until the one-time explicit format; §2d was amended at merge
+  with that format step (bulk_upload.py --format or POST /api/storage/format).]
 - A121 (2026-07-16, Wave B-ii, wbii/partition T3): **New `spiffs`
   (LittleFS) partition sized at exactly 0x1E0000 (1920 KiB / ~1.9 MB
   decimal), `app0` shrunk to exactly 0x200000 (2 MB), by construction rather
