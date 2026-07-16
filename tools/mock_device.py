@@ -14,6 +14,19 @@ then open http://localhost:8321
 
 This is a UI preview, not a firmware simulator — the scheduler, wait-mode
 matcher and LED pipeline are natively tested instead (see docs/SIMULATOR.md).
+
+L2 (2026-07-16, wl2/library): route matching now splits path from query
+string EVERYWHERE (see `_split`) — the mock's own R1-style bug was the
+mirror image of the real one: `self.path == "/api/songs"` never matches
+`POST /api/songs?name=foo.mid`, so every song upload 404'd. Song upload is
+now a real handler that mirrors web_server.cpp's validation order (missing
+name -> bad name -> too-large -> free-space precheck -> loaded-name 409) and
+storage_budget.h's block-aware math exactly, and GET /api/status reports
+fsFree/fsTotal/fsUsed that actually deplete as songs upload, so the webui's
+capacity bar and upload margin guard (T6) have something real to react to.
+A `/api/mock/fail-uploads` control endpoint (NOT part of docs/API.md — a
+mock-only test hook) lets a driver script make the next N uploads drop the
+connection with no reply, to exercise T5's retry path deterministically.
 """
 import json
 import time
@@ -23,6 +36,43 @@ from pathlib import Path
 
 WEBUI = Path(__file__).resolve().parent.parent / "webui" / "index.html"
 PORT = 8321
+START_TIME = time.time()
+
+# --- storage budget (L2) ------------------------------------------------
+# Mirrors firmware/lib/core/src/vialucis/storage_budget.h EXACTLY: LittleFS
+# allocates whole blocks, and every upload must leave a safety reserve free
+# (the wedge bug's fix) on top of its block-rounded footprint.
+FS_BLOCK_BYTES = 4096
+UPLOAD_RESERVE_BYTES = 32 * 1024
+MAX_SONG_BYTES = 256 * 1024
+# 0x1E0000 = 1,966,080 bytes: the ACTUAL post-A1 `spiffs` partition size
+# (ASSUMPTIONS A121, partitions.csv), so the capacity bar/margin guard see
+# a realistic, finite total rather than an arbitrary mock number.
+FS_TOTAL_BYTES = 0x1E0000
+SONG_NAME_CHARSET = set(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_. ")
+
+
+def round_up_to_block(n, block=FS_BLOCK_BYTES):
+    return n if block <= 0 else ((n + block - 1) // block) * block
+
+
+def upload_fits(incoming, free_bytes, reserve=UPLOAD_RESERVE_BYTES,
+                block=FS_BLOCK_BYTES):
+    """Mirrors vialucis::uploadFits (storage_budget.h) bit for bit."""
+    return round_up_to_block(incoming, block) + reserve <= free_bytes
+
+
+def valid_song_name(name):
+    """Mirrors SongStore::validName (song_store.cpp): 5-64 chars, exact
+    lowercase ".mid" suffix, restricted charset — no case-folding, the
+    firmware does a plain string compare."""
+    if not (5 <= len(name) <= 64):
+        return False
+    if not name.endswith(".mid"):
+        return False
+    return all(c in SONG_NAME_CHARSET for c in name)
+
 
 def loop_off():
     return {"enabled": False, "startMs": 0, "endMs": 0}
@@ -82,6 +132,24 @@ songs = [
     {"name": "corrupted-partial.mid", "size": 512, "parseOk": False},
 ]
 last_tick = time.time()
+
+# L2: deterministic upload-failure hook for T5's retry drill (mock-only,
+# see /api/mock/fail-uploads below — never a real device route).
+fail_hook = {"uploads_left": 0}
+
+
+def fs_used_bytes():
+    """Block-rounded footprint of everything sharing the one LittleFS
+    partition the mock knows about (songs + shows) — same spirit as real
+    LittleFS.usedBytes() being block-granular, not a raw byte sum."""
+    used = sum(round_up_to_block(s["size"]) for s in songs)
+    used += sum(round_up_to_block(sz) for sz in shows.values())
+    return used
+
+
+def fs_free_bytes():
+    return max(0, FS_TOTAL_BYTES - fs_used_bytes())
+
 
 # --- calibration (C4) -------------------------------------------------
 # Mock geometry: LED 2 sits under A0 (note 21), ~3.85 LEDs per key, so the
@@ -194,48 +262,123 @@ class Handler(BaseHTTPRequestHandler):
         return {"version": "0.1.0-mock", **state,
                 "topMode": mode, "idleSec": idle,
                 "afkTimeoutSec": settings["afkTimeoutSec"],
+                # L2: capacity fields the webui's storage gauge (A5) and
+                # T6 margin guard read — real math (storage_budget.h),
+                # real depletion as songs/shows are uploaded/deleted.
+                "fs": "ok",
+                "fsFree": fs_free_bytes(),
+                "fsTotal": FS_TOTAL_BYTES,
+                "fsUsed": fs_used_bytes(),
+                "heapFree": 142000,
+                "heapMaxAlloc": 110000,
+                "uptimeMs": int((time.time() - START_TIME) * 1000),
+                "configReset": False,
                 "wifi": {"mode": "sta", "ip": "127.0.0.1"}}
 
     def _body(self):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or b"{}")
 
+    @staticmethod
+    def _split(raw_path):
+        """L2: path vs query split, used EVERYWHERE below. The mock's own
+        R1-style bug was the mirror image of the real route-shadowing bug —
+        `self.path == "/api/songs"` never matches `POST
+        /api/songs?name=foo.mid` (query string breaks exact equality), so
+        uploads 404'd silently. Route on `path` only; read `query` (a
+        name -> [values] dict, like urllib.parse.parse_qs) for params."""
+        parts = urllib.parse.urlsplit(raw_path)
+        return parts.path, urllib.parse.parse_qs(parts.query)
+
     def do_GET(self):
-        if self.path == "/":
+        path, _query = self._split(self.path)
+        if path == "/":
             body = WEBUI.read_bytes()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        elif self.path == "/api/status":
+        elif path == "/api/status":
             self._json(200, self._status())
-        elif self.path == "/api/songs":
+        elif path == "/api/songs":
             self._json(200, songs)
-        elif self.path == "/api/settings":
+        elif path == "/api/settings":
             out = dict(settings)
             out["wifiPassSet"] = bool(wifi_pass_actual)
             self._json(200, out)
-        elif self.path == "/api/ble":
+        elif path == "/api/ble":
             self._json(200, {"connected": True, "device": "FP-30X BLE-MIDI"})
-        elif self.path == "/api/calibration":
+        elif path == "/api/calibration":
             self._json(200, calibration)
-        elif self.path == "/api/afk":
+        elif path == "/api/afk":
             self._json(200, afk)
-        elif self.path == "/api/shows":
+        elif path == "/api/shows":
             self._json(200, {"formatVersion": 1,
                              "shows": [{"name": n, "size": s}
                                        for n, s in shows.items()]})
-        elif self.path == "/api/calibration/probe":
+        elif path == "/api/calibration/probe":
             probe_tick()
             self._json(200, {"armed": probe["armed"], "led": probe["led"],
                              "note": probe["note"]})
         else:
             self._json(404, {"error": "not found"})
 
+    def _handle_song_upload(self, query):
+        """POST /api/songs?name=<file>.mid — raw-body upload. Mirrors
+        web_server.cpp's validation order EXACTLY: missing name -> bad name
+        -> too-large (announced Content-Length) -> free-space precheck
+        (507, storage_budget.h math) -> loaded-name (409) -> write. Every
+        check happens before the body is read off the socket, same as the
+        firmware's first-chunk precheck."""
+        length = int(self.headers.get("Content-Length", 0))
+        names = query.get("name") or [""]
+        name = names[0]
+        if not name:
+            self._json(400, {"error": "missing ?name="})
+            return
+        if not valid_song_name(name):
+            self._json(400, {"error": "bad name (want *.mid)"})
+            return
+        if length > MAX_SONG_BYTES:
+            self._json(413, {"error": "file too large (256KB max)"})
+            return
+        if not upload_fits(length, fs_free_bytes()):
+            self._json(507, {"error": "insufficient storage"})
+            return
+        if state["song"] == name:
+            self._json(409, {"error": "song is loaded"})
+            return
+        if fail_hook["uploads_left"] > 0:
+            # L2 test hook (T5 retry drill): simulate a mid-transfer network
+            # failure by dropping the connection with no HTTP reply at all —
+            # a real network-level failure, not a typed HTTP error status,
+            # so it exercises the webui's fetch()-rejection retry path
+            # rather than its 4xx/5xx handling.
+            fail_hook["uploads_left"] -= 1
+            self.close_connection = True
+            return
+        body = self.rfile.read(length)
+        for s in songs:
+            if s["name"] == name:
+                s["size"] = len(body)
+                s.pop("parseOk", None)
+                break
+        else:
+            songs.append({"name": name, "size": len(body)})
+        self._json(201, {"name": name})
+
     def do_POST(self):
+        path, query = self._split(self.path)
         top["last_activity"] = time.time()  # writes reset the idle clock
-        if self.path == "/api/topmode":
+        if path == "/api/mock/fail-uploads":
+            # L2: test-only control endpoint, NOT part of docs/API.md —
+            # a real device has no such route. Body {"times": N}.
+            b = self._body()
+            fail_hook["uploads_left"] = max(0, int(b.get("times", 1)))
+            self._json(200, {"uploadsWillFail": fail_hook["uploads_left"]})
+            return
+        if path == "/api/topmode":
             b = self._body()
             m = b.get("mode")
             if m == "presentation":
@@ -250,13 +393,13 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._json(200, self._status())
             return
-        if self.path.startswith("/api/shows"):
-            if self.path == "/api/shows/stop":
+        if path.startswith("/api/shows"):
+            if path == "/api/shows/stop":
                 show_playing[0] = None
                 self._json(200, self._status())
                 return
-            if self.path.endswith("/play"):
-                name = self.path[len("/api/shows/"):-len("/play")]
+            if path.endswith("/play"):
+                name = path[len("/api/shows/"):-len("/play")]
                 if name not in shows:
                     self._json(404, {"error": "no such show"})
                 elif not state["song"]:
@@ -266,8 +409,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(200, self._status())
                 return
             # upload: /api/shows?name=<n>.vls
-            q = urllib.parse.urlparse(self.path).query
-            name = urllib.parse.parse_qs(q).get("name", [""])[0]
+            name = (query.get("name") or [""])[0]
             n = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(n)
             if not name.endswith(".vls"):
@@ -280,20 +422,46 @@ class Handler(BaseHTTPRequestHandler):
                 shows[name] = len(body)
                 self._json(201, {"name": name})
             return
-        if self.path == "/api/afk/control":
+        if path == "/api/afk/control":
             b = self._body()
             if b.get("action") not in ("next", "previous"):
                 self._json(400, {"error": "bad action"})
                 return
             self._json(200, afk)
             return
-        if self.path == "/api/songs/unload":
+        if path == "/api/songs/unload":
             state.update(song="", positionMs=0, state="idle",
                          loop=loop_off())
             top["presentation"] = False
             self._json(200, self._status())
             return
-        if self.path == "/api/transport":
+        if path.startswith("/api/songs/") and path.endswith("/rename"):
+            # L2 additive fix: previously unhandled (404) — the webui's
+            # renameSong() already calls this route, so the mock was lying
+            # about supporting it. Mirrors API.md: 400 bad/non-.mid name,
+            # 404 missing source, 409 exists.
+            name = urllib.parse.unquote(path[len("/api/songs/"):-len("/rename")])
+            b = self._body()
+            next_name = b.get("name", "")
+            if not valid_song_name(next_name):
+                self._json(400, {"error": "bad name (want *.mid)"})
+                return
+            src = next((s for s in songs if s["name"] == name), None)
+            if src is None:
+                self._json(404, {"error": "no such song"})
+                return
+            if next_name != name and any(s["name"] == next_name for s in songs):
+                self._json(409, {"error": "exists"})
+                return
+            src["name"] = next_name
+            if state["song"] == name:
+                state["song"] = next_name
+            self._json(200, {"name": next_name})
+            return
+        if path == "/api/songs":
+            self._handle_song_upload(query)
+            return
+        if path == "/api/transport":
             b = self._body()
             a = b.get("action")
             if a == "play":
@@ -309,7 +477,7 @@ class Handler(BaseHTTPRequestHandler):
             elif a == "seek":
                 state["positionMs"] = int(b.get("positionMs", 0))
             self._json(200, self._status())
-        elif self.path == "/api/mode":
+        elif path == "/api/mode":
             b = self._body()
             state["mode"] = b.get("mode", "wait")
             # C1 (webui Wave C): the device is the practice-hand source of
@@ -323,17 +491,17 @@ class Handler(BaseHTTPRequestHandler):
             state["pendingNotes"] = ([60, 64, 67] if state["mode"] in
                                      ("wait", "accompaniment") else [])
             self._json(200, self._status())
-        elif self.path == "/api/tempo":
+        elif path == "/api/tempo":
             state["tempoPercent"] = max(
                 1, min(500, self._body().get("percent", 100)))
             self._json(200, self._status())
-        elif self.path == "/api/loop":
+        elif path == "/api/loop":
             b = self._body()
             state["loop"] = {"enabled": bool(b.get("enabled")),
                              "startMs": int(b.get("startMs", 0)),
                              "endMs": int(b.get("endMs", 0))}
             self._json(200, self._status())
-        elif self.path == "/api/calibration/probe":
+        elif path == "/api/calibration/probe":
             if state["state"] in ("playing", "waiting"):
                 self._json(409, {"error": "playing"})
                 return
@@ -347,25 +515,24 @@ class Handler(BaseHTTPRequestHandler):
                          timeout_s=min(300, max(1, int(b.get(
                              "timeoutMs", 30000)) / 1000)))
             self._json(200, {"armed": True, "led": led, "note": None})
-        elif self.path == "/api/test":
+        elif path == "/api/test":
             self._json(200, {})
-        elif self.path == "/api/reboot":
+        elif path == "/api/reboot":
             self._json(200, {})
-        elif self.path.startswith("/api/songs/") and self.path.endswith("/load"):
-            state["song"] = self.path[len("/api/songs/"):-len("/load")]
+        elif path.startswith("/api/songs/") and path.endswith("/load"):
+            state["song"] = path[len("/api/songs/"):-len("/load")]
             state["positionMs"] = 0
             state["state"] = "idle"
             # Loop resets on song load, matching the firmware (F2/A34).
             state["loop"] = loop_off()
             self._json(200, self._status())
-        elif self.path == "/api/songs":
-            self._json(201, {"name": "uploaded.mid"})
         else:
             self._json(404, {"error": "not found"})
 
     def do_PUT(self):
+        path, _query = self._split(self.path)
         top["last_activity"] = time.time()
-        if self.path == "/api/afk":
+        if path == "/api/afk":
             b = self._body()
             for t in b.get("tracks", []):
                 if t.get("effect") not in AFK_EFFECTS:
@@ -375,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
             afk.update(b)
             self._json(200, afk)
             return
-        if self.path == "/api/settings":
+        if path == "/api/settings":
             global wifi_pass_actual
             b = self._body()
             # C4: PATCH semantics for the write-only field — key ABSENT
@@ -387,7 +554,7 @@ class Handler(BaseHTTPRequestHandler):
             out = dict(settings)
             out["wifiPassSet"] = bool(wifi_pass_actual)
             self._json(200, out)
-        elif self.path == "/api/calibration":
+        elif path == "/api/calibration":
             b = self._body()
             tier = b.get("tier")
             if tier not in ("twoPoint", "multiPoint", "perKey"):
@@ -443,8 +610,8 @@ class Handler(BaseHTTPRequestHandler):
                 settings["offsetMm"] = calibration["offsetMm"]
                 settings["ledsPerMeter"] = calibration["ledsPerMeter"]
             self._json(200, calibration)
-        elif self.path.startswith("/api/tracks/"):
-            idx = int(self.path.rsplit("/", 1)[1])
+        elif path.startswith("/api/tracks/"):
+            idx = int(path.rsplit("/", 1)[1])
             b = self._body()
             if idx < len(state["tracks"]):
                 state["tracks"][idx]["hand"] = b.get("hand", "both")
@@ -454,8 +621,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_DELETE(self):
-        if self.path.startswith("/api/shows/"):
-            name = self.path[len("/api/shows/"):]
+        path, _query = self._split(self.path)
+        if path.startswith("/api/shows/"):
+            name = urllib.parse.unquote(path[len("/api/shows/"):])
             if shows.pop(name, None) is None:
                 self._json(404, {"error": "no such show"})
             else:
@@ -463,7 +631,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._cors()
                 self.end_headers()
             return
-        if self.path == "/api/calibration/probe":
+        if path == "/api/calibration/probe":
             probe.update(armed=False, note=None)
             self._json(200, {"armed": False, "led": probe["led"],
                              "note": None})
@@ -472,8 +640,8 @@ class Handler(BaseHTTPRequestHandler):
         # unhandled (fell through to the blanket 204 below, which never
         # mutated `songs` and never enforced the "song is loaded" 409) —
         # added so the unload-then-delete flow has a real 409 to exercise.
-        if self.path.startswith("/api/songs/"):
-            name = urllib.parse.unquote(self.path[len("/api/songs/"):])
+        if path.startswith("/api/songs/"):
+            name = urllib.parse.unquote(path[len("/api/songs/"):])
             if name == state["song"]:
                 self._json(409, {"error": "song is loaded"})
                 return
