@@ -1407,7 +1407,9 @@ function loadAfk() {
 }
 $("afkAdd").addEventListener("click", function () {
   if (!afkCfg) return;
-  (afkCfg.tracks = afkCfg.tracks || []).push({ effect: "rainbow", palette: "" });
+  // A5/R4: default to the first REAL effect, never a palette name (the
+  // firmware rejects the whole playlist PUT if effect/palette cross-wire).
+  (afkCfg.tracks = afkCfg.tracks || []).push({ effect: AFK_EFFECTS[0], palette: "" });
   renderAfk(); afkSave();
 });
 $("afkShuffle").addEventListener("change", function () { if (afkCfg) { afkCfg.shuffle = $("afkShuffle").checked; afkSave(); } });
