@@ -3,6 +3,37 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A122 (2026-07-16, Wave B-ii, wbii/partition T3): **Migrating an existing
+  device from `huge_app.csv` to `partitions.csv` needs an explicit full-chip
+  erase (`pio run -t erase`) before the next upload, not just a plain
+  re-upload.** Researched rather than assumed: PlatformIO's Arduino-framework
+  upload flow (`framework-arduinoespressif32/tools/platformio-build.py`)
+  already reflashes bootloader.bin/partitions.bin/boot_app0.bin/firmware.bin
+  fresh on every upload regardless of table, and `nvs`/`otadata`/`app0`'s
+  offsets are unchanged between the two tables — so those partitions are
+  never at risk. The new `spiffs` (LittleFS) partition, though, now starts at
+  `0x210000`, a byte range that used to sit inside the OLD 3 MB `app0`
+  partition (whatever was last flashed there, not guaranteed erased/blank).
+  `SongStore::begin()` calls `LittleFS.begin(/*formatOnFail=*/true)`
+  (`song_store.cpp:25`) with no explicit partition offset, so it would very
+  likely fail to find a valid superblock at that stale offset and
+  auto-reformat anyway — but "likely" isn't "guaranteed," and an unlucky
+  stale byte pattern parsing as a corrupt-but-mountable filesystem is a worse
+  failure mode than a clean, deliberate wipe. Documented the erase step as
+  mandatory (not conditional/best-effort) in BUILD-GUIDE.md §2d for exactly
+  this reason.
+- A121 (2026-07-16, Wave B-ii, wbii/partition T3): **New `spiffs`
+  (LittleFS) partition sized at exactly 0x1E0000 (1920 KiB / ~1.9 MB
+  decimal), `app0` shrunk to exactly 0x200000 (2 MB), by construction rather
+  than by picking the LittleFS size directly.** Kept `nvs`/`otadata`
+  unchanged (offsets/sizes identical to `huge_app.csv`) and kept `coredump`
+  at its stock `0x3F0000`/`0x10000`, per the brief's "keep these
+  conventional." With app0 given exactly 2 MB (current firmware measured at
+  1,536,109 B = 73.2% of 2 MB — comfortable headroom, no need to step down
+  to 1.8 MB), the remaining gap between app0's end (`0x210000`) and
+  coredump's start (`0x3F0000`) falls out to 0x1E0000 automatically — it
+  happens to land almost exactly on the ~1.9 MB target from
+  DESIGN-library.md §3 item A1, so no further tuning was needed.
 - A120 (2026-07-16, Wave B-i, wbi/director B1a): **Test-pattern orphan timeout =
   5 minutes (`kTestPatternTimeoutMs = 300000` in mode_director.h).** Long enough
   to physically inspect the strip end to end, short enough that a vanished
