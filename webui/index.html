@@ -1305,8 +1305,19 @@ function refreshSongs() {
       if (s.parseOk === false) {
         var warn = document.createElement("span");
         warn.className = "badge warn";
-        warn.textContent = "unparsed";
-        warn.title = "This file couldn't be fully parsed — loading it may fail or play incorrectly";
+        // A185/A189: parseFail says WHY — "memory" (valid file, too big for
+        // this device's RAM) vs "corrupt" (broken upload). Absent = older
+        // firmware; keep the generic wording.
+        if (s.parseFail === "memory") {
+          warn.textContent = "too large";
+          warn.title = "Too large to load on this device's memory — the file is fine and stays saved; it may load after a reboot or on a board with more RAM.";
+        } else if (s.parseFail === "corrupt") {
+          warn.textContent = "unparsed";
+          warn.title = "This MIDI file couldn't be read (corrupt or incomplete upload). Try re-uploading it.";
+        } else {
+          warn.textContent = "unparsed";
+          warn.title = "This file couldn't be fully parsed — loading it may fail or play incorrectly";
+        }
         nm.appendChild(document.createTextNode(" "));
         nm.appendChild(warn);
       }
