@@ -104,6 +104,27 @@ static void test_same_key_double_upcoming_takes_brighter() {
     TEST_ASSERT_EQUAL_UINT8(peakChannel(solo, 60, 1), peakChannel(r, 60, 1));
 }
 
+// A169 (§3-E item 11, unison-note color precedence): two Due-layer paints on
+// the SAME note at the SAME (full) brightness — the shape of both hands
+// hitting a unison key — blend rather than arbitrarily keeping whichever
+// addDue() call landed first. Blending is commutative, so swapping the call
+// order must produce the identical result (the "deterministic" half of the
+// rule — nobody's iteration order decides the color the player sees).
+static void test_unison_due_from_two_hands_blends_and_is_order_independent() {
+    FrameRenderer r = makeRenderer();
+    r.addDue(60, kBlue);
+    r.addDue(60, kGreen);
+    TEST_ASSERT_EQUAL_UINT8(128, peakChannel(r, 60, 1));  // green channel
+    TEST_ASSERT_EQUAL_UINT8(128, peakChannel(r, 60, 2));  // blue channel
+    TEST_ASSERT_EQUAL_UINT8(0, peakChannel(r, 60, 0));    // no red introduced
+
+    FrameRenderer swapped = makeRenderer();
+    swapped.addDue(60, kGreen);
+    swapped.addDue(60, kBlue);
+    TEST_ASSERT_EQUAL_UINT8(peakChannel(r, 60, 1), peakChannel(swapped, 60, 1));
+    TEST_ASSERT_EQUAL_UINT8(peakChannel(r, 60, 2), peakChannel(swapped, 60, 2));
+}
+
 static void test_unmappable_note_is_harmless() {
     FrameRenderer r = makeRenderer();
     r.addDue(5, kGreen);      // below the 88 keys
@@ -131,6 +152,7 @@ int main(int, char**) {
     RUN_TEST(test_upcoming_outside_lead_is_dark);
     RUN_TEST(test_due_overrides_ramp_and_wrong_overrides_due);
     RUN_TEST(test_same_key_double_upcoming_takes_brighter);
+    RUN_TEST(test_unison_due_from_two_hands_blends_and_is_order_independent);
     RUN_TEST(test_unmappable_note_is_harmless);
     RUN_TEST(test_neighboring_keys_light_independently);
     return UNITY_END();

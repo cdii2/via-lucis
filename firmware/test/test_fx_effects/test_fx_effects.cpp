@@ -217,6 +217,34 @@ void test_twinklefox_set_palette_changes_output() {
     TEST_ASSERT_TRUE(checkedAtLeastOneLitPixel);
 }
 
+// A164 (§3-E item 6): resetPalette() restores the SAME output a never-
+// touched instance produces — the state right after reset(), before any
+// setPalette() call — regardless of what setPalette() was told in between.
+void test_twinklefox_reset_palette_restores_default() {
+    fx::Palette16 redOnly;
+    for (auto& e : redOnly.entries) e = Rgb{255, 0, 0};
+
+    fx::TwinkleFoxFx touched;
+    touched.setPalette(redOnly);
+    touched.resetPalette();
+    touched.reset(1234, 60);
+
+    fx::TwinkleFoxFx untouched;
+    untouched.reset(1234, 60);
+
+    std::vector<Rgb> a(60), b(60);
+    std::vector<Rgb> ha, hb;
+    for (uint32_t frame = 0; frame < 50; ++frame) {
+        FxFrame fa{a, frame, frame * kFxStepMs};
+        FxFrame fb{b, frame, frame * kFxStepMs};
+        touched.render(fa);
+        untouched.render(fb);
+        for (const Rgb& px : a) ha.push_back(px);
+        for (const Rgb& px : b) hb.push_back(px);
+    }
+    TEST_ASSERT_TRUE(framesEqual(ha, hb));
+}
+
 // ---------------------------------------------------------------------------
 // === PacificaFx === (FastLED examples/Pacifica/Pacifica.ino — four
 // beatsin-driven wave layers over three custom blue-green palettes; no
@@ -326,6 +354,32 @@ void test_color_waves_set_palette_changes_output() {
     TEST_ASSERT_TRUE(oceanB > oceanR);  // Ocean skews blue-dominated
 }
 
+// A164 (§3-E item 6): same resetPalette() contract as TwinkleFox above.
+void test_color_waves_reset_palette_restores_default() {
+    fx::Palette16 redOnly;
+    for (auto& e : redOnly.entries) e = Rgb{255, 0, 0};
+
+    fx::ColorWavesFx touched;
+    touched.setPalette(redOnly);
+    touched.resetPalette();
+    touched.reset(3, 60);
+
+    fx::ColorWavesFx untouched;
+    untouched.reset(3, 60);
+
+    std::vector<Rgb> a(60), b(60);
+    std::vector<Rgb> ha, hb;
+    for (uint32_t frame = 0; frame < 50; ++frame) {
+        FxFrame fa{a, frame, frame * kFxStepMs};
+        FxFrame fb{b, frame, frame * kFxStepMs};
+        touched.render(fa);
+        untouched.render(fb);
+        for (const Rgb& px : a) ha.push_back(px);
+        for (const Rgb& px : b) hb.push_back(px);
+    }
+    TEST_ASSERT_TRUE(framesEqual(ha, hb));
+}
+
 // ---------------------------------------------------------------------------
 
 int main(int, char**) {
@@ -344,6 +398,7 @@ int main(int, char**) {
     RUN_TEST(test_twinklefox_bounds_60_and_360);
     RUN_TEST(test_twinklefox_lights_up_after_warmup);
     RUN_TEST(test_twinklefox_set_palette_changes_output);
+    RUN_TEST(test_twinklefox_reset_palette_restores_default);
 
     // PacificaFx
     RUN_TEST(test_pacifica_same_seed_is_deterministic);
@@ -356,6 +411,7 @@ int main(int, char**) {
     RUN_TEST(test_color_waves_bounds_60_and_360);
     RUN_TEST(test_color_waves_lights_up);
     RUN_TEST(test_color_waves_set_palette_changes_output);
+    RUN_TEST(test_color_waves_reset_palette_restores_default);
 
     // Other effect ports: add your RUN_TESTs here, under a comment banner
     // naming the effect, following the four-test shape above.
