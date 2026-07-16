@@ -135,6 +135,46 @@ MidiSong repeatStraddleSong() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// B3a echo-credit pin (accompaniment, right). Right (track0, practiced):
+// barrier note 50 @ 200ms, then note 40 @ 400ms. Left (track1, the hand the
+// piano plays): note 40 @ 0 sustained to 700ms so it is STILL sounding at the
+// reassignment. The left-40 shares a pitch with the later right-40 barrier — a
+// phantom echo credit minted by the flush would eat the genuine 40 press.
+MidiSong accompFlushSong() {
+    Bytes tR, tL;
+    smf::trackName(tR, 0, "Right");
+    smf::noteOn(tR, 192, 0, 50, 100);   // abs 192t = 200000us
+    smf::noteOff(tR, 48, 0, 50);        // abs 240t
+    smf::noteOn(tR, 144, 0, 40, 100);   // abs 384t = 400000us
+    smf::noteOff(tR, 48, 0, 40);        // abs 432t
+    smf::trackName(tL, 0, "Left");
+    smf::noteOn(tL, 0, 0, 40, 100);     // abs 0
+    smf::noteOff(tL, 672, 0, 40);       // abs 672t = 700000us
+    Bytes file = smf::header(1, 2, 480);
+    smf::append(file, smf::track(tR));
+    smf::append(file, smf::track(tL));
+    return parseMidi(file.data(), file.size()).song;
+}
+
+// B3b fixture (accompaniment, right). Right (track0, practiced): the opening
+// barrier note 60 @ 0. Left (track1, what the piano plays): note 60 @ 200ms —
+// same pitch, emitted near the end so its echo credit is still live a few ms
+// after the song finishes. On replay-from-Finished that stale credit would eat
+// the opening 60 press unless play clears credits (parity with seek).
+MidiSong finishReplaySong() {
+    Bytes tR, tL;
+    smf::trackName(tR, 0, "Right");
+    smf::noteOn(tR, 0, 0, 60, 100);     // opening barrier @ 0
+    smf::noteOff(tR, 48, 0, 60);        // abs 48t (~50ms)
+    smf::trackName(tL, 0, "Left");
+    smf::noteOn(tL, 192, 0, 60, 100);   // abs 192t = 200000us
+    smf::noteOff(tL, 48, 0, 60);        // abs 240t = 250000us
+    Bytes file = smf::header(1, 2, 480);
+    smf::append(file, smf::track(tR));
+    smf::append(file, smf::track(tL));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 }  // namespace
 
 void test_follow_mode_lights_sounding_note_full_color() {
@@ -371,7 +411,7 @@ void test_pause_sends_note_offs_for_sounding_notes() {
 void test_lights_toggle_hides_a_track() {
     PlaybackEngine e;
     setupEngine(e, twoTrackSong());
-    TEST_ASSERT_TRUE(e.setTrack(1, "left", /*lights=*/false));
+    TEST_ASSERT_TRUE(e.setTrack(1, "left", /*lights=*/false, gOut));
     gOut.clear();
     e.transport("play", 0, gOut);
     e.tick(1000, gOut);
@@ -405,7 +445,7 @@ void test_rest_calls_without_song_return_false() {
     TEST_ASSERT_FALSE(e.transport("play", 0, gOut));
     TEST_ASSERT_FALSE(e.setTempo(120.0f));
     TEST_ASSERT_FALSE(e.setLoop(true, 0, 1000));
-    TEST_ASSERT_FALSE(e.setTrack(0, "left", true));
+    TEST_ASSERT_FALSE(e.setTrack(0, "left", true, gOut));
 }
 
 void test_loop_wrap_clears_sounding_lights_and_resyncs() {
@@ -866,7 +906,7 @@ void test_w2_noop_settrack_keeps_partial_chord_progress() {
     e.onKeyDown(67, 1610000);  // half cleared
     TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[71]") !=
                      std::string::npos);
-    TEST_ASSERT_TRUE(e.setTrack(0, "both", true));  // identical config
+    TEST_ASSERT_TRUE(e.setTrack(0, "both", true, gOut));  // identical config
     TEST_ASSERT_TRUE_MESSAGE(
         e.statusJson().find("\"pendingNotes\":[71]") != std::string::npos,
         "a no-op track PUT must not resurrect the cleared chord member");
@@ -1068,8 +1108,121 @@ void test_p13_table_swap_mid_wait_hold_is_live_and_state_preserving() {
     assertRgb(kBlack, frame[oldPos.first]);
 }
 
+// --- B3a: stuck-note flush on hand change --------------------------------
+
+// A track reassigned to Off mid-note in demo must have its still-sounding note
+// flushed to the piano (exactly one note-off, only for the leaving track); the
+// staying track keeps ringing. Without the flush its note-off is masked out of
+// consume() forever and the piano rings until the next stop.
+void test_settrack_off_flushes_only_the_leaving_tracks_note() {
+    PlaybackEngine e;
+    setupEngine(e, twoTrackSong(), "demo");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(100000, gOut);  // both notes on the piano, both sounding (off@500ms)
+    gOut.clear();
+    TEST_ASSERT_TRUE(e.setTrack(1, "off", true, gOut));  // track 1 (note 40) leaves
+    int off40 = 0, off60 = 0, other = 0;
+    for (const MidiOutMsg& m : gOut) {
+        if (m.type != MidiOutType::NoteOff) { ++other; continue; }
+        if (m.data1 == 40) ++off40;
+        else if (m.data1 == 60) ++off60;
+        else ++other;
+    }
+    TEST_ASSERT_EQUAL_INT_MESSAGE(1, off40,
+        "the leaving track's sounding note gets exactly one note-off");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, off60,
+        "the staying track is untouched (no phantom note-off)");
+    TEST_ASSERT_EQUAL_INT_MESSAGE(0, other, "the flush emits note-offs only");
+    // Re-setting the now-silent track flushes nothing (no double note-off).
+    gOut.clear();
+    TEST_ASSERT_TRUE(e.setTrack(1, "off", true, gOut));
+    TEST_ASSERT_EQUAL_INT(0, static_cast<int>(gOut.size()));
+}
+
+// The flushed note-off must NOT mint an echo credit (a credit is consumed by
+// the next note-DOWN; a note-off is never a press). Here the piano's left-40
+// is flushed, then the genuine right-40 barrier press must still clear — a
+// phantom credit would swallow it.
+void test_settrack_flush_leaves_no_phantom_echo_credit() {
+    PlaybackEngine e;
+    setupEngine(e, accompFlushSong(), "accompaniment", "right");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(100000, gOut);  // left-40 sent to the piano (credit @100000), still
+                           // sounding; barrier arms at right-50 @200ms
+    gOut.clear();
+    TEST_ASSERT_TRUE(e.setTrack(1, "off", true, gOut));  // left leaves accomp mask
+    bool flushed40 = false;
+    for (const MidiOutMsg& m : gOut)
+        if (m.type == MidiOutType::NoteOff && m.data1 == 40) flushed40 = true;
+    TEST_ASSERT_TRUE_MESSAGE(flushed40,
+        "the leaving accompaniment track's sounding note is flushed");
+    e.tick(250000, gOut);      // holds at right-50 @200ms
+    e.onKeyDown(50, 250000);   // clear it → barrier re-arms at right-40 @400ms
+    e.tick(450000, gOut);      // holds at right-40
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[40]") !=
+                     std::string::npos);
+    e.onKeyDown(40, 450000);   // genuine press (legit @100000 credit long gone)
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[40]") == std::string::npos,
+        "a genuine press after flushing the same pitch must clear the barrier "
+        "— the flush must not mint a phantom echo credit");
+}
+
+// --- B3b: play-from-Finished clears echo credits (parity with seek) -------
+
+void test_play_from_finished_clears_echo_credits() {
+    PlaybackEngine e;
+    setupEngine(e, finishReplaySong(), "accompaniment", "right");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);        // opening barrier at right-60 @0 holds
+    e.onKeyDown(60, 2000);     // clear the opening barrier (pass 1)
+    e.tick(300000, gOut);      // runs on: left-60 emitted (credit @300000),
+                               // song reaches Finished
+    TEST_ASSERT_TRUE(e.state() == PlayState::Finished);
+    // Replay from Finished, then press the opening 60 while the stale credit is
+    // still inside its 250ms window (expiry 550000). clearCredits (B3b) must
+    // let the genuine press through.
+    e.transport("play", 0, gOut);   // Finished → seek(0) + clearCredits
+    e.tick(310000, gOut);           // opening barrier re-armed at 60 @0
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[60]") !=
+                     std::string::npos);
+    e.onKeyDown(60, 310000);        // genuine opening press of the replay
+    TEST_ASSERT_TRUE_MESSAGE(
+        e.statusJson().find("\"pendingNotes\":[60]") == std::string::npos,
+        "replay-from-Finished must clear stale echo credits so the first real "
+        "press is not swallowed");
+}
+
+// --- C1: practice hand in the status document -----------------------------
+
+void test_status_practice_hand_rides_top_and_omits_when_unset() {
+    PlaybackEngine e;
+    setupEngine(e, chordSong());
+    WifiStatus w{"sta", "10.0.0.5"};
+    TopStatus t{"practice", 3, 180, "left"};
+    std::string s = e.statusJson(&w, &t);
+    TEST_ASSERT_TRUE(s.find("\"practice\":\"left\"") != std::string::npos);
+    // Rides the top block → emitted before wifi (the last key, R4 order).
+    TEST_ASSERT_TRUE(s.find("\"practice\":") < s.find("\"wifi\":"));
+    // Omitted when the caller supplies no player choice (engine-only callers):
+    // note the KEY "practice": — the topMode VALUE "reactive" avoids a false
+    // substring match.
+    TopStatus bare{"reactive", 3, 180};  // practice defaults to nullptr
+    std::string b = e.statusJson(nullptr, &bare);
+    TEST_ASSERT_TRUE(b.find("\"practice\":") == std::string::npos);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_settrack_off_flushes_only_the_leaving_tracks_note);
+    RUN_TEST(test_settrack_flush_leaves_no_phantom_echo_credit);
+    RUN_TEST(test_play_from_finished_clears_echo_credits);
+    RUN_TEST(test_status_practice_hand_rides_top_and_omits_when_unset);
     RUN_TEST(test_follow_mode_lights_sounding_note_full_color);
     RUN_TEST(test_note_off_clears_the_light);
     RUN_TEST(test_ramp_preview_swells_below_cap_before_onset);

@@ -67,6 +67,13 @@ struct TopStatus {
     const char* mode;       // reactive | afk | practice | presentation | record
     uint32_t idleSec;
     uint32_t afkTimeoutSec;
+    // C1: the practice hand the player last chose (both | left | right). App
+    // owns it (lastPractice_ — a show hijacks the engine's sub-mode, so the
+    // engine's own practice_ isn't the player's choice); rides here so the
+    // status document is still authored ONCE. Emitted whenever `top` is
+    // present. nullptr → omitted (engine-only callers that pass no player
+    // choice).
+    const char* practice = nullptr;
 };
 
 // Recording facts for /api/status (v3 REC4) — the ModeDirector owns the tape
@@ -146,7 +153,12 @@ public:
                  std::vector<MidiOutMsg>& out);
     bool setTempo(float percent);
     bool setLoop(bool enabled, uint32_t startMs, uint32_t endMs);
-    bool setTrack(size_t index, const std::string& hand, bool lights);
+    // B3a: a hand reassignment that drops a track out of the emit mask flushes
+    // note-offs for anything that track is still sounding into `out` (else the
+    // piano rings forever). The caller sends `out` on its own task, exactly
+    // like every other engine method that can silence the piano.
+    bool setTrack(size_t index, const std::string& hand, bool lights,
+                  std::vector<MidiOutMsg>& out);
 
     // BLE-task entry — the latency path. Verdict handling (wrong flash,
     // frame dirty flag) happens here.
@@ -207,6 +219,10 @@ private:
     void resetWaitPulse();     // Q2: forget chord history + live pulses
     void stopAllSound(std::vector<MidiOutMsg>& out);
     Rgb colorForTrack(uint8_t track) const;
+    // The emitter's mask for the current mode/practice/trackCfg (the one place
+    // that decides who the piano plays). applyMasks sets it; setTrack asks it
+    // to know which tracks are leaving so it can flush their note-offs (B3a).
+    uint32_t currentEmitMask() const;
 
     EchoGuard guard_;
     MidiSong song_;
@@ -240,7 +256,8 @@ private:
 
     uint64_t lastTickUs_ = 0;
     uint64_t lastFrameUs_ = 0;
-    uint64_t prevPosUs_ = 0;
+    // (prevPosUs_ removed at B3c: wrap is now Scheduler::advance's explicit
+    // flag, not a position-comparison the O(1) modulo collapse could fool.)
     // Set by key verdicts AND REST sound-stop paths (A27); consumed by the
     // loop task in frameDue(). D4 (2026-07-14 fix wave): the BLE note path
     // is NOT a concurrent writer — its callback fires on the loop task

@@ -10,7 +10,7 @@ void NoteEmitter::consume(const std::vector<SchedEvent>& events,
             case SchedEventType::NoteOn:
                 out.push_back({MidiOutType::NoteOn, e.channel, e.note,
                                e.velocity});
-                sounding_.add({e.note, e.channel});
+                sounding_.add({e.note, e.channel, e.track});
                 if (guard_) guard_->noteSent(e.note, nowUs);
                 break;
             case SchedEventType::NoteOff:
@@ -55,6 +55,24 @@ std::vector<MidiOutMsg> NoteEmitter::allOff() {
     std::vector<MidiOutMsg> out;
     allOff(out);
     return out;
+}
+
+void NoteEmitter::flushTracksOutsideMask(uint32_t keepMask,
+                                         std::vector<MidiOutMsg>& out) {
+    // Repeatedly pull the first sounding note whose track dropped out of the
+    // mask, emit its note-off, and forget it — until none remain. eraseFirst
+    // keeps this class's single erase primitive (no new SoundingSet method).
+    // The predicate captures the entry it erases so we can build its note-off.
+    // Pedal latches (per-channel) are left to allOff — a track leaving the
+    // mask is a hand-reassignment, not a transport halt.
+    Sounding s{};
+    while (sounding_.eraseFirst([&](const Sounding& e) {
+        if (trackInMask(keepMask, e.track)) return false;
+        s = e;
+        return true;
+    })) {
+        out.push_back({MidiOutType::NoteOff, s.channel, s.note, 0});
+    }
 }
 
 }  // namespace vialucis

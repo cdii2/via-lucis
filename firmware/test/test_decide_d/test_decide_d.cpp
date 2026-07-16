@@ -278,7 +278,7 @@ static void test_demo_plays_both_onsets_unmerged() {
 static void test_w8_barrier_lights_even_when_track_lights_off() {
     PlaybackEngine e;
     setupEngine(e, chordSong(), "wait");
-    TEST_ASSERT_TRUE(e.setTrack(0, "both", false));  // lights OFF, hand kept
+    TEST_ASSERT_TRUE(e.setTrack(0, "both", false, gOut));  // lights OFF, hand kept
     gOut.clear();
     e.transport("play", 0, gOut);
     e.tick(1000, gOut);
@@ -300,7 +300,7 @@ static void test_w8_barrier_lights_even_when_track_lights_off() {
 static void test_lights_off_still_dark_in_follow() {
     PlaybackEngine e;
     setupEngine(e, chordSong(), "follow");
-    TEST_ASSERT_TRUE(e.setTrack(0, "both", false));  // lights OFF
+    TEST_ASSERT_TRUE(e.setTrack(0, "both", false, gOut));  // lights OFF
     gOut.clear();
     e.transport("play", 0, gOut);
     e.tick(1000, gOut);

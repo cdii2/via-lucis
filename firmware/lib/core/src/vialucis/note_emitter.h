@@ -34,9 +34,21 @@ public:
     void allOff(std::vector<MidiOutMsg>& out);
     std::vector<MidiOutMsg> allOff();
 
+    // Silence every note we are sounding on a track NOT in `keepMask`, then
+    // forget it (B3a). Called when a track's hand assignment leaves the emit
+    // mask mid-note: without this the departing track's note-off is masked
+    // out of consume() forever, so the piano keeps ringing. Routed through
+    // this emitter (the one MIDI-out owner) so it stays the single send path;
+    // note-offs earn NO echo-guard credit (a credit is consumed by the NEXT
+    // note-DOWN, and a note-off is never a key press — crediting it would eat
+    // a genuine future press of the same key). An infrequent control action,
+    // so the per-call scan is not on the latency path.
+    void flushTracksOutsideMask(uint32_t keepMask,
+                                std::vector<MidiOutMsg>& out);
+
 private:
     struct Sounding {
-        uint8_t note, channel;
+        uint8_t note, channel, track;
     };
 
     uint32_t mask_;

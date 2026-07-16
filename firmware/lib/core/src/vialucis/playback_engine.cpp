@@ -127,20 +127,21 @@ void PlaybackEngine::rebuildAfterLoad() {
     soundingLights_.clear();
     wrongFlashes_.clear();
     state_ = PlayState::Idle;
-    prevPosUs_ = 0;
     // Loop honesty (F2, A34) falls out by construction: statusJson derives
     // the loop from the Scheduler, and a fresh Scheduler has no loop.
     applyMasks(/*forceResync=*/true);  // a fresh song always (re)arms
 }
 
+uint32_t PlaybackEngine::currentEmitMask() const {
+    if (mode_ == Mode::Demo) return trackCfg_.audibleMask();
+    if (mode_ == Mode::Accompaniment)
+        return trackCfg_.accompanimentMask(practice_);
+    return 0;  // wait/follow: the piano is the player's
+}
+
 void PlaybackEngine::applyMasks(bool forceResync) {
     if (!sched_) return;
-    if (mode_ == Mode::Demo)
-        emitter_.setEmitMask(trackCfg_.audibleMask());
-    else if (mode_ == Mode::Accompaniment)
-        emitter_.setEmitMask(trackCfg_.accompanimentMask(practice_));
-    else
-        emitter_.setEmitMask(0);  // wait/follow: the piano is the player's
+    emitter_.setEmitMask(currentEmitMask());
 
     if (wait_) {
         uint32_t pm = trackCfg_.practicedMask(practice_);
@@ -190,7 +191,6 @@ void PlaybackEngine::unloadSong(std::vector<MidiOutMsg>& out) {
     trackCfg_ = TrackConfig{};
     emitter_.setEmitMask(0);
     state_ = PlayState::Idle;
-    prevPosUs_ = 0;
     lastTickUs_ = 0;
     guard_.clearCredits();  // no echo is owed once nothing was sent
     buildRepeatGaps();      // empty song ⇒ empty windows
@@ -203,13 +203,17 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
     if (action == "play") {
         if (state_ == PlayState::Finished) {
             sched_->seek(0);  // flushed note-offs are moot: nothing sounding
-            prevPosUs_ = 0;
             resyncRepeatCursors(0);
             // The seek moved the position, so re-arm the barrier. A plain
             // resume (not Finished) must NOT resync — that would wipe a
             // half-cleared chord on a web-remote double-tap (G7) or across a
             // pause/resume (G9). A-2.
             if (barrierMode()) wait_->resync();
+            // B3b: replaying from Finished re-approaches the opening barrier;
+            // in-flight echo credits from the just-ended pass are stale and
+            // must not eat the player's first real press (parity with seek's
+            // A-3/G12 clearCredits).
+            guard_.clearCredits();
         }
         state_ = PlayState::Playing;
         lastTickUs_ = 0;  // next tick re-baselines the clock
@@ -224,7 +228,6 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
         state_ = PlayState::Idle;
         stopAllSound(out);
         sched_->seek(0);
-        prevPosUs_ = 0;
         resyncRepeatCursors(0);
         if (barrierMode()) wait_->resync();
         return true;
@@ -232,8 +235,7 @@ bool PlaybackEngine::transport(const std::string& action, uint32_t positionMs,
     if (action == "seek") {
         stopAllSound(out);
         sched_->seek(static_cast<uint64_t>(positionMs) * 1000);
-        prevPosUs_ = sched_->positionUs();
-        resyncRepeatCursors(prevPosUs_);
+        resyncRepeatCursors(sched_->positionUs());
         if (barrierMode()) wait_->resync();
         if (state_ == PlayState::Finished) state_ = PlayState::Idle;
         // Echo-credit hygiene (A-3 / G12): a seek moves off wherever our
@@ -289,7 +291,7 @@ bool PlaybackEngine::setLoop(bool enabled, uint32_t startMs, uint32_t endMs) {
 }
 
 bool PlaybackEngine::setTrack(size_t index, const std::string& hand,
-                              bool lights) {
+                              bool lights, std::vector<MidiOutMsg>& out) {
     if (index >= trackCfg_.tracks.size()) return false;
     Hand h;
     if (hand == "left") h = Hand::Left;
@@ -299,6 +301,12 @@ bool PlaybackEngine::setTrack(size_t index, const std::string& hand,
     else return false;
     trackCfg_.tracks[index].hand = h;
     trackCfg_.tracks[index].lights = lights;
+    // B3a: with the new assignment in place, flush note-offs for any track the
+    // emitter is still sounding that just dropped out of the emit mask (demo /
+    // accompaniment) — otherwise its note-off is masked out of consume() and
+    // the piano rings forever. setMode already stopAllSound()s before this, so
+    // only a hand change mid-note reaches here with notes still sounding.
+    emitter_.flushTracksOutsideMask(currentEmitMask(), out);
     applyMasks();
     return true;
 }
@@ -348,14 +356,16 @@ void PlaybackEngine::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     uint64_t delta = nowUs - lastTickUs_;
     lastTickUs_ = nowUs;
 
-    sched_->advance(delta, eventsBuf_);
-    uint64_t newPos = sched_->positionUs();
-    if (newPos < prevPosUs_) {  // loop wrapped
+    bool wrapped = false;
+    sched_->advance(delta, eventsBuf_, &wrapped);
+    if (wrapped) {  // B3c: the scheduler's authoritative loop-wrap signal —
+                    // catches short-loop/high-tempo wraps a position compare
+                    // (newPos < prevPos) misses after the O(1) modulo collapse.
         if (barrierMode()) wait_->resync();
         soundingLights_.clear();
-        resyncRepeatCursors(newPos);  // no phantom fill from the old pass
+        resyncRepeatCursors(sched_->positionUs());  // no phantom fill from the
+                                                     // old pass
     }
-    prevPosUs_ = newPos;
 
     if (barrierMode()) {
         // Q2: WaitMode owns the chord lifecycle and reports the edge (new
@@ -554,6 +564,9 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
         doc["topMode"] = top->mode;
         doc["idleSec"] = top->idleSec;
         doc["afkTimeoutSec"] = top->afkTimeoutSec;
+        // C1: the player's last-chosen practice hand, so the webui selector can
+        // reconcile after reload instead of resetting the device to "both".
+        if (top->practice) doc["practice"] = top->practice;
     }
 
     if (rec) {  // v3 REC4 growth — the record object, also BEFORE wifi

@@ -112,6 +112,12 @@ private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
     void touchWriteActivity();  // fenced callers only
     void stopShowLocked();      // shared show-teardown; caller holds lock_
+    // Restore the transport + pre-show practice mode/hand the player had before
+    // a show hijacked it (caller holds lock_). Shared by the manual stop path
+    // (stopShowLocked) and the B1b auto-finish edge in tick() — a show reaching
+    // Finished inside director_.tick() tears down its own presentation state, so
+    // the App must run this same restore tail.
+    void restorePreShowMode();
     // transport() body without the fence; caller must already hold lock_
     // (used by setTestPattern's auto-pause under its own guard).
     bool transportLocked(const std::string& action, uint32_t positionMs);
