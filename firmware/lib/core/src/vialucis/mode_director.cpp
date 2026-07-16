@@ -169,17 +169,21 @@ uint32_t ModeDirector::idleSec(uint64_t nowUs) const {
     return static_cast<uint32_t>((nowUs - lastActivityUs_) / 1000000ull);
 }
 
-bool ModeDirector::setTestPattern(const std::string& name,
+bool ModeDirector::setTestPattern(const std::string& name, uint64_t nowUs,
                                   std::vector<MidiOutMsg>& out) {
     if (name == "strip") test_ = Test::Strip;
     else if (name == "rainbow") test_ = Test::Rainbow;
     else if (name == "off") {
         test_ = Test::None;  // never auto-resumes (A35): play re-baselines
+        testPatternSetUs_ = 0;  // B1a: no pattern up, nothing to time out
         engine_.markFrameDirty();
         return true;
     } else {
         return false;
     }
+    // B1a: (re)start the orphan-timeout clock on every activation —
+    // switching strip↔rainbow counts as a touch, not a fresh vanish.
+    testPatternSetUs_ = nowUs;
     // F3/A35: the pattern paints over practice while the scheduler clock
     // would keep running — pause it here so EVERY caller keeps the
     // no-skipped-time-burst guarantee, not just one REST route.
@@ -234,6 +238,38 @@ std::string ModeDirector::probeJson() const {
 void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
     if (lastActivityUs_ == 0) lastActivityUs_ = nowUs;  // boot baseline
     if (probe_.tickExpire(nowUs)) engine_.markFrameDirty();
+
+    // B1a (BUGFIX-PLAN §3-B1): an orphaned test pattern auto-clears —
+    // passively after kTestPatternTimeoutMs of no one touching it, or the
+    // instant something more purposeful reclaims the strip (a fresh song
+    // load, or transport entering Playing; a show starting is handled
+    // directly in startShow(), which runs between ticks). Edge-detected
+    // against last tick's snapshot so this never fires while a pattern is
+    // legitimately overlaying an already-loaded/already-playing session
+    // (test_pattern_activation_auto_pauses_playback, test_w29) — only a
+    // fresh transition counts. "off"'s no-auto-resume rule (A35) still
+    // holds: clearing here only stops HIDING the frame source, it never
+    // restarts playback.
+    {
+        bool songLoadedNow = engine_.songLoaded();
+        bool enginePlayingNow = engine_.state() == PlayState::Playing;
+        if (test_ != Test::None) {
+            bool freshLoad = songLoadedNow && !wasSongLoadedForPattern_;
+            bool freshPlay = enginePlayingNow && !wasEnginePlayingForPattern_;
+            bool timedOut =
+                nowUs >= testPatternSetUs_ &&
+                nowUs - testPatternSetUs_ >=
+                    static_cast<uint64_t>(kTestPatternTimeoutMs) * 1000ull;
+            if (freshLoad || freshPlay || timedOut) {
+                test_ = Test::None;
+                testPatternSetUs_ = 0;
+                engine_.markFrameDirty();
+            }
+        }
+        wasSongLoadedForPattern_ = songLoadedNow;
+        wasEnginePlayingForPattern_ = enginePlayingNow;
+    }
+
     // Playback starting cancels an armed probe — user intent wins, and the
     // rule holds for ANY path into Playing, not just one REST route.
     // B-1/A94: a show starting after the probe was armed cancels it too
@@ -250,6 +286,23 @@ void ModeDirector::tick(uint64_t nowUs, std::vector<MidiOutMsg>& out) {
         showPlaying_ = false;
     }
     engine_.tick(nowUs, out);
+
+    // B1b (BUGFIX-PLAN §3-B1): a demo/follow-clock show reaching
+    // PlayState::Finished must not freeze the strip on its last frame and
+    // 409-block probe/record/mode/upload until a manual /api/shows/stop —
+    // tear it down the instant the engine reports it, exactly like an
+    // explicit stop (same showPlaying_/presentation_ teardown, reused).
+    // Score-follow shows (clock 2) never reach Finished — their transport
+    // is deliberately kept out of Playing (the performer is the only
+    // clock) — so this guard only ever fires for clock 0/1 shows, and it
+    // self-limits: stopShow() clears showPlaying_, so it won't re-fire on
+    // the next tick. Restoring the pre-show practice mode is an App-seam
+    // concern (App owns the last-chosen mode/practice strings, which the
+    // engine doesn't expose) — App::tick() detects this exact
+    // showPlaying() true→false edge and reruns the same restore its manual
+    // stop path already uses (see the wave report for the exact patch).
+    if (showPlaying_ && engine_.state() == PlayState::Finished) stopShow();
+
     // REC3 echo-feed: every note-on we emit to the piano this tick registers a
     // credit in capture's OWN echo guard, so the piano's echo of it (arriving
     // on a later BLE poll) is dropped from a Play-along take. REST-path
