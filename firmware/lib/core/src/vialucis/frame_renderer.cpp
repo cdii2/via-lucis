@@ -7,6 +7,21 @@ namespace {
 
 uint8_t maxChannel(const Rgb& c) { return std::max(c.r, std::max(c.g, c.b)); }
 
+// A163 (§3-E item 11, unison-note color precedence): order-independent
+// average, round-half-up per channel (matches scaleRgb's rounding
+// convention). Used ONLY to resolve a same-layer, EQUAL-peak-brightness
+// collision -- most commonly both hands' Due color landing on a note they
+// strike in unison. Neither "whichever addDue() call happened first" nor
+// "whichever track comes first in the MIDI file" is a real product
+// decision the player can reason about, so blend the two colors instead of
+// picking a side. Commutative (a+b == b+a), so the result NEVER depends on
+// call order -- the deterministic part of "deterministic color rule."
+Rgb blendRgb(const Rgb& a, const Rgb& b) {
+    return {static_cast<uint8_t>((static_cast<uint16_t>(a.r) + b.r + 1) / 2),
+            static_cast<uint8_t>((static_cast<uint16_t>(a.g) + b.g + 1) / 2),
+            static_cast<uint8_t>((static_cast<uint16_t>(a.b) + b.b + 1) / 2)};
+}
+
 }  // namespace
 
 void FrameRenderer::clear() {
@@ -21,9 +36,19 @@ void FrameRenderer::paint(uint8_t note, Rgb color, Layer layer) {
         if (layer > layer_[i]) {
             frame_[i] = color;
             layer_[i] = layer;
-        } else if (layer == layer_[i] &&
-                   maxChannel(color) > maxChannel(frame_[i])) {
-            frame_[i] = color;  // same layer: brighter wins (double upcoming)
+            continue;
+        }
+        if (layer != layer_[i]) continue;
+        uint8_t curMax = maxChannel(frame_[i]);
+        uint8_t newMax = maxChannel(color);
+        if (newMax > curMax) {
+            frame_[i] = color;  // same layer, strictly brighter wins (e.g. a
+                                 // nearer upcoming onset, "double upcoming")
+        } else if (newMax == curMax) {
+            // A163: equal peak brightness at the same layer -- a genuine tie
+            // (e.g. both hands' Due color on a unison note). Blend rather
+            // than arbitrarily keep whichever call landed first.
+            frame_[i] = blendRgb(frame_[i], color);
         }
     }
 }

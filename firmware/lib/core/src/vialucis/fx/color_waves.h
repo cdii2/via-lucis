@@ -67,7 +67,10 @@ public:
             sHue16_ + deltams * beatsin88(400, 5, 9, ms));
         uint16_t brightnesstheta16 = sPseudotime_;
 
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against f.leds.size() too (fire2012.h
+        // note on the same guard) — pixelnumber below derives from ledCount_,
+        // so it needs the same bound as the loop index.
+        for (uint16_t i = 0; i < ledCount_ && i < f.leds.size(); ++i) {
             hue16 = static_cast<uint16_t>(hue16 + hueinc16);
             uint8_t hue8 = static_cast<uint8_t>(hue16 / 256);
 
@@ -88,12 +91,20 @@ public:
             // already carries).
             Rgb newcolor = colorFromPalette(palette_, hue8, bri8);
 
+            // Reversed index: bounding `i` alone isn't enough here — if the
+            // caller ever hands render() a buffer SHORTER than ledCount_,
+            // (ledCount_-1-i) can still land past f.leds.size() even while i
+            // itself stays in range (A162).
             uint16_t pixelnumber = static_cast<uint16_t>((ledCount_ - 1) - i);
-            nblend(f.leds[pixelnumber], newcolor, 64);
+            if (pixelnumber < f.leds.size())
+                nblend(f.leds[pixelnumber], newcolor, 64);
         }
     }
 
     void setPalette(const Palette16& p) override { palette_ = p; }
+    // A158 (§3-E item 6): back to the built-in default (rainbowColors, see
+    // the file header) — the state before any setPalette() call.
+    void resetPalette() override { palette_ = rainbowColors(); }
 
 private:
     uint16_t ledCount_ = 0;

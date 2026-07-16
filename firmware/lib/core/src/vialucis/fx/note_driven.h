@@ -45,6 +45,9 @@ public:
     void reset(uint32_t seed, uint16_t ledCount) override;
     void render(FxFrame& f) override;  // decays releases, paints the table
     void setPalette(const Palette16& p) override { palette_ = p; }
+    // A158 (§3-E item 6): back to the built-in default (rainbowColors, same
+    // as reset() seeds it to) — the state before any setPalette() call.
+    void resetPalette() override { palette_ = rainbowColors(); }
 
 private:
     struct Key {

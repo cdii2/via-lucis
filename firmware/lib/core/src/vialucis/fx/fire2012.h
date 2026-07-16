@@ -84,7 +84,11 @@ public:
 
         // Step 4. Map from heat cells to LED colors. gReverseDirection is
         // fixed false (see file header), so pixelnumber == j always.
-        for (uint16_t j = 0; j < ledCount_; ++j) {
+        // A162 (§3-E item 10): bound against f.leds.size() too — ledCount_ is
+        // this effect's OWN idea of strip length (set once in reset()); if a
+        // caller ever handed render() a shorter buffer than that, this write
+        // must not run past its end.
+        for (uint16_t j = 0; j < ledCount_ && j < f.leds.size(); ++j) {
             f.leds[j] = heatColor(heat_[j]);
         }
     }

@@ -22,6 +22,15 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "song": "ode-to-joy.mid",        // "" if none loaded
     "state": "idle",                  // idle | playing | waiting | finished
     "mode": "wait",                   // wait | follow | demo | accompaniment
+                                      // OMITTED entirely with no song loaded
+                                      // (A160, §3-E item 8) — mode_ defaults
+                                      // to "wait" internally regardless, so
+                                      // emitting it there used to read as
+                                      // "topMode":"reactive"+"mode":"wait"
+                                      // (practice active with nothing
+                                      // loaded). Feature-detect: the webui
+                                      // already disables every mode control
+                                      // while no song is loaded.
     "positionMs": 12345,
     "durationMs": 98765,
     "tempoPercent": 100,
@@ -72,10 +81,17 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 
 ## Songs
 
-- `GET /api/songs` → `[{"name": "ode-to-joy.mid", "size": 4321}]`
+- `GET /api/songs` →
+  `[{"name": "ode-to-joy.mid", "size": 4321, "parseOk": true}]`
   (LittleFS `/songs/` directory listing; names are sanitized filenames.) A
   bare array — capacity/free space is NOT here; read `fsFree`/`fsTotal` from
-  `GET /api/status`.
+  `GET /api/status`. `parseOk` (A164, §3-E item 12 — the queued Wave C ask)
+  is `false` when the file's MIDI fails to parse (a corrupt/partial upload
+  that still landed on the device) — the webui badges it so a player isn't
+  left guessing why a song silently won't load. It's cheap: a per-boot,
+  in-RAM cache keyed by (name, size) means re-parsing only happens for a
+  song this call has never seen or whose byte size just changed (a
+  re-upload/overwrite) — NOT on every poll.
 - `POST /api/songs` — raw body upload, `?name=<filename>.mid` query param.
   → `201 {"name": "..."}`. Rejects non-`.mid` names and files > 256 KB.
   Errors are deferred to the end of the transfer and returned as JSON (never a
@@ -92,7 +108,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   (`POST /api/songs/unload` it first — otherwise status/practice would keep
   reporting a "loaded" song the list no longer has).
 - `POST /api/songs/{name}/load` → `200` + status JSON. Parses the file,
-  resets transport to 0, state `idle`.
+  resets transport to 0, state `idle`. Typed failures (A154, §3-E item 2 —
+  these used to collapse into one generic 400): `404 {"error": "no such
+  song"}` when the name isn't on the device, `400 {"error": "cannot load
+  song"}` only when the file exists but its MIDI fails to parse.
 - `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →
   `200 {"name": "new-name.mid"}`. `400` bad/non-`.mid` name, `404` missing
   source, `409 {"error": "exists"}` if the target name is taken. (Used to
@@ -239,6 +258,56 @@ clock:
   every state-changing call it resets the idle clock, so the AFK drift
   restarts from the unload.
 
+## Shows (P2; docs/SHOW-FORMAT.md — A165, §3-E item 1)
+
+Baked `.vls` presentation streams (SHOW-FORMAT.md), stored under `/shows/`
+alongside songs but capped separately (**64 KB per show, 384 KB / 16 shows
+total** — `SongStore::kMaxShowBytes/kMaxShowTotalBytes/kMaxShowCount`). A
+show plays ON TOP of a loaded song (Presentation top mode) — see "Top mode"
+above.
+
+- `GET /api/shows` →
+  ```json
+  {"formatVersion": 1, "shows": [{"name": "intro.vls", "size": 2048}]}
+  ```
+  `formatVersion` is `Show::kVersionMajor` (the parser's own compatibility
+  constant — SHOW-FORMAT's "refuse a stream whose major version is newer
+  than ours" rule), not a hand-copied literal. `shows` is a bare list, same
+  shape as `GET /api/songs`.
+- `POST /api/shows` — raw body upload, `?name=<filename>.vls` query param.
+  Mirrors the song upload contract above (whole-file, `Content-Length`
+  precondition, atomic tmp+rename, deferred errors so a rejection is JSON
+  never a TCP RST) with show-specific caps:
+  → `201 {"name": "..."}`.
+  - `400` — missing `?name=`, bad/non-`.vls` name.
+  - `409 {"error": "busy"}` — a show is currently rendering live; uploads
+    are refused while anything plays (never race the render path, OV1).
+  - `413 {"error": "show too large"}` — announced size over 64 KB.
+  - `507 {"error": "show storage full"}` — the 16-show count cap or the
+    384 KB total-bytes cap would be exceeded. Overwriting an EXISTING
+    same-name show nets out its old bytes first (an edit → re-save loop
+    doesn't double-count itself against the cap).
+  - `507 {"error": "insufficient storage"}` — the same block-rounded
+    free-space precheck the song upload uses (shows share the LittleFS
+    partition with songs).
+- `DELETE /api/shows/{name}` → `204`, or `404 {"error": "no such show"}`.
+- `POST /api/shows/{name}/play` → `200` + status JSON (enters Presentation
+  top mode and starts the show's own clock — demo-clock or score-follow per
+  the stream's `clockSource`). Typed refusals:
+  - `404 {"error": "no such show"}` — no file by that name.
+  - `400 {"error": "<parse error>"}` — the stream failed
+    `Show::parse` (bad magic, newer major version, truncated, a malformed
+    section/cue, an unregistered effect name, or over the 64 KB whole-load
+    cap) — the message text is `ShowResult::message()`, stable across
+    calls.
+  - `400 {"error": "no song loaded"}` — Presentation needs a loaded song
+    underneath it (load one first).
+  - `409 {"error": "busy"}` — practice is already `Playing` (a live
+    practice session is never hijacked by starting a show).
+- `POST /api/shows/stop` → `200` + status JSON. Tears down the render and
+  restores the practice mode/hand the player had before the show started
+  (a stray stop with nothing playing is a harmless no-op, not an error).
+
 ## Record (v3 Record wave)
 
 Record your own playing to a `.mid` on the device (docs/DESIGN-record.md). The
@@ -341,7 +410,8 @@ own route). Tracks are effect configs played top→bottom→loop.
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
     "afkTimeoutSec": 180,
-    "recordBudgetKB": 64
+    "recordBudgetKB": 64,
+    "bleTargetName": ""
   }
   ```
   **`wifiPass` is write-only and NEVER returned** (ruling §6-1). The Public view
@@ -360,6 +430,12 @@ own route). Tracks are effect configs played top→bottom→loop.
   100 = pure hue-snap glide at onset). A `repeatColor` equal to `wrongColor`
   is rejected (the field keeps its previous value) — a cue must never look
   like an error.
+  `bleTargetName` is the Wave E2 optional BLE-MIDI target filter — empty
+  (default) accepts the first BLE-MIDI peripheral found; set it to an
+  advertised device name to connect only to that one (useful with more than
+  one BLE-MIDI device in range). Not a secret — appears in both views
+  unchanged. Clamped to 20 characters. Like `wifiSsid`, a change takes
+  effect at the **next reboot**, not live.
 - `PUT /api/settings` — same shape, partial OK (missing fields unchanged)
   → `200` + the **Public view** of the new settings (again no `wifiPass`).
   Persisted to LittleFS immediately (atomically — see "Persistence" below).

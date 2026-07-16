@@ -536,6 +536,21 @@ void test_status_json_matches_api_contract_shape() {
     TEST_ASSERT_EQUAL_STRING("idle", doc["state"]);
 }
 
+// A160 (§3-E item 8): `mode` is meaningless with no song loaded (mode_
+// defaults to Wait regardless), so a bare status poll used to report
+// "mode":"wait" right alongside "topMode":"reactive"/"afk" — reading like
+// practice were somehow active with nothing loaded. Omit the field entirely
+// in that state; it reappears once a song is loaded (already pinned by
+// test_status_json_matches_api_contract_shape above).
+void test_status_json_omits_mode_with_no_song_loaded() {
+    PlaybackEngine e;  // never loadSong()'d — songName_ stays ""
+    std::string body = e.statusJson();
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, body) == DeserializationError::Ok);
+    TEST_ASSERT_EQUAL_STRING("", doc["song"]);
+    TEST_ASSERT_FALSE(doc["mode"].is<const char*>());
+}
+
 void test_status_json_without_wifi_omits_the_wifi_object() {
     // Non-status routes return statusJson with NO wifi object — exactly the
     // pre-R4 behavior (only GET /api/status ever grafted wifi on).
@@ -1279,6 +1294,7 @@ int main(int, char**) {
     RUN_TEST(test_rest_calls_without_song_return_false);
     RUN_TEST(test_loop_wrap_clears_sounding_lights_and_resyncs);
     RUN_TEST(test_status_json_matches_api_contract_shape);
+    RUN_TEST(test_status_json_omits_mode_with_no_song_loaded);
     RUN_TEST(test_status_json_without_wifi_omits_the_wifi_object);
     RUN_TEST(test_status_json_wifi_object_is_the_last_key);
     RUN_TEST(test_loadsong_between_ticks_while_playing_is_coherent);

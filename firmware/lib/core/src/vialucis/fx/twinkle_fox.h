@@ -74,7 +74,9 @@ public:
         const Rgb bg{0, 0, 0};
         uint8_t backgroundBrightness = averageLight(bg);
 
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against f.leds.size() too (fire2012.h
+        // note on the same guard).
+        for (uint16_t i = 0; i < ledCount_ && i < f.leds.size(); ++i) {
             prng16 = static_cast<uint16_t>(prng16 * 2053u + 1384u);
             uint16_t myClockOffset16 = prng16;
             prng16 = static_cast<uint16_t>(prng16 * 2053u + 1384u);
@@ -113,6 +115,9 @@ public:
     }
 
     void setPalette(const Palette16& p) override { palette_ = p; }
+    // A158 (§3-E item 6): back to the built-in default (oceanColors, see the
+    // file header) — the state before any setPalette() call.
+    void resetPalette() override { palette_ = oceanColors(); }
 
 private:
     static bool isBlack(const Rgb& c) {

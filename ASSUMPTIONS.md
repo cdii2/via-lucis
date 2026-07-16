@@ -3,7 +3,7 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
-- A157 (2026-07-16, Wave D, wd/wizard): **Slider re-arm debounce = 220ms**
+- A169 (2026-07-16, Wave D, wd/wizard): **Slider re-arm debounce = 220ms**
   (`calOnSliderInput` in webui/index.html). No prior art specified a number —
   chosen as comfortably above a single requestAnimationFrame-driven drag
   tick's input-event cadence but well under human perception of "the light
@@ -12,7 +12,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   instead of one per pixel. Verified live: 4 rapid synthetic `input` events
   dispatched in one JS tick collapsed to exactly one network POST (armed at
   the last value only).
-- A156 (2026-07-16, Wave D, wd/wizard): **One shared error-panel component
+- A168 (2026-07-16, Wave D, wd/wizard): **One shared error-panel component
   (`calErrPanelHtml`/`calWireErrPanel`/`calSetProbeError`) drives every
   probe-arm screen** (step1 anchor capture, step3 verify, fine-tune's
   "Show") — not a per-screen toast. This directly replaces two pre-existing
@@ -25,7 +25,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   Verified live against the mock for both 409 recording (panel renders "The
   device is recording — stop recording first," Retry recovers once the mock
   flag clears) and REST-level for timedOut/409 playing.
-- A155 (2026-07-16, Wave D, wd/wizard): **mock_device.py's probe additively
+- A167 (2026-07-16, Wave D, wd/wizard): **mock_device.py's probe additively
   gained a real `timedOut` field (mirrors firmware B6d/A119) and a mock-only
   `POST /api/mock/set-recording` control endpoint** (same spirit as A153's
   `fail-uploads` — NOT part of docs/API.md, a real device has no such
@@ -35,7 +35,7 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   probe-arm-while-recording 409 deterministically for its own E2E, so it
   added the narrowest possible hook rather than partially building someone
   else's feature.
-- A154 (2026-07-16, Wave D, wd/wizard): **The wizard never sends an explicit
+- A166 (2026-07-16, Wave D, wd/wizard): **The wizard never sends an explicit
   `reversed` field in the multiPoint PUT body** — docs/API.md's multiPoint
   shape only lists `tier`/`landmarks`; `reversed` is a response-only field
   the device infers from landmark LED order (ruling §6-5). The Done screen's
@@ -47,6 +47,177 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   operation rather than a two-point special case. Verified live: toggling
   on a 3-landmark table flipped `reversed` true→false→true server-side with
   each landmark's `led` mirrored correctly.
+- A165 (2026-07-16, Wave E1, we/polish): **API.md gets a new `## Shows`
+  section** documenting all 5 live routes that had shipped code but no
+  contract text: `GET /api/shows` (formatVersion + bare list, mirroring
+  `GET /api/songs`), `POST /api/shows` (upload, mirrors the song upload
+  contract with show-specific caps — 400/409 busy/413/507 quota/507
+  storage), `DELETE /api/shows/{name}`, `POST /api/shows/{name}/play`
+  (404/400 parse-error/400 no-song/409 busy), `POST /api/shows/stop`. Shapes
+  and error codes transcribed directly from `web_server.cpp` (not invented)
+  — the doc now matches shipped behavior exactly.
+- A164 (2026-07-16, Wave E1, we/polish): **`GET /api/songs`'s `parseOk`
+  (queued Wave C ask, §3-E item 12) is a per-boot, in-RAM cache keyed by
+  (name, size)** — `SongParseCache` (`lib/core/src/vialucis/
+  song_parse_cache.h/.cpp`, native-tested in isolation, no file IO) decides
+  ONLY whether a name+size pair needs re-parsing; `App::songsForList()`
+  (esp32-only glue, `app.cpp`) does the actual LittleFS read + `parseMidi`
+  when the cache says so. Chosen over parse-at-upload-commit-time (a sidecar
+  marker file) because it needed no `song_store.cpp`/upload-path edit at all
+  (additive, zero risk to the just-hardened B4 atomic-upload path) and a
+  size mismatch is already a reliable "this file changed" signal — LittleFS
+  writes are exact-byte and B4's atomic upload never leaves a partial-length
+  file in place, so no content hash is needed. `prune()` drops entries for
+  deleted/renamed songs each call so the cache can't grow unbounded across a
+  device's uptime. `GET /api/songs` stays a bare array per the A111 ruling —
+  `parseOk` is just one more field per item, not a shape change.
+- A163 (2026-07-16, Wave E1, we/polish): **unison-note color precedence
+  (§3-E item 11) — same-layer, EQUAL-peak-brightness paints on the same LED
+  now BLEND (round-half-up average per channel) instead of keeping whichever
+  `addDue()`/`addUpcoming()` call happened to land first.** The old tie-break
+  (`frame_renderer.cpp`'s `paint()`) only overwrote on a STRICTLY brighter
+  color, so an exact tie — most commonly both hands' Due color landing on a
+  note struck in unison — silently kept the first call's color, which
+  depended on iteration order (track order in the MIDI file, an accident of
+  authoring, not a product decision). `blendRgb()` is commutative (a+b ==
+  b+a), so the result is provably order-independent — the actual
+  "deterministic" half of "define a deterministic color rule." Strictly-
+  brighter-wins is UNCHANGED (still resolves e.g. two upcoming previews of
+  the same pitch at different lead distances). Pinned:
+  `test_unison_due_from_two_hands_blends_and_is_order_independent`
+  (`test_frame_renderer.cpp`) asserts both the blended value and that
+  swapping call order doesn't change it. No SPEC.md change — this is a
+  render-layer tiebreak, not a new customizable color.
+- A162 (2026-07-16, Wave E1, we/polish): **effect buffer write guards
+  (§3-E item 10) added to fire2012.h, pacifica.h, twinkle_fox.h,
+  color_waves.h** — each effect's per-pixel write loops bounded `ledCount_`
+  (the effect's OWN idea of strip length, fixed in `reset()`) but never
+  checked the CALLER-supplied `FxFrame::leds`/`std::vector<Rgb>&` buffer's
+  actual size, unlike `note_driven.cpp`/`afk_player.cpp`, which already had
+  this guard. Added `&& i < f.leds.size()` (or `leds.size()` for pacifica's
+  helper methods, which take the vector by reference) to every such loop.
+  `color_waves.h` needed an EXTRA guard beyond the loop bound: its reversed
+  index (`pixelnumber = (ledCount_-1)-i`) can exceed a short buffer even
+  while `i` itself stays in range, so that write is now wrapped in its own
+  `if (pixelnumber < f.leds.size())`. Cheap (a size() compare per pixel,
+  same pattern the two already-guarded effects use) and a no-op in every
+  exercised path today (every caller sizes its buffer to `ledCount_`) — pure
+  defense-in-depth per the brief. No new tests needed beyond the existing
+  suite (which already exercises 60/360-LED bounds); the guard doesn't
+  change behavior for any currently-possible call shape.
+- A161 (2026-07-16, Wave E1, we/polish): **`idleSec` (§3-E item 9) — KEEP,
+  no code change.** Investigated consumers: the webui never reads it (only
+  `afkTimeoutSec`/`topMode` drive its ambient-state UI), but it costs
+  NOTHING extra to emit — `ModeDirector::idleSec()` is already computed
+  every status call for the AFK-arm decision the director itself needs
+  (`topMode()`/idle-drift tracking), so dropping the field would save zero
+  work and would be a gratuitous breaking change to a documented,
+  already-shipped field for a webui-only consumer count of one. Kept for its
+  diagnostic value (e.g. asking a user for a status dump when triage-ing an
+  AFK-timing report — "topMode:reactive, idleSec:12, afkTimeoutSec:180"
+  tells you at a glance whether the timeout SHOULD have fired yet).
+- A160 (2026-07-16, Wave E1, we/polish): **`mode` omitted from statusJson
+  when no song is loaded (§3-E item 8)** — `playback_engine.cpp`'s
+  `mode_` member defaults to Wait regardless of whether a song is loaded, so
+  a bare status poll used to report `"mode":"wait"` right alongside
+  `"topMode":"reactive"`/`"afk"`, reading like practice mode were somehow
+  active with nothing loaded (the exact confusion §3-E item 8 names). Now
+  gated on `!songName_.empty()` — omitted entirely rather than emitting a
+  value that means nothing yet. Verified safe by READING (not editing)
+  `webui/index.html`: every mode-relevant control is already `disabled` when
+  `!hasSong` (Wave C1, A140), and the one comparison site
+  (`b.dataset.mode === s.mode`) degrades harmlessly to "no button active"
+  when `s.mode` is `undefined`. Touches `playback_engine.cpp` — NOT owned by
+  E1 this wave per the brief, but the brief explicitly permits a minimal-
+  additive touch for this item; flagged in the final report (no sibling
+  owns playback_engine this wave). Pinned:
+  `test_status_json_omits_mode_with_no_song_loaded`
+  (`test_playback_engine.cpp`); the existing `test_status_json_matches_
+  api_contract_shape` (which DOES load a song) still requires the field
+  present, unchanged. **Heads-up, not fixed (tools/ off-limits this wave):**
+  `tools/mock_device.py` still unconditionally emits `"mode":"wait"`
+  regardless of song state — a real device and the mock now diverge on this
+  one field. ASK for whoever next touches mock_device.py.
+- A159 (2026-07-16, Wave E1, we/polish): **hex color strictness (§3-E item
+  7) — DESIGNED, NOT APPLIED to the tree; handed to E2 as an exact ASK
+  (`settings.cpp`/`settings.h` are E2-owned this wave — off-limits per my
+  brief).** The only place colors currently parse from hex strings is
+  `settings.cpp`'s `hexToColor` (leftColor/rightColor/wrongColor/
+  repeatColor); `show.cpp`'s PALETTES section carries raw RGB bytes, never
+  hex text, so it needs no change. The bug: `hexToColor`'s
+  `sscanf(s+1, "%2x%2x%2x", &r,&g,&b)` treats `%2x`'s width as a MAXIMUM per
+  conversion, not a fixed count — a 5-hex-digit body like `"#12345"` still
+  satisfies all three conversions (the lone trailing digit read as the
+  entire blue channel) and anything past the 6th hex digit (e.g.
+  `"#0000000000"`) is silently ignored — both land a "valid"-looking color
+  from a malformed body instead of rejecting it. Fix: replace with manual
+  digit-by-digit validation requiring EXACTLY `#` + 6 hex digits, nothing
+  more or fewer; on rejection the field stays at its PREVIOUS value
+  (`readColor`'s existing behavior, unchanged) — never zeroed. Exact patch
+  (both `settings.cpp`'s `hexToColor` + a `test_malformed_hex_strings_are_
+  rejected` pin for `test_settings.cpp` covering short/long/non-hex/
+  missing-`#`/empty bodies, verified passing against E1's copy of the file
+  before being reverted out of this branch) is in the final report for E2
+  to apply on `we/ble`.
+- A158 (2026-07-16, Wave E1, we/polish): **palette reset on
+  `paletteRef==0xFF` (§3-E item 6) — new `Effect::resetPalette()` virtual
+  (default no-op, mirroring `setPalette`'s own default), overridden in every
+  palette-aware effect (`TwinkleFoxFx`, `ColorWavesFx`, `NoteDriven`) to
+  restore that effect's OWN hardcoded default (`oceanColors()`,
+  `rainbowColors()`, `rainbowColors()` respectively — the values each
+  already used as its pre-`setPalette()` default).** `ShowPlayer::renderAt`
+  now calls `e->resetPalette()` on the `paletteForCue()==nullptr` branch
+  (paletteRef 0xFF = "effect default") instead of doing nothing — the
+  show_player state-bleed bug: a cue sharing an effectIndex with an EARLIER
+  cue that DID set a palette would silently inherit that palette forever,
+  since "effect default" was never actually re-armed. Pinned at two levels:
+  effect-level (`test_twinklefox_reset_palette_restores_default`,
+  `test_color_waves_reset_palette_restores_default` in
+  `test_fx_effects.cpp` — resetPalette() after setPalette() produces
+  byte-identical output to a never-touched instance) and show_player-level
+  (`test_palette_resets_to_effect_default_when_ref_is_0xff` in
+  `test_show_player.cpp` — an all-red custom palette cue followed by a
+  paletteRef:0xFF cue must show non-red channels again). `fire2012.h`/
+  `pacifica.h` need no override (no `setPalette()` support — no-op default
+  is correct for both).
+- A157 (2026-07-16, Wave E1, we/polish): **`formatVersion` in `GET
+  /api/shows` now reads `Show::kVersionMajor` instead of the hand-copied
+  literal `1`** (§3-E item 5) — one line in `web_server.cpp`; the two values
+  happened to already agree, so this is a drift-prevention fix, not a
+  behavior change. No test needed (already covered by the existing shape;
+  a future SHOW-FORMAT major-version bump now can't silently desync the two).
+- A156 (2026-07-16, Wave E1, we/polish): **CORS added to `POST
+  /api/reboot`** (§3-E item 4) — it was the one route replying via a bare
+  `req->send(...)` instead of the shared `sendJson()` helper, so it never
+  got the `Access-Control-Allow-Origin`/private-network headers every other
+  route has. Now routed through `sendJson(req, 200, "{}")`, matching the
+  posture P2's `addCors()` established everywhere else (the off-device
+  editor and any LAN page talking to `/api/*` from `Origin: null`).
+- A155 (2026-07-16, Wave E1, we/polish): **405-for-wrong-method (§3-E item
+  3, explicitly "optional") — SKIPPED.** ESPAsyncWebServer resolves
+  unmatched-method requests by falling through to whatever ELSE matches the
+  URI (nothing here) and finally to `onNotFound` (today's 404) — there is no
+  cheap, centralized way to answer 405 without registering an explicit
+  extra handler per (path, wrong-method) pair for every route in the table.
+  Given R1 (route shadowing) was JUST closed this same bugfix arc by
+  switching five parents to exact matchers, adding a second wave of
+  per-path method registrations reopens exactly the kind of routing-surface
+  risk that bug lived in, for a status-code nicety with no functional
+  benefit to this API's one real client (the webui, which never sends a
+  wrong method). Skipped per the brief's explicit carve-out.
+- A154 (2026-07-16, Wave E1, we/polish): **Load-nonexistent-song → 404
+  (§3-E item 2) via a new pure decision seam, `vialucis::classifySongLoad`
+  (`lib/core/src/vialucis/song_load.h`), native-tested
+  (`test_song_load.cpp`) even though the glue that gathers its two inputs
+  (`App::loadSong`, `app.cpp`) is esp32-only (LittleFS read + `parseMidi`,
+  can't run under `native`).** Before: any load failure — a typo'd filename
+  OR a genuinely corrupt file — answered the same generic `400 "cannot load
+  song"`. Now: `SongLoadOutcome::NotFound` (`404 "no such song"`) when the
+  store read fails, `ParseError` (`400 "cannot load song"`, unchanged text)
+  only when the file exists but `parseMidi` rejects it. `App::loadSong`'s
+  return type changed from `bool` to `SongLoadOutcome` — safe: no native
+  test calls `App::loadSong` (it's esp32-only, `app.h` isn't included by
+  any test), and `web_server.cpp` is the only REST caller.
 - A153 (2026-07-16, Wave L2, wl2/library): **mock_device.py gets two additive
   fixes beyond the strict T5/T6 ask, same spirit as A146.** (1)
   `POST /api/songs/{name}/rename` was completely unhandled (fell through to

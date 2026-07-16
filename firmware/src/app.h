@@ -20,6 +20,8 @@
 #include "vialucis/playback_engine.h"
 #include "vialucis/record_take.h"  // PendingSave (B5 ask 3)
 #include "vialucis/settings.h"
+#include "vialucis/song_load.h"        // SongLoadOutcome (A154, §3-E item 2)
+#include "vialucis/song_parse_cache.h"  // A164, §3-E item 12
 
 namespace vialucis {
 
@@ -32,7 +34,10 @@ public:
     void onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs);
 
     // REST surface — all return false on invalid requests.
-    bool loadSong(const std::string& name);
+    // A154 (§3-E item 2): NotFound vs ParseError so the REST layer can
+    // answer 404 (no such file) vs 400 (file exists, parseMidi rejected it)
+    // instead of collapsing both into one generic 400.
+    SongLoadOutcome loadSong(const std::string& name);
     bool unloadSong();  // M1: back to the no-song state
     // The currently-loaded song name ("" if none), fenced. The DELETE guard
     // and the upload first-chunk 409 both ask this (ruling §6-3) instead of
@@ -125,11 +130,20 @@ public:
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and
-    // BleMidiIo::connected() is a single volatile bool. Any future change
-    // breaking that must route through the fence instead.
+    // BleMidiIo::connected() is a std::atomic<bool> (E2 relay: was a plain
+    // volatile bool). Any future change breaking that must route through
+    // the fence instead.
     Settings& settings() { return settings_; }
     SongStore& store() { return store_; }
     BleMidiIo& ble() { return ble_; }
+
+    // --- songs list w/ parse status (A164, §3-E item 12) -------------------
+    struct SongListEntry { std::string name; size_t size; bool parseOk; };
+    // GET /api/songs annotated with parseOk — cached per (name,size) via
+    // parseCache_ so a ~2x/s poll never re-parses every file; only a
+    // never-seen name or a changed size (re-upload/overwrite) triggers one
+    // re-parse. Runs on the HTTP task, not the latency path.
+    std::vector<SongListEntry> songsForList();
 
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
@@ -170,7 +184,8 @@ private:
     // happens outside the fence — so a tick waits behind at most one
     // in-flight engine command (ms-scale, only when the web remote is
     // used). Loop-task and REST-path engine SENDS serialize through it too;
-    // GET /api/ble's connected() read stays outside (lone volatile bool).
+    // GET /api/ble's connected() read stays outside (a std::atomic<bool>;
+    // E2 relay: was a plain volatile bool).
     SemaphoreHandle_t lock_ = nullptr;
 
     // Loop-task tick buffer, reused every iteration (REST calls use locals —
@@ -198,6 +213,9 @@ private:
     // defaults. Surfaced to the UI via /api/status "configReset" (pending the
     // DeviceStatus.configReset field — see report handoff).
     bool configReset_ = false;
+
+    // A164 (§3-E item 12): per-boot, in-RAM parseOk cache for songsForList().
+    SongParseCache parseCache_;
 };
 
 }  // namespace vialucis

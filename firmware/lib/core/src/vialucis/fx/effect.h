@@ -48,6 +48,17 @@ public:
     // Palette-driven effects accept the shared palette primitive; others
     // ignore it (brief §3 — palettes are the one color primitive).
     virtual void setPalette(const Palette16& p) { (void)p; }
+
+    // Restore this effect's OWN default palette — the state it has right
+    // after reset(), before any setPalette() call (A158, §3-E item 6). The
+    // counterpart to setPalette() for "no override, use whatever this effect
+    // normally shows": SHOW-FORMAT's paletteRef==0xFF means exactly that, and
+    // without this seam a ShowPlayer cue sharing an effect instance with an
+    // earlier cue that DID call setPalette() would keep the earlier cue's
+    // palette forever (state bleed between cues). Effects that don't honor
+    // setPalette() also don't need to override this (no-op default, matching
+    // setPalette's own default).
+    virtual void resetPalette() {}
 };
 
 }  // namespace fx

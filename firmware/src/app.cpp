@@ -87,6 +87,11 @@ void App::begin() {
             afkCfg, static_cast<uint32_t>(esp_timer_get_time()));
     }
     leds_.begin(settings_.brightness);
+    // E2 relay: apply the optional BLE-MIDI target-name filter before the
+    // scan starts. Depends on we/ble's Settings::bleTargetName +
+    // BleMidiIo::setTargetName — this line only compiles after that branch
+    // merges (see this wave's final report).
+    ble_.setTargetName(settings_.bleTargetName);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
         onPianoNoteOn(note, vel, static_cast<uint64_t>(esp_timer_get_time()));
@@ -115,21 +120,25 @@ void App::sendAll(const std::vector<MidiOutMsg>& msgs) {
     for (const MidiOutMsg& m : msgs) ble_.send(m);
 }
 
-bool App::loadSong(const std::string& name) {
+SongLoadOutcome App::loadSong(const std::string& name) {
     // Flash read + parse stay UNFENCED: they produce only locals, and store_
     // is HTTP-task-only. The fence covers just the engine mutation + sends,
     // so a concurrent tick never stalls behind file IO (F-wave review R1).
     std::vector<uint8_t> data;
-    if (!store_.read(name, data)) return false;
-    MidiParseResult r = parseMidi(data.data(), data.size());
-    if (r.error != MidiParseError::Ok) return false;
+    bool fileRead = store_.read(name, data);
+    MidiParseResult r{};
+    if (fileRead) r = parseMidi(data.data(), data.size());
+    // A154 (§3-E item 2): the pure NotFound-vs-ParseError decision lives in
+    // song_load.h (native-tested) — this glue just gathers the two facts.
+    SongLoadOutcome outcome = classifySongLoad(fileRead, r.error);
+    if (outcome != SongLoadOutcome::Ok) return outcome;
     std::vector<MidiOutMsg> out;
     FenceGuard g(lock_);
     touchWriteActivity();
     engine_.loadSong(std::move(r.song), name, out);
     loadedName_ = name;  // mirror the engine's songName_ (ruling §6-3)
     sendAll(out);
-    return true;
+    return SongLoadOutcome::Ok;
 }
 
 bool App::unloadSong() {
@@ -146,6 +155,32 @@ bool App::unloadSong() {
 std::string App::loadedSongName() {
     FenceGuard g(lock_);
     return loadedName_;
+}
+
+std::vector<App::SongListEntry> App::songsForList() {
+    // A164 (§3-E item 12): parse only what parseCache_ says has actually
+    // changed since it last saw it — see song_parse_cache.h for the
+    // (name,size) invalidation design. Runs on the HTTP task (store_ is
+    // HTTP-task-owned), never on the tick/wait-mode path.
+    std::vector<SongFileInfo> files = store_.list();
+    std::vector<std::string> names;
+    names.reserve(files.size());
+    for (const SongFileInfo& f : files) names.push_back(f.name);
+    parseCache_.prune(names);  // forget deleted/renamed songs
+
+    std::vector<SongListEntry> out;
+    out.reserve(files.size());
+    for (const SongFileInfo& f : files) {
+        if (parseCache_.needsRecompute(f.name, f.size)) {
+            std::vector<uint8_t> data;
+            bool ok = store_.read(f.name, data);
+            if (ok) ok = parseMidi(data.data(), data.size()).error ==
+                         MidiParseError::Ok;
+            parseCache_.set(f.name, f.size, ok);
+        }
+        out.push_back({f.name, f.size, parseCache_.get(f.name)});
+    }
+    return out;
 }
 
 bool App::setPresentation(bool on) {

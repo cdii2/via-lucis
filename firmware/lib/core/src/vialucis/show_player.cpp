@@ -192,7 +192,13 @@ void ShowPlayer::renderAt(uint32_t songMs, std::vector<Rgb>& out) {
                             : nullptr;
         if (!e) continue;
 
+        // A158 (§3-E item 6): paletteRef==0xFF means "this effect's own
+        // default," not "whatever the last cue on this shared effect
+        // instance happened to set" — without the explicit reset, a cue
+        // that never names a palette would silently inherit an EARLIER
+        // cue's palette (state bleed between cues sharing an effectIndex).
         if (const fx::Palette16* p = paletteForCue(cue)) e->setPalette(*p);
+        else e->resetPalette();
 
         fx::NoteDriven* nd = (cue.effectIndex < nd_.size())
                                  ? nd_[cue.effectIndex]

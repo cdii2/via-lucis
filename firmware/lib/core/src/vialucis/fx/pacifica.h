@@ -104,7 +104,9 @@ public:
             sCIStart4_ - (deltams2 * beatsin88(257, 4, 6, ms)));
 
         // Clear out the LED array to a dim background blue-green.
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against f.leds.size() too — see the
+        // fire2012.h note on the same guard.
+        for (uint16_t i = 0; i < ledCount_ && i < f.leds.size(); ++i) {
             f.leds[i] = Rgb{2, 6, 10};
         }
 
@@ -140,7 +142,8 @@ private:
         uint16_t ci = cistart;
         uint16_t waveangle = ioff;
         uint16_t wavescaleHalf = static_cast<uint16_t>((wavescale / 2) + 20);
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against leds.size() too (fire2012.h note).
+        for (uint16_t i = 0; i < ledCount_ && i < leds.size(); ++i) {
             waveangle = static_cast<uint16_t>(waveangle + 250);
             uint16_t s16 = static_cast<uint16_t>(
                 static_cast<int32_t>(sin16(waveangle)) + 32768);
@@ -161,7 +164,8 @@ private:
         uint8_t basethreshold = beatsin8(9, 55, 65, ms);
         uint8_t wave = beat8(7, ms);
 
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against leds.size() too (fire2012.h note).
+        for (uint16_t i = 0; i < ledCount_ && i < leds.size(); ++i) {
             uint8_t threshold = static_cast<uint8_t>(
                 scale8(sin8(wave), 20) + basethreshold);
             wave = static_cast<uint8_t>(wave + 7);
@@ -182,7 +186,8 @@ private:
 
     // Deepen the blues and greens a bit (pacifica_deepen_colors).
     void deepenColors(std::vector<Rgb>& leds) {
-        for (uint16_t i = 0; i < ledCount_; ++i) {
+        // A162 (§3-E item 10): bound against leds.size() too (fire2012.h note).
+        for (uint16_t i = 0; i < ledCount_ && i < leds.size(); ++i) {
             Rgb& dst = leds[i];
             dst.b = scale8(dst.b, 145);
             dst.g = scale8(dst.g, 200);

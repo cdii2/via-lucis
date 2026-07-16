@@ -286,6 +286,43 @@ void test_note_bind_retrigger_at_shortened_off() {
     TEST_ASSERT_EQUAL_UINT8(peakHeld, peakRetrig);
 }
 
+// (h) Palette reset (A158, §3-E item 6): a cue with paletteRef==0xFF ("effect
+// default") must not inherit whatever palette an EARLIER cue sharing the
+// same effectIndex left behind. allRed forces every colorwaves pixel to
+// g==0 && b==0 (its palette interpolation never introduces a channel none
+// of the entries carry) — if the SECOND cue's reset didn't run, every pixel
+// would stay g==0,b==0 forever; a lit pixel with g>0 or b>0 once that cue
+// takes over is proof the effect is back on its own rainbow default.
+void test_palette_resets_to_effect_default_when_ref_is_0xff() {
+    KeyLedTable table = makeTable();
+    fx::Palette16 allRed;
+    for (auto& e : allRed.entries) e = Rgb{255, 0, 0};
+
+    ShowCue red = wholeStripCue(0);
+    red.endMs = 160;
+    red.paletteRef = 0;  // -> show.palettes[0], the all-red bank
+    ShowCue def = wholeStripCue(0);
+    def.startMs = 160;
+    def.endMs = 0xFFFFFFFFu;
+    def.paletteRef = 0xFF;  // "effect default" — must NOT inherit red
+
+    Show s = makeShow({"colorwaves"}, {red, def});
+    s.palettes = {allRed};
+    ShowPlayer p = makePlayer(std::move(s), table);
+
+    std::vector<Rgb> out(360);
+    bool sawNonRedChannel = false;
+    for (uint32_t t = 0; t <= 320; t += kStep) {
+        p.renderAt(t, out);
+        if (t >= 176) {  // comfortably inside the reset (def) cue's window
+            for (const Rgb& c : out) {
+                if (c.g > 0 || c.b > 0) { sawNonRedChannel = true; break; }
+            }
+        }
+    }
+    TEST_ASSERT_TRUE(sawNonRedChannel);
+}
+
 }  // namespace
 
 int main() {
@@ -297,5 +334,6 @@ int main() {
     RUN_TEST(test_masked_additive_blend);
     RUN_TEST(test_note_bind_off_goes_dark);
     RUN_TEST(test_note_bind_retrigger_at_shortened_off);
+    RUN_TEST(test_palette_resets_to_effect_default_when_ref_is_0xff);
     return UNITY_END();
 }
