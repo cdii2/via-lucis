@@ -43,6 +43,10 @@ struct Settings {
     uint32_t echoWindowMs = 250;  // echo-guard window; retune at bring-up
 
     std::string wifiSsid;  // empty ⇒ start AP "ViaLucis" directly
+    // wifiPass is WRITE-ONLY across the REST boundary (ruling §6-1): a LAN/AP
+    // client can set it but must never read it back. Redaction is a property of
+    // this field, enforced by toJson(View::Public) below — NOT by the route
+    // handler. On the wire the Public view emits `wifiPassSet` (bool) instead.
     std::string wifiPass;
 
     // Incoming Re-press (Q3, brief §2). Percents are 0–100 on the wire;
@@ -72,9 +76,26 @@ struct Settings {
     // contract change).
     uint32_t recordBudgetKB = 64;
 
-    std::string toJson() const;
-    // Tolerant: missing fields keep current values; false only on unparseable
-    // input. Numeric fields are clamped to sane ranges.
+    // Which audience a serialization is for — secret-ness is a property of the
+    // field, decided HERE, not at the route handler (ruling §6-1):
+    //   Persist — the full document written to LittleFS flash. Carries
+    //             `wifiPass` so a reboot reconnects to WiFi. Used ONLY by the
+    //             flash-save path (SongStore::saveSettings).
+    //   Public  — everything that LEAVES the device: GET /api/settings, the PUT
+    //             echo, and the webui "Export" (which just downloads GET).
+    //             `wifiPass` is REDACTED — the key is absent and replaced by
+    //             `wifiPassSet: true|false` (true ⇔ a non-empty password is
+    //             stored). A native pin asserts Public never contains wifiPass.
+    // Default is Persist so the load-bearing flash path is unchanged; every
+    // outward call-site MUST pass View::Public explicitly.
+    enum class View { Persist, Public };
+    std::string toJson(View view = View::Persist) const;
+    // Tolerant PATCH: missing fields keep current values; false only on
+    // unparseable input. Numeric fields are clamped to sane ranges.
+    // wifiPass is write-only (ruling §6-1): a body WITH `wifiPass` sets it, a
+    // body WITHOUT it leaves the stored password unchanged, and an explicit
+    // `"wifiPass": ""` CLEARS it (A139). Clients that don't intend to change
+    // the password must OMIT the key — never send an empty string.
     static bool fromJson(const char* json, Settings& out);
 
     LedMapConfig ledMapConfig(uint16_t ledCount = 360) const {
