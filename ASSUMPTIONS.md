@@ -3,6 +3,29 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A105 (2026-07-15, library grill + eng-review): **Bigger-library feature —
+  standalone for practice, PC-optional for management; PHASED build.**
+  Grilled the "external storage" idea then stress-tested it via
+  /plan-eng-review (Codex outside voice). Ruled (Christian sign-off, per root
+  CLAUDE.md "Rules, not iron rules") the SPEC standalone LOCK is *honored, not
+  broken*: device never plays from the PC, so playback stays 100% standalone
+  and replicability holds; PC helper is an optional curator at the existing
+  upload seam. Spotify model — PC shelf holds hundreds+ (staging, no cloud
+  play), device holds a rotating few-dozen played offline. **Build is PHASED
+  (review: "foundation first, agent after"): Phase 0 = bugfix Wave A GATE
+  (un-shadow /load, fix LittleFS wedge-on-full, add /storage/format) — hard
+  prerequisite, nothing builds until it passes; Phase 1 = A1 repartition
+  (~1.9 MB, no purchase) + free-space field (SongStore::freeBytes() already
+  exists) + hardened whole-file upload + browser bulk-manage screen; Phase 2
+  = OPTIONAL folder+headless-sync-agent (NOT a GUI app), only if Phase 1
+  insufficient.** Discovery = DHCP reservation now, mDNS deferred. Transport
+  = manifest-diff over existing /api/songs, GET is source-of-truth, agent-side
+  mtime/hash cache (name+size unsafe), free-space margin ≥32-64 KB anti-wedge,
+  upload-then-delete atomicity; TRUE resumable upload needs firmware (deferred).
+  A2 microSD deferred (liked, part not bought). Rejected: desktop GUI app, B2
+  (device fetches), C (cloud). Big-single-file = RAM ceiling NOT storage,
+  out-of-scope. Full design: [docs/DESIGN-library.md](docs/DESIGN-library.md).
+  No code this session.
 - A104 (2026-07-15, PIN-E coverage pack): **§3 item 13 substituted, not
   skipped.** The literal item ("wizard-tier geometry reverting on scalar
   edit mid-practice") names the "dials-win" rule in `app.cpp::applySettings`
