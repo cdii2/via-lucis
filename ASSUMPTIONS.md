@@ -3,6 +3,78 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A175 (2026-07-16, E2, we/ble): hex-color strictness (§3-E item 7) applied
+  to `settings.cpp`'s `hexToColor` — design by E1 (its branch-local A165,
+  compacted to A159 at merge), handed over and applied here because `settings.cpp`/
+  `test_settings` are E2-owned this wave. Replaced
+  `sscanf(s+1, "%2x%2x%2x", ...)` (whose `%2x` is a per-conversion MAXIMUM
+  width, not a fixed count — "#12345" and "#0000000000" both slipped through
+  as "valid") with manual digit-by-digit validation requiring EXACTLY `#` +
+  6 hex digits, case-insensitive, nothing more or fewer. `readColor()`
+  already left a field at its previous value on a `hexToColor` rejection —
+  unchanged, so the PATCH-leaves-existing-value behavior came for free.
+  Added `test_malformed_hex_strings_are_rejected` (8 bad bodies: short,
+  long, way-too-long, missing `#`, non-hex letters, embedded space, empty,
+  bare `#`; plus a good-value control and a lowercase-hex control). Native
+  503 (was 502).
+- A174 (2026-07-16, E2, we/ble): Active Sensing (0xFE) → onActivity verified
+  NOT a bug (BUGFIX-PLAN §3-E item 5) — pinned with a comment only, not a
+  native test: `firmware/src/ble_midi_io.cpp` wires `noteActivity()` from
+  exactly three handlers (NoteOn/NoteOff/ControlChange) and never registers
+  `MIDI.setHandleActiveSensing(...)`; the FortySevenEffects MIDI Library only
+  dispatches to explicitly-registered handlers (no fallback), so an Active
+  Sensing byte structurally cannot reach `onActivity`. Not natively testable
+  — this file is esp32/NimBLE-only, no native target compiles it. Verify at
+  bring-up that AFK doesn't stay disarmed on Active-Sensing-only traffic.
+- A173 (2026-07-16, E2, we/ble): FIX-C phantom echo credit documented at
+  both ends of the gap, comment only per the Wave E2 brief (mechanism stays
+  deferred to hardware bring-up, §7) — `echo_guard.h`'s `noteSent()` (credit
+  registered at EMIT time by `NoteEmitter::consume()`, note_emitter.cpp:14,
+  NOT owned by this wave) and `ble_midi_io.cpp`'s `send()` (the actual
+  transmit, which silently no-ops while disconnected). A note whose send()
+  no-oped still owns a credit, so a genuine same-note press after a
+  reconnect can be swallowed. note_emitter.cpp/h were left untouched (not on
+  this wave's ownership map); see the E2 report's ASKS for the one-line
+  pointer another agent may want to add there.
+- A172 (2026-07-16, E2, we/ble): `gConnected` (`ble_midi_io.cpp`) changed
+  from `volatile bool` to `std::atomic<bool>` (BUGFIX-PLAN §3-E item 3) —
+  same read/write pattern app.h already documents as safe unfenced (written
+  from the BLE connect/disconnect callbacks, read from `connected()` on
+  other tasks), just the correct primitive instead of a convention that
+  happened to work. Behavior-preserving; `app.h`'s comment at the
+  `settings()/store()/ble()` accessors block still says "a single volatile
+  bool" — stale after this change, flagged as an ASK (app.h is off-limits to
+  this wave).
+- A171 (2026-07-16, E2, we/ble): `bleTargetName` setting (BUGFIX-PLAN §3-E
+  item 2) rides BOTH Settings JSON views unchanged (it's a device name, not
+  a credential — ruling §6-1's "secret-ness is a property of the field" just
+  doesn't apply here) and is clamped to `kBleTargetNameMaxLen` (20 chars) —
+  well under the third-party lathoub library's fixed `char mDeviceName[24]`
+  buffer (`BLEMIDI_Transport.h`), which is filled via `strncpy` and does NOT
+  guarantee null-termination at/over 24 bytes; clamping in code we own
+  avoids ever handing that buffer an unterminated string. The library DOES
+  support a real name/address filter natively (`BLEMIDI_Transport::setName()`
+  feeds `BLEMIDI_Client_ESP32`'s `specificTarget`/`nameTarget`, checked in
+  its scan-result callback before ever connecting) — confirmed by reading
+  the actual upstream source (github.com/lathoub/Arduino-BLE-MIDI), not
+  guessed. It's read ONCE at `MIDI.begin()` (called once, at boot, from
+  `App::begin()` — AFTER `store_.loadSettings()`), so a live PUT
+  /api/settings change takes effect at the next reboot only, same as
+  `wifiSsid`. Wiring the one-line call site is an ASK (app.cpp is off-limits
+  to this wave) — see the E2 report.
+- A170 (2026-07-16, E2, we/ble): BLE scan backoff (BUGFIX-PLAN §3-E item 1) —
+  confirmed via the actual upstream lathoub source
+  (`BLEMIDI_Client_ESP32.h::available()`/`scan()`) that the scan/reconnect
+  cycle is entirely poll-driven with zero library-side cooldown: every call
+  while disconnected either connects or, once `scanDone`, immediately
+  re-arms a fresh 1s scan. Since `poll()` forwards to `MIDI.read()` every
+  `loop()` iteration, the only lever available without vendoring/forking the
+  library is throttling how often a DISCONNECTED `poll()` is let through to
+  `MIDI.read()` at all. Implemented as a bounded exponential backoff
+  (2s→4s→…→60s cap, `kBleScanBackoff*` constants in `ble_midi_io.cpp`,
+  flagged bring-up-tunable per §6-6), reset to the fastest retry on ANY
+  connect OR disconnect event; a connected link is never throttled (poll()
+  always reads immediately when `gConnected`).
 - A169 (2026-07-16, Wave D, wd/wizard): **Slider re-arm debounce = 220ms**
   (`calOnSliderInput` in webui/index.html). No prior art specified a number —
   chosen as comfortably above a single requestAnimationFrame-driven drag

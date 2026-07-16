@@ -14,10 +14,37 @@ std::string colorToHex(const Rgb& c) {
     return buf;
 }
 
+bool isHexDigit(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+           (c >= 'A' && c <= 'F');
+}
+
+unsigned hexNibble(char c) {
+    if (c >= '0' && c <= '9') return static_cast<unsigned>(c - '0');
+    if (c >= 'a' && c <= 'f') return static_cast<unsigned>(c - 'a' + 10);
+    return static_cast<unsigned>(c - 'A' + 10);
+}
+
+// Strict hex color parse (§3-E item 7, hex-color-strictness — design by E1
+// Wave, ASSUMPTIONS A165 on we/polish; applied here since settings.cpp is
+// E2-owned this wave). The old `sscanf(s+1, "%2x%2x%2x", ...)` used `%2x` as
+// a per-conversion MAXIMUM width, not a fixed count: a 5-digit body like
+// "#12345" still satisfied all three conversions (the lone trailing digit
+// read as the whole blue channel), and anything past the 6th digit (e.g.
+// "#0000000000") was silently ignored — both produced a "valid"-looking
+// color from a malformed body instead of rejecting it. This version requires
+// EXACTLY '#' + 6 hex digits (case-insensitive) and nothing more or fewer;
+// any other shape is a parse failure. Callers (readColor) already leave the
+// field at its previous value on a `false` return — unchanged here.
 bool hexToColor(const char* s, Rgb& out) {
     if (!s || s[0] != '#') return false;
-    unsigned r, g, b;
-    if (std::sscanf(s + 1, "%2x%2x%2x", &r, &g, &b) != 3) return false;
+    for (int i = 1; i <= 6; ++i) {
+        if (!isHexDigit(s[i])) return false;
+    }
+    if (s[7] != '\0') return false;  // no trailing junk past the 6th digit
+    unsigned r = hexNibble(s[1]) * 16 + hexNibble(s[2]);
+    unsigned g = hexNibble(s[3]) * 16 + hexNibble(s[4]);
+    unsigned b = hexNibble(s[5]) * 16 + hexNibble(s[6]);
     out = {static_cast<uint8_t>(r), static_cast<uint8_t>(g),
            static_cast<uint8_t>(b)};
     return true;
@@ -64,6 +91,11 @@ std::string Settings::toJson(View view) const {
     doc["repeatWaitPulseMs"] = repeatWaitPulseMs;
     doc["afkTimeoutSec"] = afkTimeoutSec;
     doc["recordBudgetKB"] = recordBudgetKB;
+    // bleTargetName is NOT a secret (unlike wifiPass) — it's a device name,
+    // not a credential — so it rides both views unchanged (ruling §6-1's
+    // "secret-ness is a property of the field" cuts the other way here: this
+    // field simply isn't one).
+    doc["bleTargetName"] = bleTargetName;
     std::string out;
     serializeJson(doc, out);
     return out;
@@ -143,6 +175,13 @@ bool Settings::fromJson(const char* json, Settings& out) {
         // misleading max. Clamp 16..256 to match.
         out.recordBudgetKB = std::min<uint32_t>(
             std::max<uint32_t>(o["recordBudgetKB"].as<uint32_t>(), 16), 256);
+    if (o["bleTargetName"].is<const char*>()) {
+        // Empty string is a valid, meaningful value (explicitly clears the
+        // filter back to accept-any) — always assign, then clamp length.
+        std::string v = o["bleTargetName"].as<const char*>();
+        if (v.size() > kBleTargetNameMaxLen) v.resize(kBleTargetNameMaxLen);
+        out.bleTargetName = v;
+    }
 
     // The collision guard cuts BOTH ways: a wrongColor edit that lands on
     // the current repeatColor is rejected too (Q-wave closing review).
