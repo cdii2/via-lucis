@@ -169,6 +169,15 @@ bool SongStore::read(const std::string& name, std::vector<uint8_t>& out) {
         f.close();
         return false;
     }
+    // A180/A182: refuse a read whose read+PARSE the heap can't hold — every
+    // consumer of this read (songs-list parse-check, song load) parses next,
+    // and a failed mid-parse allocation aborts uncatchably on the async_tcp
+    // task (crash-looping GET /api/songs; proven live, decoded backtrace).
+    // See storage_budget.h::parseWorkFits — factor is bring-up-tunable.
+    if (!parseWorkFits(len, ESP.getMaxAllocHeap())) {
+        f.close();
+        return false;
+    }
     out.resize(len);
     size_t got = f.read(out.data(), len);
     f.close();

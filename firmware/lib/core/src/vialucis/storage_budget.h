@@ -36,6 +36,37 @@ constexpr bool uploadFits(size_t incoming, size_t freeBytes,
     return roundUpToBlock(incoming, block) + reserve <= freeBytes;
 }
 
+// A180 (hardware bring-up hotfix): reading a whole song into RAM (the
+// GET /api/songs parse-check and song load both do this) must be REFUSED,
+// never attempted, when the largest allocatable heap block can't hold it
+// plus working margin. On this platform a std::vector allocation failure
+// aborts (exceptions disabled), and the read runs on the async_tcp task —
+// so an oversized read is a guaranteed crash+reboot mid-request, not an
+// error path. Proven live 2026-07-16: a 105 KB song against ~80 KB free
+// heap crash-looped every list call. The margin covers the parse's own
+// side allocations riding alongside the file buffer.
+constexpr size_t kReadHeapMarginBytes = 16 * 1024;
+constexpr bool wholeFileReadFits(size_t fileBytes, size_t maxAllocBytes) {
+    return fileBytes + kReadHeapMarginBytes <= maxAllocBytes;
+}
+
+// A182: reading is not enough — PARSING a MIDI expands it in RAM (the
+// notes vector holds ~12-16 B per event vs ~3-4 disk bytes, plus vector
+// doubling transients), and with exceptions disabled in our TUs a failed
+// mid-parse allocation is an uncatchable abort (proven live via decoded
+// backtrace: parseMidi → push_back → operator new → std::bad_alloc →
+// terminate). Budget the whole job: file buffer + expansion must fit the
+// largest allocatable block with margin. Factor 4 ≈ 1× file + 3× parsed
+// notes, deliberately conservative; a file this refuses is almost
+// certainly beyond the device's RAM ceiling to LOAD as well (the
+// documented out-of-scope streaming-parse case). BRING-UP-TUNABLE (§6-6
+// spirit): measure real expansion on hardware and tighten.
+constexpr size_t kParseExpansionFactor = 4;
+constexpr bool parseWorkFits(size_t fileBytes, size_t maxAllocBytes) {
+    return fileBytes * kParseExpansionFactor + kReadHeapMarginBytes <=
+           maxAllocBytes;
+}
+
 // Show total-bytes quota with net-delta: overwriting a same-name show frees its
 // old bytes, so only the delta counts against the cap. `existingSameName` = the
 // bytes of the show being replaced (0 for a brand-new name). Without this, the

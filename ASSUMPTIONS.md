@@ -57,7 +57,44 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
   multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
   exactly as before (L2's mock upload path untouched).
-- A175 (2026-07-16, E2, we/ble): hex-color strictness (§3-E item 7) applied
+- A182 (2026-07-16, bring-up hotfix, dispatcher): **`SongStore::read`'s guard
+  upgraded from read-fits (A180) to `parseWorkFits`: file bytes ×
+  `kParseExpansionFactor` (4) + margin must fit `getMaxAllocHeap()`** —
+  after A180+A181 the list STILL crash-looped; the decoded backtrace showed
+  `parseMidi → notes.push_back → operator new → std::bad_alloc →
+  terminate`: the 105 KB file READ fine, then the parsed-notes vector (~12-16
+  B/event vs 3-4 disk bytes + realloc doubling) blew the heap mid-parse, and
+  our TUs compile without -fexceptions so the throw is uncatchable. The
+  guard now budgets the whole read+parse job. Consequences: a
+  beyond-RAM-ceiling song lists as `parseOk:false` and load-fails typed —
+  which is the DESIGN's own position (big-file playback = out-of-scope
+  streaming-parse project). Factor 4 is deliberately conservative and
+  BRING-UP-TUNABLE (§6-6 spirit): measure the real expansion on hardware,
+  then widen. Native-pinned with the exact live failure shape.
+- A181 (2026-07-16, bring-up hotfix, dispatcher): **`parseTrack`'s
+  `NoteTracker` (16x128 open-note slots ≈ 18 KB) moves from the stack to the
+  heap (`std::make_unique`)** — it exceeded the ENTIRE 16 KB async_tcp stack
+  it runs on for HTTP song load and E1's songs-list parse check. Proven live:
+  `***ERROR*** A stack overflow in task async_tcp` + SW_CPU_RESET on every
+  GET /api/songs. Latent since v1 but UNREACHABLE on-device until Wave A
+  un-shadowed the load route (R1 swallowed every HTTP path into the parser;
+  native tests run with a desktop-sized stack and never noticed). Same
+  zeroing semantics (`active` has a member initializer; `open` stays
+  uninitialized-but-guarded, as before). The A180 read-guard margin (16 KB)
+  covers this transient allocation alongside the file buffer.
+- A180 (2026-07-16, bring-up hotfix, dispatcher): **`SongStore::read` refuses
+  any whole-file read that `wholeFileReadFits(len, ESP.getMaxAllocHeap())`
+  rejects (new pure guard + 16 KB margin in storage_budget.h, native-pinned)**
+  — found live at first flash of the wave pipeline: E1's parseOk check
+  (A164) reads each changed song fully into a heap vector on the async_tcp
+  task, and a 105 KB song against ~80 KB free heap ABORTS the vector resize
+  (exceptions disabled) → SW_CPU_RESET → GET /api/songs crash-looped the
+  device every call (bulk_upload's per-file verify GET then made every
+  subsequent upload look like a network failure). The guard also protects
+  song LOAD (same read path — the pre-existing "RAM ceiling" case now fails
+  as a clean typed error instead of a crash). Consequence: a song too big
+  for the heap lists as `parseOk:false` (honest — the device cannot load
+  it) and loads as a 400 parse error, never a reboot.
   to `settings.cpp`'s `hexToColor` — design by E1 (its branch-local A165,
   compacted to A159 at merge), handed over and applied here because `settings.cpp`/
   `test_settings` are E2-owned this wave. Replaced

@@ -1,6 +1,7 @@
 #include "vialucis/midi_parser.h"
 
 #include <algorithm>
+#include <memory>
 
 namespace vialucis {
 namespace {
@@ -112,7 +113,14 @@ MidiParseError parseTrack(Reader& r, uint8_t trackIndex, MidiSong& song) {
     if (!r.ok() || chunkLen > r.remaining()) return MidiParseError::Truncated;
     size_t end = r.pos() + chunkLen;
 
-    NoteTracker tracker;
+    // A181: NoteTracker is 16x128 slots = ~18 KB — bigger than the whole
+    // 16 KB async_tcp stack this parser runs on for HTTP song load and the
+    // songs-list parse check (stack overflow proven live 2026-07-16; the
+    // route shadowing fixed in Wave A means this path never executed
+    // on-device before). Heap-allocate it; the A180 read guard's margin
+    // already keeps this allocation safe alongside the file buffer.
+    auto tracker_ = std::make_unique<NoteTracker>();
+    NoteTracker& tracker = *tracker_;
     uint32_t tick = 0;
     uint8_t runningStatus = 0;
     song.tracks.push_back({});
