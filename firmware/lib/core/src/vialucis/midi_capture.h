@@ -30,6 +30,14 @@ enum class CaptureState : uint8_t { Idle, Armed, Recording };
 // Why an arm() request was refused (core-level; REST adds playing/low-space).
 enum class ArmResult : uint8_t { Armed, AlreadyArmed, BadBudget };
 
+// Upper bound on a capture budget (B5, docs/BUGFIX-PLAN-2026-07-15 §3-B): must
+// equal SongStore::kMaxSongBytes (firmware/src/song_store.h — lib/core can't
+// include firmware/src, so the value is duplicated, not shared; an ASK asks
+// B4 to keep them equal or hoist a shared constant). Clamped in arm() so an
+// over-budget take can never be recorded past what SongStore could ever save
+// — "unsaveable by construction" becomes impossible rather than merely rare.
+constexpr size_t kMaxRecordBudgetBytes = 256 * 1024;
+
 // Whether the finished take is whole or was truncated by a limit.
 enum class CaptureStatus : uint8_t { Ok, Overflowed };
 
@@ -58,13 +66,18 @@ struct CaptureTake {
 class MidiCapture {
 public:
     // Reserve the event buffer ONCE (the only allocation). budgetBytes bounds
-    // the take; maxDurationMs is the duration cap. Refuses if not Idle, or if
-    // the budget can't hold a single event.
+    // the take (clamped to kMaxRecordBudgetBytes — B5); maxDurationMs is the
+    // duration cap. Refuses if not Idle, or if the (post-clamp) budget can't
+    // hold a single event.
     ArmResult arm(size_t budgetBytes, uint32_t maxDurationMs, uint64_t nowUs);
 
     // Input taps — O(1) append, zero steady-state alloc. Times in microseconds
     // (engine convention; the echo guard windows in us). The first accepted
-    // note-on starts the clock and trims leading silence (its tMs == 0).
+    // note-on starts the clock and trims leading silence (its tMs == 0). A
+    // sustain-pedal DOWN (value > 0) while merely Armed ALSO starts the clock
+    // (B5: an opening sustain must not be lost) and becomes t=0 for the take;
+    // a pedal-up while Armed has nothing to open and is dropped, same as
+    // before.
     void onNoteOn(uint8_t note, uint8_t velocity, uint8_t channel, uint64_t nowUs);
     void onNoteOff(uint8_t note, uint8_t channel, uint64_t nowUs);
     void onPedal(uint8_t value, uint8_t channel, uint64_t nowUs);  // CC64

@@ -77,14 +77,69 @@ static void test_cc64_captured() {
     TEST_ASSERT_EQUAL_UINT8(127, take.pedals[0].value);
     TEST_ASSERT_EQUAL_UINT32(400, take.pedals[1].tMs);
     TEST_ASSERT_EQUAL_UINT8(0, take.pedals[1].value);
-    // Pedal before the first note (still Armed) is dropped — no anchor yet.
+    // A pedal-DOWN before the first note (still Armed) now OPENS the take
+    // (B5: an opening sustain isn't lost) — it becomes the clock's anchor.
     MidiCapture cap2;
     cap2.arm(4096, 600000, 0);
     cap2.onPedal(127, 0, 10 * MS);
-    TEST_ASSERT_EQUAL(CaptureState::Armed, cap2.state());
+    TEST_ASSERT_EQUAL(CaptureState::Recording, cap2.state());
     cap2.onNoteOn(60, 90, 0, 20 * MS);
     CaptureTake t2 = cap2.stop(20 * MS);
-    TEST_ASSERT_EQUAL_size_t(0, t2.pedals.size());
+    TEST_ASSERT_EQUAL_size_t(1, t2.pedals.size());
+    TEST_ASSERT_EQUAL_UINT32(0, t2.pedals[0].tMs);  // anchor = the pedal press
+    const SmfNoteEvent* n2 = findNote(t2, 60);
+    TEST_ASSERT_NOT_NULL(n2);
+    TEST_ASSERT_EQUAL_UINT32(10, n2->onMs);  // 10ms after the pedal anchor
+}
+
+// --- pedal-down while Armed starts the clock (B5) ---------------------------
+
+static void test_pedal_down_while_armed_starts_clock() {
+    MidiCapture cap;
+    cap.arm(4096, 600000, 0);
+    TEST_ASSERT_EQUAL(CaptureState::Armed, cap.state());
+    cap.onPedal(127, 0, 5000 * MS);
+    TEST_ASSERT_EQUAL(CaptureState::Recording, cap.state());
+    CaptureTake take = cap.stop(5000 * MS);
+    TEST_ASSERT_EQUAL_size_t(1, take.pedals.size());
+    TEST_ASSERT_EQUAL_UINT32(0, take.pedals[0].tMs);
+    TEST_ASSERT_EQUAL_UINT8(127, take.pedals[0].value);
+    TEST_ASSERT_FALSE(take.empty);
+}
+
+// --- pedal-up (release) while Armed has nothing to open, stays dropped -----
+
+static void test_pedal_up_while_armed_does_not_start_clock() {
+    MidiCapture cap;
+    cap.arm(4096, 600000, 0);
+    cap.onPedal(0, 0, 5000 * MS);  // a release before any press: no anchor
+    TEST_ASSERT_EQUAL(CaptureState::Armed, cap.state());
+    cap.onNoteOn(60, 90, 0, 6000 * MS);
+    CaptureTake take = cap.stop(6000 * MS);
+    TEST_ASSERT_EQUAL_size_t(0, take.pedals.size());
+    const SmfNoteEvent* n = findNote(take, 60);
+    TEST_ASSERT_NOT_NULL(n);
+    TEST_ASSERT_EQUAL_UINT32(0, n->onMs);  // the note is the real anchor
+}
+
+// --- record budget is clamped to kMaxRecordBudgetBytes (B5) -----------------
+
+static void test_arm_clamps_oversize_budget() {
+    MidiCapture cap;
+    // Request far more than the max a saved take could ever hold.
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      cap.arm(4 * 1024 * 1024, 600000, 0));
+    TEST_ASSERT_EQUAL_size_t(kMaxRecordBudgetBytes, cap.budgetBytes());
+    // Requesting exactly the max is unaffected (not off-by-one clamped down
+    // further).
+    MidiCapture cap2;
+    TEST_ASSERT_EQUAL(ArmResult::Armed,
+                      cap2.arm(kMaxRecordBudgetBytes, 600000, 0));
+    TEST_ASSERT_EQUAL_size_t(kMaxRecordBudgetBytes, cap2.budgetBytes());
+    // A budget under the max is passed through untouched.
+    MidiCapture cap3;
+    TEST_ASSERT_EQUAL(ArmResult::Armed, cap3.arm(4096, 600000, 0));
+    TEST_ASSERT_EQUAL_size_t(4096, cap3.budgetBytes());
 }
 
 // --- play-along echo exclusion ----------------------------------------------
@@ -415,6 +470,9 @@ int main(int, char**) {
     RUN_TEST(test_free_capture_happy_path);
     RUN_TEST(test_velocity_preserved);
     RUN_TEST(test_cc64_captured);
+    RUN_TEST(test_pedal_down_while_armed_starts_clock);
+    RUN_TEST(test_pedal_up_while_armed_does_not_start_clock);
+    RUN_TEST(test_arm_clamps_oversize_budget);
     RUN_TEST(test_playalong_echo_excluded);
     RUN_TEST(test_echo_does_not_start_clock);
     RUN_TEST(test_guard_is_capture_owned);
