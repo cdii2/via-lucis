@@ -120,17 +120,25 @@ void App::sendAll(const std::vector<MidiOutMsg>& msgs) {
     for (const MidiOutMsg& m : msgs) ble_.send(m);
 }
 
+size_t App::parseBudget() {
+    return parseNoteBudget(ESP.getMaxAllocHeap(), midiParseFixedOverhead());
+}
+
 SongLoadOutcome App::loadSong(const std::string& name) {
-    // Flash read + parse stay UNFENCED: they produce only locals, and store_
-    // is HTTP-task-only. The fence covers just the engine mutation + sends,
-    // so a concurrent tick never stalls behind file IO (F-wave review R1).
-    std::vector<uint8_t> data;
-    bool fileRead = store_.read(name, data);
+    // Flash open + STREAMING parse stay UNFENCED: they produce only locals, and
+    // store_ is HTTP-task-only. The fence covers just the engine mutation +
+    // sends, so a concurrent tick never stalls behind file IO (F-wave review
+    // R1). A185: the file streams through a small buffer (openSongSource) and
+    // the parser refuses (TooBigForMemory) rather than gamble on a heap the
+    // parsed notes can't fit — the source closes the file when `src` dies.
+    auto src = store_.openSongSource(name);
+    bool fileOpened = (src != nullptr);
     MidiParseResult r{};
-    if (fileRead) r = parseMidi(data.data(), data.size());
-    // A154 (§3-E item 2): the pure NotFound-vs-ParseError decision lives in
-    // song_load.h (native-tested) — this glue just gathers the two facts.
-    SongLoadOutcome outcome = classifySongLoad(fileRead, r.error);
+    if (fileOpened) r = parseMidi(*src, parseBudget());
+    // A154 (§3-E item 2) + A185: the pure NotFound / ParseError / TooBig
+    // decision lives in song_load.h (native-tested) — this glue just gathers
+    // the two facts (did the file open, what did the parse say).
+    SongLoadOutcome outcome = classifySongLoad(fileOpened, r.error);
     if (outcome != SongLoadOutcome::Ok) return outcome;
     std::vector<MidiOutMsg> out;
     FenceGuard g(lock_);
@@ -176,22 +184,33 @@ std::vector<App::SongListEntry> App::songsForList() {
     // the route omits parseOk and the cache warms across subsequent polls.
     constexpr size_t kParseChecksPerListCall = 4;
     size_t budget = kParseChecksPerListCall;
+    const size_t memBudget = parseBudget();  // one heap snapshot per list call
 
     std::vector<SongListEntry> out;
     out.reserve(files.size());
     for (const SongFileInfo& f : files) {
         if (parseCache_.needsRecompute(f.name, f.size) && budget > 0) {
             --budget;
-            std::vector<uint8_t> data;
-            bool ok = store_.read(f.name, data);
-            if (ok) ok = parseMidi(data.data(), data.size()).error ==
-                         MidiParseError::Ok;
-            parseCache_.set(f.name, f.size, ok);
+            // A185: checkMidi runs only the COUNT pass — no NoteTracker, no
+            // notes vector — so the badge check is cheaper than the old
+            // read+parse AND distinguishes "too big for memory" from "corrupt".
+            auto src = store_.openSongSource(f.name);
+            bool ok = false;
+            ParseFail reason = ParseFail::Corrupt;
+            if (src) {
+                MidiParseError e = checkMidi(*src, memBudget);
+                ok = (e == MidiParseError::Ok);
+                if (e == MidiParseError::TooBigForMemory)
+                    reason = ParseFail::Memory;
+            }
+            parseCache_.set(f.name, f.size, ok, reason);
             delay(1);  // feed IDLE/watchdog + let TCP breathe between parses
         }
         bool known = !parseCache_.needsRecompute(f.name, f.size);
-        out.push_back(
-            {f.name, f.size, known ? parseCache_.get(f.name) : false, known});
+        out.push_back({f.name, f.size,
+                       known ? parseCache_.get(f.name) : false, known,
+                       known ? parseCache_.failReason(f.name)
+                             : ParseFail::None});
     }
     return out;
 }
