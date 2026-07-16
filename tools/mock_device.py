@@ -175,8 +175,18 @@ calibration = {
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
     "keys": default_two_point_keys(),
 }
+# D (2026-07-16, wd/wizard): added `timedOut` — mirrors the real firmware's
+# probeJson() field (docs/API.md, B6d/A119): true only when an armed window
+# expired without a capture, reset to false on the NEXT arm or an explicit
+# cancel (never true after a cancel). This is what lets the wizard's error
+# panel distinguish "gave up waiting" from "you cancelled".
 probe = {"armed": False, "led": 0, "note": None, "armed_at": 0.0,
-         "timeout_s": 30.0}
+         "timeout_s": 30.0, "timedOut": False}
+# D (2026-07-16, wd/wizard): mock-only test-control flag (NOT part of
+# docs/API.md — same spirit as fail_hook/A153) letting an E2E driver force
+# the probe-arm-while-recording 409 without building out a full Record mock
+# (that feature has no mock support at all yet; out of Wave D's scope).
+recording_mock = {"active": False}
 
 
 def note_under_led(led):
@@ -197,6 +207,7 @@ def probe_tick():
     elapsed = time.time() - probe["armed_at"]
     if elapsed >= probe["timeout_s"]:
         probe["armed"] = False  # timed out, no capture
+        probe["timedOut"] = True
         return
     if elapsed >= CAPTURE_DELAY_S:
         note = note_under_led(probe["led"])
@@ -320,6 +331,7 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/calibration/probe":
             probe_tick()
             self._json(200, {"armed": probe["armed"], "led": probe["led"],
+                             "timedOut": probe["timedOut"],
                              "note": probe["note"]})
         else:
             self._json(404, {"error": "not found"})
@@ -377,6 +389,16 @@ class Handler(BaseHTTPRequestHandler):
             b = self._body()
             fail_hook["uploads_left"] = max(0, int(b.get("times", 1)))
             self._json(200, {"uploadsWillFail": fail_hook["uploads_left"]})
+            return
+        if path == "/api/mock/set-recording":
+            # D (wd/wizard): test-only control endpoint, NOT part of
+            # docs/API.md — same spirit as fail-uploads above. Lets an E2E
+            # driver force the probe-arm-while-recording 409 (docs/API.md
+            # "409 recording") without a full Record-feature mock (unbuilt;
+            # out of Wave D's scope). Body {"recording": true|false}.
+            b = self._body()
+            recording_mock["active"] = bool(b.get("recording", False))
+            self._json(200, {"recording": recording_mock["active"]})
             return
         if path == "/api/topmode":
             b = self._body()
@@ -505,16 +527,20 @@ class Handler(BaseHTTPRequestHandler):
             if state["state"] in ("playing", "waiting"):
                 self._json(409, {"error": "playing"})
                 return
+            if recording_mock["active"]:
+                self._json(409, {"error": "recording"})
+                return
             b = self._body()
             led = int(b.get("led", -1))
             if led < 0 or led >= LED_COUNT:
                 self._json(400, {"error": "bad led"})
                 return
-            probe.update(armed=True, led=led, note=None,
+            probe.update(armed=True, led=led, note=None, timedOut=False,
                          armed_at=time.time(),
                          timeout_s=min(300, max(1, int(b.get(
                              "timeoutMs", 30000)) / 1000)))
-            self._json(200, {"armed": True, "led": led, "note": None})
+            self._json(200, {"armed": True, "led": led, "timedOut": False,
+                             "note": None})
         elif path == "/api/test":
             self._json(200, {})
         elif path == "/api/reboot":
@@ -632,9 +658,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
             return
         if path == "/api/calibration/probe":
-            probe.update(armed=False, note=None)
+            # An explicit cancel always leaves timedOut false (docs/API.md) —
+            # distinct from a timeout expiring on its own.
+            probe.update(armed=False, note=None, timedOut=False)
             self._json(200, {"armed": False, "led": probe["led"],
-                             "note": None})
+                             "timedOut": False, "note": None})
             return
         # C2 (webui Wave C): DELETE /api/songs/{name} was previously
         # unhandled (fell through to the blanket 204 below, which never
