@@ -36,7 +36,7 @@ float clampf(float v, float lo, float hi) {
 
 }  // namespace
 
-std::string Settings::toJson() const {
+std::string Settings::toJson(View view) const {
     JsonDocument doc;
     doc["leftColor"] = colorToHex(leftColor);
     doc["rightColor"] = colorToHex(rightColor);
@@ -48,7 +48,14 @@ std::string Settings::toJson() const {
     doc["brightness"] = brightness;
     doc["echoWindowMs"] = echoWindowMs;
     doc["wifiSsid"] = wifiSsid;
-    doc["wifiPass"] = wifiPass;
+    // wifiPass is write-only across the REST boundary (ruling §6-1): only the
+    // Persist doc (flash) carries the secret so the device reconnects after a
+    // reboot. The Public view NEVER emits it — it emits `wifiPassSet` instead
+    // so the UI can show whether a password is stored without revealing it.
+    if (view == View::Persist)
+        doc["wifiPass"] = wifiPass;
+    else
+        doc["wifiPassSet"] = !wifiPass.empty();
     doc["repeatCueEnabled"] = repeatCueEnabled;
     doc["repeatColor"] = colorToHex(repeatColor);
     doc["repeatFillStartPct"] = repeatFillStartPct;
@@ -93,6 +100,12 @@ bool Settings::fromJson(const char* json, Settings& out) {
             std::min<uint32_t>(o["echoWindowMs"].as<uint32_t>(), 5000);
     if (o["wifiSsid"].is<const char*>())
         out.wifiSsid = o["wifiSsid"].as<const char*>();
+    // Write-only PATCH (ruling §6-1, A139): the key PRESENT sets the password
+    // (an explicit "" CLEARS it); the key ABSENT leaves the stored password
+    // untouched — which is what keeps the redacted Public view lossless on a
+    // round-trip (GET omits wifiPass → the client PUTs a body without it → the
+    // stored secret survives). Clients must never send "" unless they intend to
+    // forget the network.
     if (o["wifiPass"].is<const char*>())
         out.wifiPass = o["wifiPass"].as<const char*>();
 

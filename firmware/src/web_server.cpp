@@ -499,7 +499,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     // --- settings ----------------------------------------------------------
     gServer.on("/api/settings", HTTP_GET,
                [&app](AsyncWebServerRequest* req) {
-                   sendJson(req, 200, app.settings().toJson());
+                   // Public view — wifiPass is redacted to wifiPassSet (§6-1);
+                   // this response leaves the device (LAN/AP + webui Export).
+                   sendJson(req, 200,
+                            app.settings().toJson(Settings::View::Public));
                });
 
     onJsonBody("/api/settings",
@@ -523,7 +526,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        sendError(req, 507, "insufficient storage");
                        return;
                    }
-                   sendJson(req, 200, app.settings().toJson());
+                   // Echo the Public view — the redacted secret never leaves
+                   // the device even on the write path (§6-1).
+                   sendJson(req, 200,
+                            app.settings().toJson(Settings::View::Public));
                });
 
     // --- top mode (M3) -----------------------------------------------------

@@ -246,14 +246,15 @@ own route). Tracks are effect configs played top→bottom→loop.
 
 ## Settings
 
-- `GET /api/settings` → exactly the JSON of `Settings::toJson()`:
+- `GET /api/settings` → the **Public view** of the settings
+  (`Settings::toJson(View::Public)`):
   ```json
   {
     "leftColor": "#0000FF", "rightColor": "#00FF00", "wrongColor": "#FF0000",
     "previewCap": 0.45, "leadMs": 1000,
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
     "brightness": 160, "echoWindowMs": 250,
-    "wifiSsid": "HomeNet", "wifiPass": "...",
+    "wifiSsid": "HomeNet", "wifiPassSet": true,
     "repeatCueEnabled": true, "repeatColor": "#FFFFFF",
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
@@ -261,6 +262,13 @@ own route). Tracks are effect configs played top→bottom→loop.
     "recordBudgetKB": 64
   }
   ```
+  **`wifiPass` is write-only and NEVER returned** (ruling §6-1). The Public view
+  emits **`wifiPassSet`** (`true` when a non-empty WiFi password is stored,
+  `false` otherwise) so the UI can show whether a network is configured without
+  ever exposing the secret. Any LAN/AP client used to be able to read the home
+  WiFi password in cleartext here — that leak is closed, and the webui "Export
+  settings" download (which is just this GET) no longer writes the secret to
+  disk. Redaction is a property of the `wifiPass` field itself, not this route.
   The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —
   appended; nothing existing changed). `recordBudgetKB` is the v3 recording
   byte budget (default 64, clamped 16–256 KB — 256 = the per-song save
@@ -271,9 +279,18 @@ own route). Tracks are effect configs played top→bottom→loop.
   is rejected (the field keeps its previous value) — a cue must never look
   like an error.
 - `PUT /api/settings` — same shape, partial OK (missing fields unchanged)
-  → `200` + full new settings. Persisted to LittleFS immediately (atomically —
-  see "Persistence" below). WiFi changes apply on next reboot
-  (`POST /api/reboot` to apply now).
+  → `200` + the **Public view** of the new settings (again no `wifiPass`).
+  Persisted to LittleFS immediately (atomically — see "Persistence" below).
+  WiFi changes apply on next reboot (`POST /api/reboot` to apply now).
+  - **`wifiPass` write-only semantics** (ruling §6-1): the flash/Persist copy
+    keeps the password so the device reconnects after a reboot, but the field
+    is accepted **write-only** on PUT and never read back. A body **with**
+    `wifiPass` sets it; an explicit **`"wifiPass": ""` CLEARS** it (forget the
+    network); a body **without** the key leaves the stored password unchanged.
+    A client that isn't changing the password must **omit** the key — because
+    GET no longer returns it, a naive "read settings, edit, PUT back" flow must
+    not resend an empty `wifiPass` (that would wipe it). Set `wifiSsid` alone to
+    switch network name without touching the stored password.
   - `507 {"error": "insufficient storage"}` — the settings applied live but the
     flash write failed (full/wedged FS). The device is not lying with a 200
     (B4); free space (delete songs, or `POST /api/storage/format`) and re-save.
