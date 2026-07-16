@@ -36,28 +36,56 @@ void App::begin() {
     configASSERT(lock_ != nullptr);
     tickOut_.reserve(64);  // reused every tick — steady-state zero alloc
     store_.begin();
-    store_.loadSettings(settings_);  // keeps defaults if absent
+    // --- config self-heal (B4, ruling §6-2) ---------------------------------
+    // Every persisted doc: Absent = first boot / v1 upgrade path (defaults,
+    // SILENT — nothing was lost); Corrupt (unreadable, unknown-higher schema,
+    // or unparseable) = a REAL doc gone bad → fall back to defaults, re-save
+    // them atomically so the next boot is clean, and raise configReset_ so the
+    // UI can tell the user. decideSelfHeal() is the pure, native-tested policy.
+    {
+        DocLoad ld = store_.loadSettings(settings_);
+        SelfHeal h = decideSelfHeal(ld, ld == DocLoad::Ok);
+        if (h.useDefaults) settings_ = Settings{};
+        if (h.resave) store_.saveSettings(settings_);
+        configReset_ = configReset_ || h.configReset;
+    }
     engine_.configure(settings_);
-    // Calibration (C3): a stored /calibration.json wins; anything else —
-    // absent file, unreadable, garbage — falls back to the settings'
-    // 2-point values, which is byte-identical to v1 (the CRITICAL upgrade
-    // path for every existing device).
-    std::string calibJson;
-    if (!store_.loadCalibration(calibJson) ||
-        !Calibration::fromJson(calibJson.c_str(), LedOutput::kLedCount,
-                               calib_).ok())
-        calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount);
+    // Calibration (C3): a stored /calibration.json wins; Absent falls back to
+    // the settings' 2-point values — byte-identical to v1 (the CRITICAL upgrade
+    // path for every existing device, NOT a reset); Corrupt/unparseable falls
+    // back too but re-saves defaults + flags the reset.
+    {
+        std::string calibJson;
+        DocLoad ld = store_.loadCalibration(calibJson);
+        bool parsedOk =
+            ld == DocLoad::Ok &&
+            Calibration::fromJson(calibJson.c_str(), LedOutput::kLedCount,
+                                  calib_).ok();
+        SelfHeal h = decideSelfHeal(ld, parsedOk);
+        if (h.useDefaults)
+            calib_ = Calibration::fromSettings(settings_, LedOutput::kLedCount);
+        if (h.resave) store_.saveCalibration(calib_.toJson());
+        configReset_ = configReset_ || h.configReset;
+    }
     engine_.setTable(calib_.table);
     director_.setTable(calib_.table);  // note-driven layers read it too
     director_.setIdleTimeoutSec(settings_.afkTimeoutSec);
     // AFK playlist (E3): stored config or defaults; the shuffle seed is
     // boot-time entropy (native tests seed explicitly instead).
-    std::string afkJson;
-    fx::AfkConfig afkCfg;
-    if (store_.loadAfk(afkJson))
-        fx::afkConfigFromJson(afkJson.c_str(), afkCfg, nullptr);
-    director_.setAfkConfig(
-        afkCfg, static_cast<uint32_t>(esp_timer_get_time()));
+    {
+        std::string afkJson;
+        fx::AfkConfig afkCfg;
+        DocLoad ld = store_.loadAfk(afkJson);
+        bool parsedOk =
+            ld == DocLoad::Ok &&
+            fx::afkConfigFromJson(afkJson.c_str(), afkCfg, nullptr);
+        SelfHeal h = decideSelfHeal(ld, parsedOk);
+        if (h.useDefaults) afkCfg = fx::AfkConfig{};
+        if (h.resave) store_.saveAfk(fx::afkConfigToJson(afkCfg));
+        configReset_ = configReset_ || h.configReset;
+        director_.setAfkConfig(
+            afkCfg, static_cast<uint32_t>(esp_timer_get_time()));
+    }
     leds_.begin(settings_.brightness);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
@@ -156,7 +184,7 @@ std::string App::afkJson() {
     return director_.afkConfigJson();
 }
 
-bool App::applyAfk(const char* json, std::string* err) {
+bool App::applyAfk(const char* json, std::string* err, bool* saveFailed) {
     // Parse AND build the per-track effects UNFENCED (heap work — the
     // F-wave discipline: a tick never waits behind allocations); the
     // fenced part is pointer swaps only. Save after.
@@ -176,7 +204,9 @@ bool App::applyAfk(const char* json, std::string* err) {
         touchWriteActivity();
         director_.applyAfkPrepared(std::move(prepared));
     }
-    store_.saveAfk(doc);
+    // B4: a failed persist is reported as 507, not a lying 200. The config DID
+    // apply live (above) but is not durable — the handler tells the user.
+    if (!store_.saveAfk(doc) && saveFailed) *saveFailed = true;
     return true;
 }
 
@@ -339,6 +369,13 @@ std::string App::statusJson(const WifiStatus* wifi) {
 }
 
 App::RecordArm App::recordArm(bool countIn, uint16_t bpm) {
+    // B5 ask 3: refuse while an unsaved take is still held (a failed save the
+    // user hasn't retried or discarded). Arming would silently drop that
+    // performance — the exact "today the performance is destroyed" hazard the
+    // retry-save was added to prevent. pendingSave_ is HTTP-task-owned (all
+    // record routes run on async_tcp), so no fence needed to read it. (A-num
+    // in report.)
+    if (pendingSave_.held()) return RecordArm::PendingUnsaved;
     size_t budgetBytes =
         static_cast<size_t>(settings_.recordBudgetKB) * 1024;
     // Armed / playing checks under the fence (loop task mutates capture state).
@@ -389,21 +426,48 @@ App::RecordStop App::recordStop(std::string* nameOut) {
     SmfInput smf = splitTakeIntoHands(take);
     std::vector<uint8_t> bytes = writeSmf(smf);
     std::string name = store_.nextRecordingName();
-    if (!store_.save(name, bytes.data(), bytes.size()))
+    if (!store_.save(name, bytes.data(), bytes.size())) {
+        // B5 ask 3: keep the take so a retry-save can save it without
+        // re-recording the performance.
+        pendingSave_.hold(std::move(take));
         return RecordStop::SaveFailed;
+    }
     if (nameOut) *nameOut = name;
-    return RecordStop::Saved;
+    // B5 ask 1: a take that had to drop events at a limit saves as
+    // SavedTruncated (still a 200 + name), so the UI can flag it.
+    return vialucis::takeWasTruncated(take) ? RecordStop::SavedTruncated
+                                            : RecordStop::Saved;
+}
+
+App::RecordStop App::retryRecordSave(std::string* nameOut) {
+    // B5 ask 3: re-attempt the last failed save from the held take. UNFENCED
+    // (heap + flash, HTTP-task-owned pendingSave_, F-wave discipline).
+    if (!pendingSave_.held()) return RecordStop::NotArmed;
+    const CaptureTake& take = pendingSave_.take();
+    bool truncated = vialucis::takeWasTruncated(take);  // before clear()
+    SmfInput smf = splitTakeIntoHands(take);
+    std::vector<uint8_t> bytes = writeSmf(smf);
+    std::string name = store_.nextRecordingName();
+    if (!store_.save(name, bytes.data(), bytes.size()))
+        return RecordStop::SaveFailed;  // still held for another retry
+    if (nameOut) *nameOut = name;
+    pendingSave_.clear();
+    return truncated ? RecordStop::SavedTruncated : RecordStop::Saved;
 }
 
 bool App::recordDiscard() {
     FenceGuard g(lock_);
     touchWriteActivity();
+    if (pendingSave_.held()) {  // drop an unsaved (SaveFailed) take (B5 ask 3)
+        pendingSave_.clear();
+        return true;
+    }
     if (director_.recordState() == CaptureState::Idle) return false;
     director_.discardRecord();
     return true;
 }
 
-void App::applySettings(bool calibScalarsChanged) {
+bool App::applySettings(bool calibScalarsChanged) {
     // The settings scalars ARE the 2-point tier's inputs: on that tier the
     // table follows them (preserving the reversed flag). On a wizard tier,
     // an actual scalar EDIT reverts geometry to 2-point — the documented
@@ -426,12 +490,14 @@ void App::applySettings(bool calibScalarsChanged) {
     }
     // Flash write UNFENCED (F-wave review R1): settings_ is HTTP-task-owned —
     // the loop task never reads it (the engine holds copies from configure) —
-    // so a concurrent tick never stalls behind LittleFS IO.
-    store_.saveSettings(settings_);
-    if (rebuild) store_.saveCalibration(calib_.toJson());
+    // so a concurrent tick never stalls behind LittleFS IO. B4: a failed save
+    // returns false → the handler answers 507 instead of a lying 200.
+    bool ok = store_.saveSettings(settings_);
+    if (rebuild) ok = store_.saveCalibration(calib_.toJson()) && ok;
+    return ok;
 }
 
-CalibResult App::applyCalibration(const char* json) {
+CalibResult App::applyCalibration(const char* json, bool* saveFailed) {
     // Parse UNFENCED (locals only); fence just the engine table swap.
     Calibration next;
     CalibResult r =
@@ -444,12 +510,16 @@ CalibResult App::applyCalibration(const char* json) {
         director_.setTable(next.table);
     }
     calib_ = std::move(next);
+    // B4: the table applied live above; a failed persist is reported as 507
+    // (via *saveFailed) rather than a lying 200.
+    bool ok = true;
     if (calib_.tier == "twoPoint") {
         settings_.offsetMm = calib_.offsetMm;
         settings_.ledsPerMeter = calib_.ledsPerMeter;
-        store_.saveSettings(settings_);
+        ok = store_.saveSettings(settings_);
     }
-    store_.saveCalibration(calib_.toJson());
+    ok = store_.saveCalibration(calib_.toJson()) && ok;
+    if (!ok && saveFailed) *saveFailed = true;
     return r;
 }
 
@@ -487,27 +557,40 @@ void App::tick(uint64_t nowUs) {
     // consumed by leds_.show() inside the same critical section. The
     // ModeDirector is the single frame-source dispatch (M2) — forced
     // sources, top modes, and practice all route through it.
-    FenceGuard g(lock_);
-    ble_.poll();
+    // B7 ask 1: the ~10.8 ms FastLED.show() must NOT run under the fence (it is
+    // a direct hit on the latency-path rule). Copy the frame under the fence
+    // (it reads director_.renderFrame()'s live buffer), release, then push the
+    // physical show() outside — it needs nothing from engine state.
+    bool frameReady = false;
+    {
+        FenceGuard g(lock_);
+        ble_.poll();
 
-    tickOut_.clear();
-    bool wasShowPlaying = director_.showPlaying();
-    director_.tick(nowUs, tickOut_);
-    sendAll(tickOut_);
-    // B1b: a show that reached Finished tore down its own presentation state
-    // inside director_.tick(). Detect that edge and run the same restore tail a
-    // manual /api/shows/stop does — otherwise the transport + practice mode are
-    // left in the show's hijacked state.
-    if (wasShowPlaying && !director_.showPlaying()) restorePreShowMode();
+        tickOut_.clear();
+        bool wasShowPlaying = director_.showPlaying();
+        director_.tick(nowUs, tickOut_);
+        sendAll(tickOut_);
+        // B1b: a show that reached Finished tore down its own presentation
+        // state inside director_.tick(). Detect that edge and run the same
+        // restore tail a manual /api/shows/stop does — otherwise the transport
+        // + practice mode are left in the show's hijacked state.
+        if (wasShowPlaying && !director_.showPlaying()) restorePreShowMode();
 
-    if (director_.frameDue(nowUs)) leds_.show(director_.renderFrame(nowUs));
+        if (director_.frameDue(nowUs)) {
+            leds_.setFrame(director_.renderFrame(nowUs));  // copy under fence
+            frameReady = true;
+        }
 
-    // Storage format (A3) runs here — on the loop task, after the HTTP reply
-    // has already been queued on async_tcp — because LittleFS.format() blocks
-    // for seconds and must never stall the network task mid-response. Rare
-    // recovery op; done under the tick fence so it can't interleave engine
-    // state. The one-shot flag is consumed atomically.
-    if (formatRequested_.exchange(false)) store_.format();
+        // Storage format (A3) runs here — on the loop task, after the HTTP
+        // reply has already been queued on async_tcp — because
+        // LittleFS.format() blocks for seconds and must never stall the network
+        // task mid-response. Rare recovery op; done under the tick fence so it
+        // can't interleave engine state. The one-shot flag is consumed
+        // atomically.
+        if (formatRequested_.exchange(false)) store_.format();
+    }  // fence released HERE — before the ~10.8 ms FastLED call (B7 ask 1)
+
+    if (frameReady) leds_.show();
 }
 
 }  // namespace vialucis

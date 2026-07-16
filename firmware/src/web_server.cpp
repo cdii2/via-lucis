@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 #include <FS.h>
 
+#include "reboot_request.h"  // B7 ask 2: loop-task reboot flag
 #include "vialucis/body_intake.h"
 #include "vialucis/storage_budget.h"
 
@@ -210,6 +211,38 @@ void recordArmReply(App& app, AsyncWebServerRequest* req, bool countIn,
         case App::RecordArm::LowMemory:
             sendError(req, 507, "low memory");
             return;
+        case App::RecordArm::PendingUnsaved:
+            // B5 ask 3: an earlier save failed and the take is still held —
+            // retry-save or discard it before starting a new one.
+            sendError(req, 409, "unsaved take pending");
+            return;
+    }
+}
+
+// Shared reply for /api/record/stop and /api/record/retry-save (B5 asks 1+3).
+void recordStopReply(AsyncWebServerRequest* req, App::RecordStop r,
+                     const std::string& name) {
+    switch (r) {
+        case App::RecordStop::Saved:
+        case App::RecordStop::SavedTruncated:
+        case App::RecordStop::Empty: {
+            JsonDocument doc;
+            doc["name"] = name;
+            // B5 ask 1: the take saved but capture dropped events at a limit —
+            // flag it so the UI can warn ("recording was truncated").
+            if (r == App::RecordStop::SavedTruncated) doc["truncated"] = true;
+            std::string out;
+            serializeJson(doc, out);
+            sendJson(req, 200, out);
+            return;
+        }
+        case App::RecordStop::NotArmed:
+            sendError(req, 409, "not armed");
+            return;
+        case App::RecordStop::SaveFailed:
+            // B5 ask 3: the take is retained — POST /api/record/retry-save.
+            sendError(req, 500, "write failed");
+            return;
     }
 }
 
@@ -312,8 +345,12 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                     intakeDefer(in, 507, "cannot create file");
                     return;
                 }
-                std::string discard = in.name;  // drop partial on disconnect
-                in.cleanup = [&app, discard]() { app.store().remove(discard); };
+                // Discard the staged ".tmp" on disconnect (B4 atomic upload:
+                // the existing same-name song is never touched until commit).
+                std::string discard = in.name;
+                in.cleanup = [&app, discard]() {
+                    app.store().abortUpload(discard);
+                };
             }
             if (!in.file) {  // guard: never write without an open handle
                 intakeDefer(in, 500, "upload not open");
@@ -322,13 +359,16 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
             in.sawBody = true;
             if (in.file.write(data, len) != len) {
                 in.file.close();
-                app.store().remove(in.name);  // synchronous cleanup on write-fail
+                app.store().abortUpload(in.name);  // discard the tmp
                 in.cleanup = nullptr;
                 intakeDefer(in, 500, "write failed");
                 return;
             }
             if (plan.last) {
-                in.file.close();     // complete — keep the file
+                in.file.close();  // complete the tmp, then rename it over target
+                if (!app.store().commitUpload(in.name))
+                    intakeDefer(in, 507, "cannot save upload");
+                app.store().abortUpload(in.name);  // no-op after a good commit
                 in.cleanup = nullptr;
             }
         });
@@ -478,7 +518,11 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    bool scalarsChanged =
                        app.settings().offsetMm != oldOff ||
                        app.settings().ledsPerMeter != oldLpm;
-                   app.applySettings(scalarsChanged);
+                   // B4: a failed persist is an honest 507, not a lying 200.
+                   if (!app.applySettings(scalarsChanged)) {
+                       sendError(req, 507, "insufficient storage");
+                       return;
+                   }
                    sendJson(req, 200, app.settings().toJson());
                });
 
@@ -567,9 +611,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                     intakeDefer(in, 507, "cannot create file");
                     return;
                 }
-                std::string discard = in.name;  // drop partial on disconnect
+                // Discard the staged ".tmp" on disconnect (B4 atomic upload).
+                std::string discard = in.name;
                 in.cleanup = [&app, discard]() {
-                    app.store().removeShow(discard);
+                    app.store().abortShowUpload(discard);
                 };
             }
             if (!in.file) {
@@ -579,13 +624,16 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
             in.sawBody = true;
             if (in.file.write(data, len) != len) {
                 in.file.close();
-                app.store().removeShow(in.name);
+                app.store().abortShowUpload(in.name);
                 in.cleanup = nullptr;
                 intakeDefer(in, 500, "write failed");
                 return;
             }
             if (plan.last) {
-                in.file.close();
+                in.file.close();  // complete the tmp, then rename over target
+                if (!app.store().commitShowUpload(in.name))
+                    intakeDefer(in, 507, "cannot save upload");
+                app.store().abortShowUpload(in.name);  // no-op after commit
                 in.cleanup = nullptr;
             }
         });
@@ -667,23 +715,15 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("/api/record/stop", HTTP_POST,
                [&app](AsyncWebServerRequest* req) {
                    std::string name;
-                   switch (app.recordStop(&name)) {
-                       case App::RecordStop::Saved:
-                       case App::RecordStop::Empty: {
-                           JsonDocument doc;
-                           doc["name"] = name;
-                           std::string out;
-                           serializeJson(doc, out);
-                           sendJson(req, 200, out);
-                           return;
-                       }
-                       case App::RecordStop::NotArmed:
-                           sendError(req, 409, "not armed");
-                           return;
-                       case App::RecordStop::SaveFailed:
-                           sendError(req, 500, "write failed");
-                           return;
-                   }
+                   recordStopReply(req, app.recordStop(&name), name);
+               });
+
+    // B5 ask 3: retry the last failed save without re-recording. Same reply
+    // shape as /stop; 409 "not armed" when nothing is pending.
+    gServer.on("/api/record/retry-save", HTTP_POST,
+               [&app](AsyncWebServerRequest* req) {
+                   std::string name;
+                   recordStopReply(req, app.retryRecordSave(&name), name);
                });
 
     gServer.on("/api/record/discard", HTTP_POST,
@@ -708,8 +748,13 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                    std::string raw;
                    serializeJson(doc, raw);
                    std::string err;
-                   if (!app.applyAfk(raw.c_str(), &err)) {
+                   bool saveFailed = false;
+                   if (!app.applyAfk(raw.c_str(), &err, &saveFailed)) {
                        sendError(req, 400, err.c_str());
+                       return;
+                   }
+                   if (saveFailed) {  // applied live but didn't persist (B4)
+                       sendError(req, 507, "insufficient storage");
                        return;
                    }
                    sendJson(req, 200, app.afkJson());
@@ -739,9 +784,14 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
         [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
             std::string raw;
             serializeJson(doc, raw);
-            CalibResult r = app.applyCalibration(raw.c_str());
+            bool saveFailed = false;
+            CalibResult r = app.applyCalibration(raw.c_str(), &saveFailed);
             if (!r.ok()) {
                 sendError(req, 400, r.message());
+                return;
+            }
+            if (saveFailed) {  // table applied live but didn't persist (B4)
+                sendError(req, 507, "insufficient storage");
                 return;
             }
             sendJson(req, 200, app.calibrationJson());
@@ -811,9 +861,12 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                });
 
     gServer.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest* req) {
+        // B7 ask 2: reply immediately, then let main.cpp's loop() honor the
+        // 200 ms grace and ESP.restart() on the loop task — never delay() on
+        // async_tcp.
         req->send(200, "application/json", "{}");
-        delay(200);
-        ESP.restart();
+        RebootRequest::pending.store(true);
+        RebootRequest::requestedAtMs.store(millis());
     });
 
     gServer.onNotFound([](AsyncWebServerRequest* req) {

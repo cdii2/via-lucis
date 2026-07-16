@@ -124,8 +124,12 @@ bool Settings::fromJson(const char* json, Settings& out) {
         out.afkTimeoutSec =
             std::min<uint32_t>(o["afkTimeoutSec"].as<uint32_t>(), 86400);
     if (o["recordBudgetKB"].is<uint32_t>())
+        // Upper bound is the 256 KB per-song save ceiling (kMaxSongBytes): a
+        // take bigger than that can't be written at all, and the record core
+        // now hard-clamps there too (B5 ask 4) — so 1024 was an unsaveable,
+        // misleading max. Clamp 16..256 to match.
         out.recordBudgetKB = std::min<uint32_t>(
-            std::max<uint32_t>(o["recordBudgetKB"].as<uint32_t>(), 16), 1024);
+            std::max<uint32_t>(o["recordBudgetKB"].as<uint32_t>(), 16), 256);
 
     // The collision guard cuts BOTH ways: a wrongColor edit that lands on
     // the current repeatColor is rejected too (Q-wave closing review).

@@ -3,6 +3,7 @@
 #include <FS.h>
 #include <LittleFS.h>
 
+#include "vialucis/config_schema.h"  // stampSchema / schemaLoadable (B4)
 #include "vialucis/record_take.h"  // nextRecordingName() helper (native-tested)
 
 namespace vialucis {
@@ -13,21 +14,49 @@ constexpr const char* kCalibrationPath = "/calibration.json";
 constexpr const char* kAfkPath = "/afk.json";
 constexpr const char* kShowDir = "/shows";
 constexpr const char* kSongDir = "/songs";
+
+// Remove every ".tmp" staged file in a directory — an aborted atomic write
+// (crash/power-loss between the tmp write and the rename) must not leak space
+// or shadow a real file. Uses the same basename convention list() reads.
+void removeTempsInDir(const char* dir) {
+    File d = LittleFS.open(dir);
+    if (!d || !d.isDirectory()) return;
+    std::vector<std::string> victims;
+    for (File f = d.openNextFile(); f; f = d.openNextFile()) {
+        if (f.isDirectory()) continue;
+        std::string name = f.name();
+        if (isTmpPath(name)) victims.push_back(std::string(dir) + "/" + name);
+    }
+    for (const std::string& p : victims) LittleFS.remove(p.c_str());
+}
+
+// Boot sweep of every atomic-write temp: the two content dirs plus the three
+// root config docs.
+void sweepTemps() {
+    removeTempsInDir(kSongDir);
+    removeTempsInDir(kShowDir);
+    for (const char* p : {kSettingsPath, kCalibrationPath, kAfkPath}) {
+        std::string t = tmpPathFor(p);
+        if (LittleFS.exists(t.c_str())) LittleFS.remove(t.c_str());
+    }
+}
 }  // namespace
 
 bool SongStore::begin() {
-    // formatOnFail stays true here so a brand-new device still auto-initialises
-    // its (empty) LittleFS on first boot — replicability is an iron rule. The
-    // §6-2 flip to formatOnFail=false (never wipe REAL data on a boot reflex)
-    // is B4's boot-policy change, paired there with self-heal. The health
-    // signal below still catches the WEDGE (mounted-but-can't-create), which
-    // was the actual field failure — and MountFailed wiring is ready for B4.
-    bool mounted = LittleFS.begin(/*formatOnFail=*/true);
+    // formatOnFail=FALSE (ruling §6-2, SUPERSEDES A108): a boot must NEVER wipe
+    // real user data as a reflex. A fresh/unformatted device now mount-FAILS to
+    // FsHealth::MountFailed while the web UI is still served from flash — the
+    // user recovers via the guarded POST /api/storage/format (docs/API.md
+    // "Storage"). Paired with App::begin's config self-heal (a corrupt doc
+    // becomes defaults, not a full wipe). The Wedged signal
+    // (mounted-but-can't-create — the actual field failure) is still caught.
+    bool mounted = LittleFS.begin(/*formatOnFail=*/false);
     bool canCreate = mounted;
     if (mounted) {
         if (!LittleFS.exists(kSongDir)) canCreate = LittleFS.mkdir(kSongDir);
         if (canCreate && !LittleFS.exists(kShowDir))
             canCreate = LittleFS.mkdir(kShowDir);
+        sweepTemps();  // clear any crash-orphaned atomic-write temps
     }
     health_ = classifyFsHealth(mounted, canCreate);
     return health_ == FsHealth::Mounted;
@@ -55,7 +84,9 @@ std::vector<SongFileInfo> SongStore::list() {
     if (!dir || !dir.isDirectory()) return out;
     for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
         if (f.isDirectory()) continue;
-        out.push_back({std::string(f.name()), static_cast<size_t>(f.size())});
+        std::string name = f.name();
+        if (isTmpPath(name)) continue;  // hide in-progress/stale atomic temps
+        out.push_back({name, static_cast<size_t>(f.size())});
     }
     return out;
 }
@@ -63,11 +94,21 @@ std::vector<SongFileInfo> SongStore::list() {
 bool SongStore::save(const std::string& name, const uint8_t* data,
                      size_t len) {
     if (!validName(name) || len > kMaxSongBytes) return false;
-    File f = LittleFS.open(songPath(name).c_str(), "w");
-    if (!f) return false;
-    size_t written = f.write(data, len);
-    f.close();
-    return written == len;
+    // Atomic (B4): stage to a ".tmp" then rename over the target, so an
+    // interrupted record-take save never truncates an existing same-name song.
+    return atomicPersist(
+        songPath(name),
+        [&](const std::string& tmp) {
+            File f = LittleFS.open(tmp.c_str(), "w");
+            if (!f) return false;
+            size_t written = f.write(data, len);
+            f.close();
+            return written == len;
+        },
+        [](const std::string& tmp, const std::string& dst) {
+            return LittleFS.rename(tmp.c_str(), dst.c_str());
+        },
+        [](const std::string& tmp) { LittleFS.remove(tmp.c_str()); });
 }
 
 bool SongStore::appendChunk(const std::string& name, const uint8_t* data,
@@ -86,7 +127,9 @@ bool SongStore::appendChunk(const std::string& name, const uint8_t* data,
 
 bool SongStore::openUpload(const std::string& name, fs::File& out) {
     if (!validName(name)) return false;
-    out = LittleFS.open(songPath(name).c_str(), "w");
+    // Open the ".tmp" sibling (B4 atomic upload): an interrupted transfer never
+    // touches an existing same-name song — commitUpload renames on completion.
+    out = LittleFS.open(tmpPathFor(songPath(name)).c_str(), "w");
     if (!out) {
         // A create that fails is the dir-metadata hard-full wedge (overwrites
         // and deletes still work, but NEW files don't). Surface it so the UI /
@@ -95,6 +138,21 @@ bool SongStore::openUpload(const std::string& name, fs::File& out) {
         return false;
     }
     return true;
+}
+
+bool SongStore::commitUpload(const std::string& name) {
+    if (!validName(name)) return false;
+    std::string dst = songPath(name);
+    if (!LittleFS.rename(tmpPathFor(dst).c_str(), dst.c_str())) {
+        health_ = FsHealth::Wedged;  // a rename that can't land is a wedge too
+        return false;
+    }
+    return true;
+}
+
+void SongStore::abortUpload(const std::string& name) {
+    if (!validName(name)) return;
+    LittleFS.remove(tmpPathFor(songPath(name)).c_str());
 }
 
 bool SongStore::remove(const std::string& name) {
@@ -151,48 +209,64 @@ bool SongStore::format() {
     return begin();  // re-mount, recreate dirs, reset health_
 }
 
-bool SongStore::loadSettings(Settings& s) {
-    File f = LittleFS.open(kSettingsPath, "r");
-    if (!f) return false;
-    String json = f.readString();
-    f.close();
-    return Settings::fromJson(json.c_str(), s);
-}
-
 namespace {
 
-// One read/write discipline for every stored text document (settings,
-// calibration, whatever comes next) — closing-review dedupe.
+// One read/write discipline for every stored config doc (settings, calibration,
+// afk). Reads are schema-gated (B4): an absent schema is tolerated, an unknown
+// HIGHER schema reads as corrupt (returns false). Writes stamp "schema":N and
+// land atomically (tmp + rename) so a power loss can never truncate config.
 bool readTextFile(const char* path, std::string& out) {
     File f = LittleFS.open(path, "r");
     if (!f) return false;
     String s = f.readString();
     f.close();
     out = s.c_str();
-    return !out.empty();
+    if (out.empty()) return false;
+    if (!schemaLoadable(out)) return false;  // newer-schema doc -> corrupt
+    return true;
 }
 
 bool writeTextFile(const char* path, const std::string& body) {
-    File f = LittleFS.open(path, "w");
-    if (!f) return false;
-    size_t written = f.write(reinterpret_cast<const uint8_t*>(body.data()),
-                             body.size());
-    f.close();
-    return written == body.size();
+    const std::string stamped = stampSchema(body);  // add "schema":kConfigSchema
+    return atomicPersist(
+        path,
+        [&](const std::string& tmp) {
+            File f = LittleFS.open(tmp.c_str(), "w");
+            if (!f) return false;
+            size_t written = f.write(
+                reinterpret_cast<const uint8_t*>(stamped.data()),
+                stamped.size());
+            f.close();
+            return written == stamped.size();
+        },
+        [](const std::string& tmp, const std::string& dst) {
+            return LittleFS.rename(tmp.c_str(), dst.c_str());
+        },
+        [](const std::string& tmp) { LittleFS.remove(tmp.c_str()); });
 }
 
 }  // namespace
 
-bool SongStore::loadCalibration(std::string& json) {
-    return readTextFile(kCalibrationPath, json);
-}
-
-bool SongStore::saveCalibration(const std::string& json) {
-    return writeTextFile(kCalibrationPath, json);
+DocLoad SongStore::loadSettings(Settings& s) {
+    if (!LittleFS.exists(kSettingsPath)) return DocLoad::Absent;
+    std::string body;
+    if (!readTextFile(kSettingsPath, body)) return DocLoad::Corrupt;
+    if (!Settings::fromJson(body.c_str(), s)) return DocLoad::Corrupt;
+    return DocLoad::Ok;
 }
 
 bool SongStore::saveSettings(const Settings& s) {
     return writeTextFile(kSettingsPath, s.toJson());
+}
+
+DocLoad SongStore::loadCalibration(std::string& json) {
+    if (!LittleFS.exists(kCalibrationPath)) return DocLoad::Absent;
+    if (!readTextFile(kCalibrationPath, json)) return DocLoad::Corrupt;
+    return DocLoad::Ok;
+}
+
+bool SongStore::saveCalibration(const std::string& json) {
+    return writeTextFile(kCalibrationPath, json);
 }
 
 bool SongStore::validShowName(const std::string& name) {
@@ -213,7 +287,9 @@ std::vector<SongFileInfo> SongStore::listShows() {
     if (!dir || !dir.isDirectory()) return out;
     for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
         if (f.isDirectory()) continue;
-        out.push_back({std::string(f.name()), static_cast<size_t>(f.size())});
+        std::string name = f.name();
+        if (isTmpPath(name)) continue;  // hide in-progress/stale atomic temps
+        out.push_back({name, static_cast<size_t>(f.size())});
     }
     return out;
 }
@@ -239,12 +315,28 @@ bool SongStore::showExists(const std::string& name) {
 bool SongStore::openShowUpload(const std::string& name, fs::File& out) {
     if (!validShowName(name)) return false;
     std::string path = std::string(kShowDir) + "/" + name;
-    out = LittleFS.open(path.c_str(), "w");
+    out = LittleFS.open(tmpPathFor(path).c_str(), "w");  // B4 atomic upload
     if (!out) {
         health_ = FsHealth::Wedged;
         return false;
     }
     return true;
+}
+
+bool SongStore::commitShowUpload(const std::string& name) {
+    if (!validShowName(name)) return false;
+    std::string dst = std::string(kShowDir) + "/" + name;
+    if (!LittleFS.rename(tmpPathFor(dst).c_str(), dst.c_str())) {
+        health_ = FsHealth::Wedged;
+        return false;
+    }
+    return true;
+}
+
+void SongStore::abortShowUpload(const std::string& name) {
+    if (!validShowName(name)) return;
+    std::string dst = std::string(kShowDir) + "/" + name;
+    LittleFS.remove(tmpPathFor(dst).c_str());
 }
 
 bool SongStore::appendShowChunk(const std::string& name, const uint8_t* data,
@@ -284,8 +376,10 @@ bool SongStore::removeShow(const std::string& name) {
     return LittleFS.remove(path.c_str());
 }
 
-bool SongStore::loadAfk(std::string& json) {
-    return readTextFile(kAfkPath, json);
+DocLoad SongStore::loadAfk(std::string& json) {
+    if (!LittleFS.exists(kAfkPath)) return DocLoad::Absent;
+    if (!readTextFile(kAfkPath, json)) return DocLoad::Corrupt;
+    return DocLoad::Ok;
 }
 
 bool SongStore::saveAfk(const std::string& json) {
