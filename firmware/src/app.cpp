@@ -87,6 +87,11 @@ void App::begin() {
             afkCfg, static_cast<uint32_t>(esp_timer_get_time()));
     }
     leds_.begin(settings_.brightness);
+    // E2 relay: apply the optional BLE-MIDI target-name filter before the
+    // scan starts. Depends on we/ble's Settings::bleTargetName +
+    // BleMidiIo::setTargetName — this line only compiles after that branch
+    // merges (see this wave's final report).
+    ble_.setTargetName(settings_.bleTargetName);
     ble_.begin();
     ble_.onNoteOn([this](uint8_t note, uint8_t vel) {
         onPianoNoteOn(note, vel, static_cast<uint64_t>(esp_timer_get_time()));

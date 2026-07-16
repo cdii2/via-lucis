@@ -130,8 +130,9 @@ public:
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
     // store_/settings_ (the engine holds copies from configure) and
-    // BleMidiIo::connected() is a single volatile bool. Any future change
-    // breaking that must route through the fence instead.
+    // BleMidiIo::connected() is a std::atomic<bool> (E2 relay: was a plain
+    // volatile bool). Any future change breaking that must route through
+    // the fence instead.
     Settings& settings() { return settings_; }
     SongStore& store() { return store_; }
     BleMidiIo& ble() { return ble_; }
@@ -183,7 +184,8 @@ private:
     // happens outside the fence — so a tick waits behind at most one
     // in-flight engine command (ms-scale, only when the web remote is
     // used). Loop-task and REST-path engine SENDS serialize through it too;
-    // GET /api/ble's connected() read stays outside (lone volatile bool).
+    // GET /api/ble's connected() read stays outside (a std::atomic<bool>;
+    // E2 relay: was a plain volatile bool).
     SemaphoreHandle_t lock_ = nullptr;
 
     // Loop-task tick buffer, reused every iteration (REST calls use locals —
