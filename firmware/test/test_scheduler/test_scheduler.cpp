@@ -336,8 +336,46 @@ static void test_p14_pedal_sorts_between_off_and_on_at_same_instant() {
                              "Pedal must sort before On at a tie");
 }
 
+// --- B3c: advance reports an explicit loop-wrap flag ----------------------
+// The engine must not infer wrap from a position comparison: on a short loop at
+// high tempo a single advance can wrap and land at/after where it started (the
+// O(1) modulo collapse), so `newPos < prevPos` misses it and repeat/wait
+// cursors never resync — the skipped-repeat-cue bug. The flag is authoritative.
+static void test_advance_reports_wrap_flag_short_loop_high_tempo() {
+    MidiSong song = chordSong();
+    Scheduler s(song);
+    s.setLoop(0, 100000);    // 100ms loop
+    s.setTempoPercent(500);  // 5x: real time collapses many wraps
+    std::vector<SchedEvent> buf;
+
+    bool wrapped = false;
+    s.advance(30000, buf, &wrapped);  // 30ms real → 150ms song: crosses 100ms
+    TEST_ASSERT_TRUE_MESSAGE(wrapped, "crossing loopEnd must set the wrap flag");
+    TEST_ASSERT_EQUAL_UINT64(50000, s.positionUs());  // 150 mod 100
+
+    // A wrap that lands back at the SAME position (50ms → 150ms → 50ms): the
+    // exact case a `newPos < prevPos` compare misses, yet must report wrapped.
+    bool wrapped2 = false;
+    s.advance(20000, buf, &wrapped2);  // +100ms song from 50ms
+    TEST_ASSERT_TRUE_MESSAGE(wrapped2,
+        "a wrap landing at the same position must still report wrapped");
+    TEST_ASSERT_EQUAL_UINT64(50000, s.positionUs());
+
+    // An advance that does not cross loopEnd reports no wrap (flag cleared).
+    bool wrapped3 = true;
+    s.advance(2000, buf, &wrapped3);   // +10ms song → 60ms, no crossing
+    TEST_ASSERT_FALSE_MESSAGE(wrapped3,
+        "an advance that doesn't cross loopEnd must report no wrap");
+    TEST_ASSERT_EQUAL_UINT64(60000, s.positionUs());
+
+    // The default-nullptr overload still works (existing call-sites unchanged).
+    s.advance(2000, buf);
+    TEST_ASSERT_EQUAL_UINT64(70000, s.positionUs());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_advance_reports_wrap_flag_short_loop_high_tempo);
     RUN_TEST(test_events_arrive_in_time_windows);
     RUN_TEST(test_off_sorts_before_on_at_same_instant);
     RUN_TEST(test_tempo_scales_time);

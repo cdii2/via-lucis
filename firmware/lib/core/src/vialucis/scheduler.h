@@ -72,8 +72,16 @@ public:
     void seek(uint64_t us, std::vector<SchedEvent>& out);
     std::vector<SchedEvent> seek(uint64_t us);
 
-    // Advance real (wall-clock) time; `out` gets due events in order.
-    void advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out);
+    // Advance real (wall-clock) time; `out` gets due events in order. When
+    // `wrapped` is non-null it reports whether the playhead crossed a loop
+    // boundary during this advance (B3c) — the ONE authoritative wrap signal.
+    // The engine must not infer wrap from a position comparison: at high tempo
+    // on a short loop a single advance can wrap and land at/after where it
+    // started (the O(1) modulo collapse), so `newPos < prevPos` misses it and
+    // repeat/wait cursors never resync. Default nullptr keeps every existing
+    // call-site (tests, score-follower) source-compatible.
+    void advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out,
+                 bool* wrapped = nullptr);
     std::vector<SchedEvent> advance(uint64_t realDeltaUs);
 
     // First note onset at or after `us` on a masked-in track (kNoOnset if none).

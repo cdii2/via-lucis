@@ -94,8 +94,10 @@ std::vector<SchedEvent> Scheduler::seek(uint64_t us) {
     return out;
 }
 
-void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
+void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out,
+                        bool* wrapped) {
     out.clear();
+    bool didWrap = false;  // B3c: report every loop wrap explicitly
     double target = pos_ + static_cast<double>(realDeltaUs) * (tempo_ / 100.0);
     const double loopLen = static_cast<double>(loopEnd_) -
                            static_cast<double>(loopStart_);
@@ -110,6 +112,7 @@ void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
         if (loopOn_ && pos_ >= static_cast<double>(loopEnd_) &&
             !(barrierOn_ && posUs() == barrier_)) {
             flushSounding(posUs(), out);
+            didWrap = true;
             double leftover = target - pos_;
             if (leftover >= loopLen)  // O(1) modulo collapse (G4)
                 leftover -= std::floor(leftover / loopLen) * loopLen;
@@ -140,6 +143,7 @@ void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
         if (reason == kBarrier) return;
         if (reason == kLoop) {
             flushSounding(loopEnd_, out);
+            didWrap = true;
             double leftover = target - static_cast<double>(loopEnd_);
             if (leftover >= loopLen)  // O(1) modulo collapse (G4): a lag spike
                 leftover -= std::floor(leftover / loopLen) * loopLen;
@@ -154,6 +158,8 @@ void Scheduler::advance(uint64_t realDeltaUs, std::vector<SchedEvent>& out) {
     if (!loopOn_ && pos_ > static_cast<double>(duration_) &&
         idx_ >= events_.size())
         pos_ = static_cast<double>(duration_);
+
+    if (wrapped) *wrapped = didWrap;
 }
 
 std::vector<SchedEvent> Scheduler::advance(uint64_t realDeltaUs) {
