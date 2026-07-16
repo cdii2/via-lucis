@@ -1198,13 +1198,46 @@ function refreshSongs() {
   }).catch(function () {});
 }
 
+/* ---------- upload name sanitization (A5) ----------
+   charset [A-Za-z0-9-_ .], length 5-64 incl. extension, extension forced
+   to lowercase ".mid", common accents transliterated away first (é/ü/ñ/ç
+   etc. — String.normalize + strip combining marks, no library needed). */
+var SONG_NAME_CHARSET = /^[A-Za-z0-9\-_ .]+$/;
+function transliterate(s) {
+  return (typeof s.normalize === "function")
+    ? s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    : s;
+}
+function sanitizeSongName(rawName) {
+  var name = transliterate(String(rawName || "").trim());
+  var extMatch = name.match(/\.(mid|midi)$/i);
+  if (!extMatch) return { ok: false, reason: "Only .mid files can be uploaded" };
+  name = name.slice(0, extMatch.index) + ".mid"; // lowercase the extension
+  if (!SONG_NAME_CHARSET.test(name)) {
+    return { ok: false, reason: "Name can only use letters, numbers, spaces, - and _" };
+  }
+  if (name.length < 5 || name.length > 64) {
+    return { ok: false, reason: "Name must be 5-64 characters, including \".mid\"" };
+  }
+  return { ok: true, name: name };
+}
+
 $("btnUpload").addEventListener("click", function () { $("fileInput").click(); });
 $("fileInput").addEventListener("change", function () {
   var f = $("fileInput").files[0];
   if (!f) return;
-  var name = f.name.replace(/\.midi$/i, ".mid");
-  if (!/\.mid$/i.test(name)) { toast("Only .mid files can be uploaded", true); return; }
-  if (f.size > 256 * 1024) { toast("File too big (max 256 KB)", true); return; }
+  var sanitized = sanitizeSongName(f.name);
+  if (!sanitized.ok) {
+    toast(sanitized.reason, true);
+    $("fileInput").value = "";
+    return;
+  }
+  var name = sanitized.name;
+  if (f.size > 256 * 1024) {
+    toast("File too big (max 256 KB)", true);
+    $("fileInput").value = "";
+    return;
+  }
   var btn = $("btnUpload");
   btn.disabled = true;
   btn.textContent = "Uploading…";
@@ -1212,13 +1245,16 @@ $("fileInput").addEventListener("change", function () {
     return api("POST", "/api/songs?name=" + encodeURIComponent(name), buf, true);
   }).then(function () {
     toast("Uploaded " + name);
-    refreshSongs();
   }).catch(function (e) {
-    toast(e.message, true);
+    var msg = e && e.message;
+    if (e && e.status === 409) msg = "That song is currently loaded — unload it first, then upload again";
+    else if (e && e.status === 507) msg = "Upload failed — device may be out of space";
+    toast(msg || "Upload failed", true);
   }).finally(function () {
     btn.disabled = false;
     btn.textContent = "Upload MIDI file…";
     $("fileInput").value = "";
+    refreshSongs(); // A5: never leave a stale list after a failed upload
   });
 });
 
