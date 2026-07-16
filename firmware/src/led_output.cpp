@@ -16,12 +16,18 @@ void LedOutput::begin(uint8_t brightness) {
 
 void LedOutput::setBrightness(uint8_t b) { FastLED.setBrightness(b); }
 
-void LedOutput::show(const std::vector<Rgb>& frame) {
+void LedOutput::setFrame(const std::vector<Rgb>& frame) {
     size_t n = frame.size() < kLedCount ? frame.size() : kLedCount;
     for (size_t i = 0; i < n; ++i)
         gLeds[i] = CRGB(frame[i].r, frame[i].g, frame[i].b);
     for (size_t i = n; i < kLedCount; ++i) gLeds[i] = CRGB::Black;
-    FastLED.show();
+}
+
+void LedOutput::show() { FastLED.show(); }
+
+void LedOutput::show(const std::vector<Rgb>& frame) {
+    setFrame(frame);
+    show();
 }
 
 }  // namespace vialucis
