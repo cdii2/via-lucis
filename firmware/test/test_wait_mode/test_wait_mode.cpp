@@ -252,6 +252,45 @@ static void test_p1_held_key_across_two_boundaries_not_double_counted() {
     TEST_ASSERT_FALSE(wm.chordPending());
 }
 
+// --- B7: hot-path vector reserve (BUGFIX-PLAN §3-B item 4) -----------------
+
+static void test_pending_and_cleared_reserved_at_construction() {
+    MidiSong song = chordSong();
+    Scheduler sched(song);
+    WaitMode wm(sched, kTrackMaskAll);
+    TEST_ASSERT_TRUE_MESSAGE(
+        wm.pendingNotes().capacity() >= kMaxChordNotes,
+        "pending_ must be pre-reserved at construction");
+    TEST_ASSERT_TRUE_MESSAGE(
+        wm.clearedNotes().capacity() >= kMaxChordNotes,
+        "cleared_ must be pre-reserved at construction");
+}
+
+static void test_pending_and_cleared_capacity_stable_across_chords() {
+    MidiSong song = chordSong();
+    Scheduler sched(song);
+    WaitMode wm(sched, kTrackMaskAll);
+    size_t pendingCap0 = wm.pendingNotes().capacity();
+    size_t clearedCap0 = wm.clearedNotes().capacity();
+    wm.begin();
+    sched.advance(1);
+    wm.update();
+    wm.onKeyDown(60, 0);           // chord1 {60} cleared
+    sched.advance(2000000);
+    wm.update();
+    wm.onKeyDown(64, 600000);      // chord2 {64} cleared
+    sched.advance(2000000);
+    wm.update();                   // now at the G4+B4 (2-note) chord
+    wm.onKeyDown(67, 1100000);
+    wm.onKeyDown(71, 1150000);
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(
+        pendingCap0, wm.pendingNotes().capacity(),
+        "pending_ must never reallocate on the hot path for an ordinary song");
+    TEST_ASSERT_EQUAL_size_t_MESSAGE(
+        clearedCap0, wm.clearedNotes().capacity(),
+        "cleared_ must never reallocate on the hot path for an ordinary song");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_first_chord_loads_at_start);
@@ -268,5 +307,7 @@ int main(int, char**) {
     RUN_TEST(test_echo_guard_is_per_note);
     RUN_TEST(test_wait_mode_ignores_echoes_via_guard);
     RUN_TEST(test_p1_held_key_across_two_boundaries_not_double_counted);
+    RUN_TEST(test_pending_and_cleared_reserved_at_construction);
+    RUN_TEST(test_pending_and_cleared_capacity_stable_across_chords);
     return UNITY_END();
 }
