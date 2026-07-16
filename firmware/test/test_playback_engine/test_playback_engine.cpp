@@ -175,6 +175,21 @@ MidiSong finishReplaySong() {
     return parseMidi(file.data(), file.size()).song;
 }
 
+// B7 fixture: chord1 = {60} @0, chord2 = {61} @500ms. Note 61 is deliberately
+// ABSENT from chord1 — a wrong press of 61 while chord1 is due leaves a
+// 300ms-long stale flash that must not survive into chord2, where 61 becomes
+// the genuinely due note.
+MidiSong wrongThenDueSong() {
+    Bytes ev;
+    smf::noteOn(ev, 0, 0, 60, 100);
+    smf::noteOff(ev, 480, 0, 60);
+    smf::noteOn(ev, 0, 0, 61, 100);
+    smf::noteOff(ev, 480, 0, 61);
+    Bytes file = smf::header(0, 1, 480);
+    smf::append(file, smf::track(ev));
+    return parseMidi(file.data(), file.size()).song;
+}
+
 }  // namespace
 
 void test_follow_mode_lights_sounding_note_full_color() {
@@ -298,6 +313,28 @@ void test_wrong_flash_outranks_due_light() {
     const std::vector<Rgb>& frame = e.renderFrame(210000);
     assertRgb(kRight, ledAt(frame, 60));
     assertRgb(kWrong, ledAt(frame, 61));
+}
+
+// B7 (BUGFIX-PLAN §3-B item 5): a stale wrong-flash must not survive into a
+// later chord where the same key becomes genuinely due — today it could
+// paint solid red for up to 300ms on the exact key the player must press.
+void test_wrong_flash_drops_when_key_becomes_due() {
+    PlaybackEngine e;
+    setupEngine(e, wrongThenDueSong(), "wait");
+    gOut.clear();
+    e.transport("play", 0, gOut);
+    e.tick(1000, gOut);
+    e.tick(200000, gOut);       // barrier holds at chord1 {60}
+    e.onKeyDown(61, 200000);    // WRONG (61 isn't pending yet) -> 300ms flash
+    assertRgb(kWrong, ledAt(e.renderFrame(210000), 61));
+    e.onKeyDown(60, 210000);    // clear chord1 -> chord2 {61} loads
+    e.tick(800000, gOut);       // holds at chord2's barrier (~500ms); 61 due
+    TEST_ASSERT_TRUE(e.statusJson().find("\"pendingNotes\":[61]") !=
+                     std::string::npos);
+    // The stale flash (created @200000, natural expiry @500000) must not
+    // still paint red now that 61 is the genuinely due note — proven by
+    // checking well BEFORE that natural expiry would have kicked in anyway.
+    assertRgb(kRight, ledAt(e.renderFrame(300000), 61));
 }
 
 void test_key_verdict_makes_next_frame_immediate() {
@@ -1231,6 +1268,7 @@ int main(int, char**) {
     RUN_TEST(test_chord_clears_per_key);
     RUN_TEST(test_wrong_key_flashes_red_then_expires);
     RUN_TEST(test_wrong_flash_outranks_due_light);
+    RUN_TEST(test_wrong_flash_drops_when_key_becomes_due);
     RUN_TEST(test_key_verdict_makes_next_frame_immediate);
     RUN_TEST(test_accompaniment_emits_only_the_other_hand);
     RUN_TEST(test_echoed_accompaniment_note_is_not_a_wrong_press);
