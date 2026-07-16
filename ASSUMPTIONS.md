@@ -3,6 +3,33 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A116 (2026-07-16, Wave B-i lead, C1-firmware): **The practice hand rides
+  `TopStatus` (new `const char* practice`, default nullptr → omitted), sourced
+  from `App::lastPractice_`.** The engine's own `practice_` is NOT the player's
+  choice (a show hijacks the sub-mode), and the brief blessed lastPractice_ as
+  the owner. Emitted as top-level `"practice"` in the top block (before wifi);
+  appears in every App status reply like `topMode`. Engine-only callers passing
+  no player choice omit the field. API.md documents it.
+- A115 (2026-07-16, Wave B-i lead, B3a): **`setTrack`'s stuck-note flush routes
+  through `NoteEmitter` (new `flushTracksOutsideMask`) and mints NO echo-guard
+  credit for the flushed note-offs.** A guard credit is consumed by the next
+  note-DOWN; a note-off is never a key press, so crediting it would eat a
+  genuine future press of that pitch (the opposite of the iron rule). "Through
+  the normal send path so the echo guard registers them" is honored as: the
+  emitter (the one MIDI-out owner) stays the single send path and its `sounding_`
+  bookkeeping stays consistent. Pedal latches (per-channel, not per-track) are
+  left to `allOff` — a hand reassignment is not a transport halt.
+- A114 (2026-07-16, Wave B-i lead, B3c): **`Scheduler::advance` gains a trailing
+  `bool* wrapped = nullptr` out-param (additive) as the ONE authoritative loop-
+  wrap signal; the engine's `prevPosUs_` position-compare is deleted.** A
+  position compare (`newPos < prevPos`) misses a short-loop/high-tempo wrap that
+  lands at/after the start after the O(1) modulo collapse — the skipped-repeat-
+  cue bug. Default nullptr keeps every existing call-site (tests, score-follower,
+  the by-value overload) source-compatible.
+- A113 (2026-07-16, Wave B-i lead, B3b): **Replaying from `Finished` clears echo
+  credits** (`guard_.clearCredits()` in `transport("play")`'s Finished branch),
+  parity with seek's A-3/G12 clear — the just-ended pass's in-flight credits must
+  not swallow the player's first real press at the re-approached opening barrier.
 - A112 (2026-07-15, Wave A lead, wa/afk integration): **App::applyAfk seeds the
   parse with the CURRENT config, not a fresh default.** The wa/afk builder made
   `afkConfigFromJson` PATCH into the caller's `out`; a partial `PUT /api/afk`

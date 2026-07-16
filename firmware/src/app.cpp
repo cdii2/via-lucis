@@ -136,6 +136,12 @@ void App::stopShowLocked() {
     bool wasPlaying = director_.showPlaying();
     director_.stopShow();
     if (!wasPlaying) return;  // stray /api/shows/stop must not halt practice
+    restorePreShowMode();
+}
+
+// Shared restore tail (caller holds the fence): halt the transport and give the
+// player back their pre-show practice mode/hand.
+void App::restorePreShowMode() {
     transportLocked("stop", 0);
     if (preShowValid_) {
         std::vector<MidiOutMsg> out;
@@ -216,7 +222,10 @@ bool App::showBusy() {
 
 bool App::afkControl(const std::string& action) {
     FenceGuard g(lock_);
-    touchWriteActivity();
+    // Ruling §6-4: ambient transport STEERS a playing AFK show without WAKING
+    // the idle clock — so NO touchWriteActivity here (a wake would dismiss the
+    // very show these controls are steering). State mutations wake; ambient
+    // transport does not. See docs/API.md "Top mode".
     if (action == "next") director_.afkNext();
     else if (action == "previous") director_.afkPrevious();
     else return false;
@@ -271,7 +280,13 @@ bool App::setLoop(bool enabled, uint32_t startMs, uint32_t endMs) {
 bool App::setTrack(size_t index, const std::string& hand, bool lights) {
     FenceGuard g(lock_);
     touchWriteActivity();
-    return engine_.setTrack(index, hand, lights);
+    // B3a: the engine flushes note-offs for a track leaving the emit mask
+    // (stuck-note fix) into `out`; deliver them on this task like every other
+    // sound-silencing command.
+    std::vector<MidiOutMsg> out;
+    bool ok = engine_.setTrack(index, hand, lights, out);
+    sendAll(out);
+    return ok;
 }
 
 bool App::setTestPattern(const std::string& pattern) {
@@ -280,7 +295,9 @@ bool App::setTestPattern(const std::string& pattern) {
     // The F3 auto-pause rule lives in the director now; we just deliver
     // the note-offs its pause emits.
     std::vector<MidiOutMsg> out;
-    if (!director_.setTestPattern(pattern, out)) return false;
+    if (!director_.setTestPattern(
+            pattern, static_cast<uint64_t>(esp_timer_get_time()), out))
+        return false;
     sendAll(out);
     return true;
 }
@@ -302,8 +319,12 @@ std::string App::statusJson(const WifiStatus* wifi) {
     }
     FenceGuard g(lock_);
     uint64_t now = static_cast<uint64_t>(esp_timer_get_time());
+    // C1: lastPractice_ is the player's own hand choice (a show hijacks the
+    // engine's sub-mode, so this — not the engine's practice_ — is what the
+    // webui selector reconciles against). String outlives this call.
     TopStatus top{ModeDirector::topModeName(director_.topMode(now)),
-                  director_.idleSec(now), director_.idleTimeoutSec()};
+                  director_.idleSec(now), director_.idleTimeoutSec(),
+                  lastPractice_.c_str()};
     const char* rState = "idle";
     switch (director_.recordState()) {
         case CaptureState::Armed: rState = "armed"; break;
@@ -470,8 +491,14 @@ void App::tick(uint64_t nowUs) {
     ble_.poll();
 
     tickOut_.clear();
+    bool wasShowPlaying = director_.showPlaying();
     director_.tick(nowUs, tickOut_);
     sendAll(tickOut_);
+    // B1b: a show that reached Finished tore down its own presentation state
+    // inside director_.tick(). Detect that edge and run the same restore tail a
+    // manual /api/shows/stop does — otherwise the transport + practice mode are
+    // left in the show's hijacked state.
+    if (wasShowPlaying && !director_.showPlaying()) restorePreShowMode();
 
     if (director_.frameDue(nowUs)) leds_.show(director_.renderFrame(nowUs));
 
