@@ -101,6 +101,8 @@ static void test_to_json_emits_exactly_the_contract_field_names() {
         // v3 REC4 growth (the one sanctioned v1 contract change): the
         // recording byte budget. Appended; nothing existing changed.
         "recordBudgetKB",
+        // Wave E2 growth: optional BLE-MIDI target-name filter.
+        "bleTargetName",
     };
     constexpr size_t kCount = sizeof(kContract) / sizeof(kContract[0]);
 
@@ -291,6 +293,7 @@ static void test_public_view_contract_field_names() {
         "repeatCueEnabled", "repeatColor", "repeatFillStartPct",
         "repeatFillPeakPct", "repeatFloorMs", "repeatWaitPulseMs",
         "afkTimeoutSec", "recordBudgetKB",
+        "bleTargetName",  // not a secret — rides both views (E2)
     };
     constexpr size_t kCount = sizeof(kPublic) / sizeof(kPublic[0]);
     Settings s;
@@ -309,6 +312,52 @@ static void test_public_view_contract_field_names() {
     TEST_ASSERT_EQUAL_size_t(kCount, emitted);  // none missing either
 }
 
+// --- bleTargetName (Wave E2, BUGFIX-PLAN §3-E item 2) ------------------------
+
+// Default is empty ⇒ accept-any (replicability iron rule: unchanged behavior
+// out of the box). Rides BOTH toJson views unchanged — it isn't a secret.
+static void test_ble_target_name_default_empty_and_rides_both_views() {
+    Settings s;
+    TEST_ASSERT_TRUE(s.bleTargetName.empty());
+    TEST_ASSERT_TRUE(s.toJson().find("\"bleTargetName\":\"\"") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(
+        s.toJson(Settings::View::Public).find("\"bleTargetName\":\"\"") !=
+        std::string::npos);
+}
+
+static void test_ble_target_name_round_trips() {
+    Settings s;
+    s.bleTargetName = "FP-30X";
+    std::string json = s.toJson();
+    Settings out;
+    TEST_ASSERT_TRUE(Settings::fromJson(json.c_str(), out));
+    TEST_ASSERT_EQUAL_STRING("FP-30X", out.bleTargetName.c_str());
+}
+
+// A body WITHOUT the key leaves the stored value untouched (PATCH pattern,
+// same as every other field) — clearing it back to accept-any needs an
+// EXPLICIT "".
+static void test_ble_target_name_patch_and_explicit_clear() {
+    Settings out;
+    out.bleTargetName = "FP-30X";
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"leadMs\":800}", out));
+    TEST_ASSERT_EQUAL_STRING("FP-30X", out.bleTargetName.c_str());
+
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"bleTargetName\":\"\"}", out));
+    TEST_ASSERT_TRUE(out.bleTargetName.empty());
+}
+
+// Clamped to kBleTargetNameMaxLen so the value we hand to the third-party
+// library's fixed char[24] buffer is always safely null-terminated.
+static void test_ble_target_name_clamped_to_max_len() {
+    Settings out;
+    std::string tooLong(40, 'x');
+    std::string body = "{\"bleTargetName\":\"" + tooLong + "\"}";
+    TEST_ASSERT_TRUE(Settings::fromJson(body.c_str(), out));
+    TEST_ASSERT_EQUAL_size_t(kBleTargetNameMaxLen, out.bleTargetName.size());
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_public_view_never_contains_wifipass);
@@ -324,5 +373,9 @@ int main(int, char**) {
     RUN_TEST(test_values_clamped_to_sane_ranges);
     RUN_TEST(test_color_hex_strings);
     RUN_TEST(test_to_json_emits_exactly_the_contract_field_names);
+    RUN_TEST(test_ble_target_name_default_empty_and_rides_both_views);
+    RUN_TEST(test_ble_target_name_round_trips);
+    RUN_TEST(test_ble_target_name_patch_and_explicit_clear);
+    RUN_TEST(test_ble_target_name_clamped_to_max_len);
     return UNITY_END();
 }

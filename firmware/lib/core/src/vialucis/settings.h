@@ -24,6 +24,15 @@ constexpr float kLedsPerMeterMax = 1000.0f;
 // two hardcoded 180s would let the native tests silently pin a stale one).
 constexpr uint32_t kDefaultAfkTimeoutSec = 180;
 
+// bleTargetName clamp (Wave E2, BUGFIX-PLAN §3-E item 2): the lathoub
+// BLE-MIDI client library stores the device/target name in a fixed
+// `char mDeviceName[24]` (BLEMIDI_Transport) and copies it with strncpy —
+// which does NOT null-terminate a source that fills or exceeds the buffer.
+// Clamping well under 24 here (in code we own) guarantees the string handed
+// to that third-party buffer is always safely null-terminated; we don't
+// touch/vendor the library to fix it there.
+constexpr size_t kBleTargetNameMaxLen = 20;
+
 struct Settings {
     // Colors (SPEC: defaults left=blue right=green wrong=red, customizable,
     // defaults must never collide with wrong).
@@ -75,6 +84,18 @@ struct Settings {
     // the v1 key set — the contract test locks this (the one sanctioned v1
     // contract change).
     uint32_t recordBudgetKB = 64;
+
+    // Optional BLE-MIDI target filter (Wave E2, BUGFIX-PLAN §3-E item 2):
+    // empty (default) = accept the first BLE-MIDI peripheral found, same
+    // behavior as today (replicability iron rule — a stranger's setup keeps
+    // working with zero configuration). When non-empty, only an advertiser
+    // whose name matches exactly is connected — useful in a room with more
+    // than one BLE-MIDI device. Generic BLE-MIDI setting, not an FP-30X hack
+    // (SPEC LOCK 5): any BLE-MIDI peripheral's name works here. Clamped to
+    // kBleTargetNameMaxLen. Like wifiSsid, a change takes effect at the next
+    // boot (BleMidiIo::begin() reads it once at startup) — not a live
+    // reconnect. Appended after the v1 key set; the contract test locks this.
+    std::string bleTargetName;
 
     // Which audience a serialization is for — secret-ness is a property of the
     // field, decided HERE, not at the route handler (ruling §6-1):

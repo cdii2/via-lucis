@@ -64,6 +64,11 @@ std::string Settings::toJson(View view) const {
     doc["repeatWaitPulseMs"] = repeatWaitPulseMs;
     doc["afkTimeoutSec"] = afkTimeoutSec;
     doc["recordBudgetKB"] = recordBudgetKB;
+    // bleTargetName is NOT a secret (unlike wifiPass) — it's a device name,
+    // not a credential — so it rides both views unchanged (ruling §6-1's
+    // "secret-ness is a property of the field" cuts the other way here: this
+    // field simply isn't one).
+    doc["bleTargetName"] = bleTargetName;
     std::string out;
     serializeJson(doc, out);
     return out;
@@ -143,6 +148,13 @@ bool Settings::fromJson(const char* json, Settings& out) {
         // misleading max. Clamp 16..256 to match.
         out.recordBudgetKB = std::min<uint32_t>(
             std::max<uint32_t>(o["recordBudgetKB"].as<uint32_t>(), 16), 256);
+    if (o["bleTargetName"].is<const char*>()) {
+        // Empty string is a valid, meaningful value (explicitly clears the
+        // filter back to accept-any) — always assign, then clamp length.
+        std::string v = o["bleTargetName"].as<const char*>();
+        if (v.size() > kBleTargetNameMaxLen) v.resize(kBleTargetNameMaxLen);
+        out.bleTargetName = v;
+    }
 
     // The collision guard cuts BOTH ways: a wrongColor edit that lands on
     // the current repeatColor is rejected too (Q-wave closing review).
