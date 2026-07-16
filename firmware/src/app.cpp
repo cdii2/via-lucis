@@ -99,6 +99,7 @@ bool App::loadSong(const std::string& name) {
     FenceGuard g(lock_);
     touchWriteActivity();
     engine_.loadSong(std::move(r.song), name, out);
+    loadedName_ = name;  // mirror the engine's songName_ (ruling §6-3)
     sendAll(out);
     return true;
 }
@@ -108,9 +109,15 @@ bool App::unloadSong() {
     FenceGuard g(lock_);
     touchWriteActivity();  // the unload itself restarts the idle drift
     engine_.unloadSong(out);
+    loadedName_.clear();
     // (presentation_ dies in director_.tick — any unload path, one owner.)
     sendAll(out);
     return true;
+}
+
+std::string App::loadedSongName() {
+    FenceGuard g(lock_);
+    return loadedName_;
 }
 
 bool App::setPresentation(bool on) {
@@ -147,7 +154,12 @@ bool App::applyAfk(const char* json, std::string* err) {
     // Parse AND build the per-track effects UNFENCED (heap work — the
     // F-wave discipline: a tick never waits behind allocations); the
     // fenced part is pointer swaps only. Save after.
+    // afkConfigFromJson now PATCHes into `cfg` (wa/afk core change), so seed it
+    // with the CURRENT config first — a partial body then edits only the keys
+    // it names instead of resetting everything to defaults (R3 fix). afkJson()
+    // is always fully populated; boot seeds from defaults (correct there).
     fx::AfkConfig cfg;
+    fx::afkConfigFromJson(afkJson().c_str(), cfg, nullptr);
     if (!fx::afkConfigFromJson(json, cfg, err)) return false;
     std::string doc = fx::afkConfigToJson(cfg);
     fx::AfkPlayer::Prepared prepared = fx::AfkPlayer::prepare(
@@ -274,6 +286,20 @@ bool App::setTestPattern(const std::string& pattern) {
 }
 
 std::string App::statusJson(const WifiStatus* wifi) {
+    // Device telemetry (A3) rides only on GET /api/status (the wifi-bearing
+    // call — every other status reply stays lean). Gather it UNFENCED: store_
+    // is HTTP-task-owned and the ESP heap reads are lock-free, so a tick never
+    // waits behind LittleFS stat calls.
+    DeviceStatus dev{};
+    if (wifi) {
+        dev.fs = fsHealthField(store_.fsHealth());
+        dev.fsFree = static_cast<uint32_t>(store_.freeBytes());
+        dev.fsTotal = static_cast<uint32_t>(store_.totalBytes());
+        dev.fsUsed = static_cast<uint32_t>(store_.usedBytes());
+        dev.heapFree = static_cast<uint32_t>(ESP.getFreeHeap());
+        dev.heapMaxAlloc = static_cast<uint32_t>(ESP.getMaxAllocHeap());
+        dev.uptimeMs = static_cast<uint32_t>(esp_timer_get_time() / 1000);
+    }
     FenceGuard g(lock_);
     uint64_t now = static_cast<uint64_t>(esp_timer_get_time());
     TopStatus top{ModeDirector::topModeName(director_.topMode(now)),
@@ -288,7 +314,7 @@ std::string App::statusJson(const WifiStatus* wifi) {
                      static_cast<uint32_t>(director_.recordUsedBytes()),
                      static_cast<uint32_t>(director_.recordBudgetBytes()),
                      director_.recordCountIn(), director_.recordBpm()};
-    return engine_.statusJson(wifi, &top, &rec);
+    return engine_.statusJson(wifi, &top, &rec, wifi ? &dev : nullptr);
 }
 
 App::RecordArm App::recordArm(bool countIn, uint16_t bpm) {
@@ -448,6 +474,13 @@ void App::tick(uint64_t nowUs) {
     sendAll(tickOut_);
 
     if (director_.frameDue(nowUs)) leds_.show(director_.renderFrame(nowUs));
+
+    // Storage format (A3) runs here — on the loop task, after the HTTP reply
+    // has already been queued on async_tcp — because LittleFS.format() blocks
+    // for seconds and must never stall the network task mid-response. Rare
+    // recovery op; done under the tick fence so it can't interleave engine
+    // state. The one-shot flag is consumed atomically.
+    if (formatRequested_.exchange(false)) store_.format();
 }
 
 }  // namespace vialucis
