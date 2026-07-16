@@ -10,6 +10,20 @@ namespace vialucis {
 class EchoGuard {
 public:
     // Record that we transmitted a note-on to the piano.
+    //
+    // FIX-C (deferred to hardware bring-up, BUGFIX-PLAN-2026-07-15 §3-E/§7 —
+    // comment only, mechanism NOT built here): every caller of this method
+    // (NoteEmitter::consume(), firmware/lib/core/src/vialucis/note_emitter.cpp)
+    // registers the credit at EMIT time — the instant a note-on is scheduled
+    // for send — not at confirmed BLE-transmit time. The actual transmit
+    // (BleMidiIo::send(), firmware/src/ble_midi_io.cpp) silently no-ops while
+    // disconnected, so a note that never reached the piano can still hold an
+    // outstanding "ignore the next echo" credit. If the piano reconnects
+    // while that credit is still un-expired and the player genuinely presses
+    // the same key, the echo guard swallows the real press. Fixing this
+    // needs a live disconnect/reconnect to verify against real hardware
+    // (move registration to transmit-confirmed time, or drop credits for a
+    // note whose send() no-oped) — hence deferred, not built in this wave.
     void noteSent(uint8_t note, uint64_t nowUs) {
         if (note > 127) return;
         Slot& s = slots_[note];
