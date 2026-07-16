@@ -35,6 +35,14 @@ namespace vialucis {
 // constant (~10 min), NOT a setting — the byte budget is the tunable bound.
 constexpr uint32_t kRecordMaxMs = 600000;
 
+// A113 (2026-07-16, B1a, BUGFIX-PLAN-2026-07-15 §3-B1): an orphaned test
+// pattern (a client that POSTs test-strip/test-rainbow then vanishes) must
+// not hide the practice/show frame source forever. It auto-clears after
+// this many ms of continuous inactivity (no re-set, no "off") — on top of
+// the explicit reclaim points (a fresh song load, transport entering
+// Playing, a show starting) that fire immediately, not on a timer.
+constexpr uint32_t kTestPatternTimeoutMs = 300000;  // 5 min
+
 // Record joins the top modes: entered only via arm with no song loaded (Free
 // capture); arming with a song loaded stays Practice (Play-along, capture runs
 // alongside and paints nothing). Record outranks Afk — arming IS write
@@ -76,6 +84,13 @@ public:
     // the transport emits land in `out`.
     void startShow(Show&& show, uint32_t seed,
                    std::vector<MidiOutMsg>& out) {
+        // B1a: a show starting reclaims the strip from an orphaned test
+        // pattern immediately — don't wait for the next tick's edge check
+        // or the timeout.
+        if (test_ != Test::None) {
+            test_ = Test::None;
+            testPatternSetUs_ = 0;
+        }
         uint8_t clock = show.meta.clockSource;
         uint8_t followTrack = show.meta.followTrack;
         showPlayer_.load(std::move(show), table_, seed);
@@ -132,6 +147,13 @@ public:
     std::string afkConfigJson() const {
         return fx::afkConfigToJson(afk_.config());
     }
+    // STEERS, never WAKES (ruling §6-4 / B2 — see the activity section
+    // below for the full two-category split). Advancing the ambient
+    // playlist is itself an ambient action: it must never reach the idle
+    // clock, or the act of steering an AFK show would dismiss the very
+    // show it's steering. Neither of these touches lastActivityUs_; the
+    // App seam must not call onWriteActivity() ahead of them
+    // (test_b2_afk_next_previous_never_wake_afk pins this contract).
     void afkNext() {
         afk_.next();
         engine_.markFrameDirty();
@@ -142,8 +164,22 @@ public:
     }
 
     // --- activity (the idle clock's only writers) -----------------------
-    void onMidiActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }
-    void onWriteActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }
+    // Two named categories, not one universal "any write wakes" (ruling
+    // §6-4 — API.md's old wording was wrong):
+    //   WAKES  — state mutations: anything that changes what the device IS
+    //            doing (load/unload, transport, mode/tempo/loop/track,
+    //            settings, calibration, record arm/stop/discard,
+    //            presentation/shows, test pattern, AFK CONFIG writes, probe
+    //            arm/cancel). The App seam calls onWriteActivity() for
+    //            every one of these — see touchWriteActivity() call-sites.
+    //   STEERS — ambient transport: afkNext()/afkPrevious() above control
+    //            an AFK show that is ALREADY playing. Media-control, not a
+    //            state mutation — it must never touch the idle clock.
+    // onMidiActivity is always WAKES (a real key press is always real
+    // activity); onWriteActivity is the WAKES half of the write split —
+    // afkNext/afkPrevious deliberately have no such call.
+    void onMidiActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }  // WAKES
+    void onWriteActivity(uint64_t nowUs) { lastActivityUs_ = nowUs; }  // WAKES
 
     // The BLE note paths: probe capture eats a press BEFORE practice sees
     // it (C3/3A); every event also feeds the Reactive layer (E2) and the
@@ -204,7 +240,12 @@ public:
     // Activating a pattern while Playing auto-pauses (F3/A35 — the rule
     // lives HERE so every caller gets it); the note-offs the pause emits
     // land in `out`. "off" never auto-resumes.
-    bool setTestPattern(const std::string& name, std::vector<MidiOutMsg>& out);
+    // `nowUs` (B1a) (re)starts the orphan-timeout clock — every activation
+    // (including switching strip↔rainbow) refreshes it, so the timeout
+    // means "no one has touched this pattern in kTestPatternTimeoutMs",
+    // not "since it was first set".
+    bool setTestPattern(const std::string& name, uint64_t nowUs,
+                        std::vector<MidiOutMsg>& out);
     bool testPatternActive() const { return test_ != Test::None; }
 
     enum class ProbeArm : uint8_t { Ok, Playing, BadLed };
@@ -240,6 +281,15 @@ private:
 
     enum class Test : uint8_t { None, Strip, Rainbow };
     Test test_ = Test::None;
+    // B1a: orphan-timeout clock (activation/refresh time) + the two edge
+    // detectors tick() uses to reclaim the strip the instant something more
+    // purposeful than the timeout wants it back (a fresh song load, or
+    // transport entering Playing). 0 / false are safe baselines — both
+    // guards are additionally gated on test_ != Test::None, so an unset
+    // timestamp or a stale edge flag is never read while no pattern is up.
+    uint64_t testPatternSetUs_ = 0;
+    bool wasSongLoadedForPattern_ = false;
+    bool wasEnginePlayingForPattern_ = false;
 
     bool presentation_ = false;
     uint32_t idleTimeoutSec_ = kDefaultAfkTimeoutSec;  // 0 = never
