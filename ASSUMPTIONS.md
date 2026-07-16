@@ -3,6 +3,70 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A112 (2026-07-15, Wave A lead, wa/afk integration): **App::applyAfk seeds the
+  parse with the CURRENT config, not a fresh default.** The wa/afk builder made
+  `afkConfigFromJson` PATCH into the caller's `out`; a partial `PUT /api/afk`
+  body would otherwise reset every unnamed key. Seeds from `afkJson()` (always
+  fully populated) before overlaying the request. Boot (app.cpp:~60) stays
+  default-seeded — correct there. My call-site edit only; wa/afk merges after.
+- A111 (2026-07-15, Wave A lead, T4 — coordinator ruling): **T4 satisfied via
+  GET /api/status ONLY; GET /api/songs stays a BARE ARRAY.** I first wrapped
+  /api/songs as `{songs:[...],fsFree,fsTotal}`, but the webui builder flagged
+  that as a breaking shape change for existing consumers. Reverted per ruling —
+  the capacity primitive (fsFree/fsTotal/fsUsed) lives in /api/status, which the
+  library gauge reads alongside the unchanged songs list. API.md documents this.
+- A110 (2026-07-15, Wave A lead, A3): **/api/status device telemetry added via a
+  new `DeviceStatus*` param on `PlaybackEngine::statusJson` (lib/core), mirroring
+  the WifiStatus/TopStatus/RecordStatus pattern.** The engine authors the status
+  doc ONCE (R4 forbids serialize→splice→reserialize) and owns key order, so the
+  only non-hack way to add fs*/heap*/uptime fields before `wifi` is a fourth
+  optional pointer arg (default nullptr — every existing caller unaffected).
+  Touches one lib/core file beyond firmware/src — **flagged for Wave B3 (engine)
+  to rebase.** Fields ride ONLY on GET /api/status (the wifi-bearing call);
+  gathered UNFENCED in App (store_ is HTTP-task-owned) so ticks never wait behind
+  LittleFS stat calls.
+- A109 (2026-07-15, Wave A lead, ruling §6-3): **`App::loadedSongName()` is
+  backed by an App-tracked `loadedName_` mirror, not a new PlaybackEngine
+  getter.** Set on a successful `loadSong` and cleared on `unloadSong` (the only
+  two writers of the engine's own `songName_`), so the two stay in lockstep.
+  Keeps the accessor entirely inside firmware/src (owned) rather than editing the
+  engine's public surface (Wave B territory), and kills the DELETE handler's
+  statusJson serialize/reparse hack. Both the DELETE guard and the upload 409
+  first-chunk check ask it.
+- A108 (2026-07-15, Wave A lead, A3): **Boot `formatOnFail` left TRUE; FsHealth
+  wired; format runs on the loop task.** §6-2 rules formatOnFail:false, but
+  flipping it at boot would strand a fresh device (empty/unformatted LittleFS) in
+  MountFailed until a manual format — a replicability-iron-rule regression. Per
+  §3 that boot-policy flip belongs to **B4 (paired with self-heal)**; A3 delivers
+  the seam: the full `FsHealth{Mounted,MountFailed,Wedged}` enum + `classifyFsHealth`
+  + the guarded `/api/storage/format` recovery. The live signal that mattered in
+  the incident — **Wedged** (mounted but a new-file create fails) — is surfaced
+  regardless (openUpload flips it on a create failure). `LittleFS.format()` blocks
+  for seconds, so `/api/storage/format` replies immediately and App runs the wipe
+  from `tick()` (loop task) via an atomic one-shot flag — never on async_tcp.
+- A107 (2026-07-15, Wave A lead, A2): **Upload reserve = 32 KB (own constant
+  `kUploadReserveBytes`); record's 8 KB margin left untouched.** The block-aware
+  precheck rounds the announced size up to 4 KB LittleFS blocks and requires a
+  32 KB (8-block) free reserve so a dir-metadata split always has a spare block
+  (the wedge cause). Did NOT lower/raise record's `kRecordSpaceMarginBytes`
+  (Wave B5 territory; record already reserves its whole budget + 8 KB, a much
+  larger effective floor). Also added the SAME absolute free-space guard to SHOW
+  uploads (defensive — shows share the partition; refuse rather than risk the
+  wedge) on top of the net-delta quota fix. One open `fs::File` is held across
+  chunks (opened first chunk, closed last); errors are DEFERRED (recorded, body
+  drained, real JSON sent from the completion handler) so clients never see a
+  TCP RST; partials are removed on disconnect and synchronously on write-fail.
+- A106 (2026-07-15, Wave A lead, A1): **Route un-shadowing uses
+  `AsyncURIMatcher::exact(...)` (verified present in the pinned ESPAsyncWebServer
+  3.11.2), not registration reordering.** Plain-string routes resolve to
+  `Type::BackwardCompatible` = `path==V || path.startsWith(V+"/")`, so the five
+  parents prefix-swallowed eight children; exact matching (`_value==path`) is
+  order-independent and future-proof against new children. `onJsonBody` widened
+  from `const char*` to `AsyncURIMatcher` (implicit ctor keeps every other
+  call-site compiling; regex `^...$` strings still auto-detect). Pinned
+  `platform = espressif32@7.0.1` and `ESPAsyncWebServer@3.11.2` (both already the
+  resolved/installed versions — no re-download), since a caret range once crossed
+  a matcher-semantics change.
 - A105 (2026-07-15, library grill + eng-review): **Bigger-library feature —
   standalone for practice, PC-optional for management; PHASED build.**
   Grilled the "external storage" idea then stress-tested it via

@@ -2,8 +2,10 @@
 
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
+#include <FS.h>
 
 #include "vialucis/body_intake.h"
+#include "vialucis/storage_budget.h"
 
 #if __has_include("webui_gz.h")
 #include "webui_gz.h"
@@ -68,7 +70,18 @@ struct BodyIntake {
     String buf;            // buffer sink accumulates here
     std::string name;      // stream sink: validated once on the first chunk
     bool sawBody = false;  // stream sink: at least one chunk accepted
-    bool failed = false;   // reply already sent — swallow remaining chunks
+    bool failed = false;   // rejected — swallow remaining chunks
+    // Deferred reply (A2): a stream-upload error records its {code,msg} here
+    // and keeps DRAINING the rest of the body; the completion handler then
+    // sends the real 4xx/5xx JSON. Replying mid-body used to RST the socket —
+    // the client saw a connection reset instead of the actual error.
+    int errCode = 0;
+    std::string errMsg;
+    // ONE open handle held across every TCP chunk of a stream upload (A2):
+    // opened on the first chunk, written each chunk, closed on the last. The
+    // old path re-opened per chunk — a LittleFS metadata commit each ~1.4 KB
+    // that starved async_tcp into resets.
+    fs::File file;
     // Invoked on disconnect if still set (cleared on success). A stream sink
     // that starts writing a file registers a discard here so a mid-upload
     // disconnect never leaves a truncated file counting against quota
@@ -83,17 +96,56 @@ BodyIntake& intakeFor(AsyncWebServerRequest* req) {
         req->_tempObject = st;
         req->onDisconnect([req]() {
             BodyIntake* s = static_cast<BodyIntake*>(req->_tempObject);
-            if (s && s->cleanup) s->cleanup();
-            delete s;
+            if (s) {
+                if (s->file) s->file.close();  // release the upload handle
+                if (s->cleanup) s->cleanup();  // discard any partial file
+                delete s;
+            }
             req->_tempObject = nullptr;
         });
     }
     return *st;
 }
 
+// Immediate mid-body reply — used only by the small JSON buffer sink, where a
+// body is at most a few KB and an early reply won't strand a long transfer.
 void intakeFail(AsyncWebServerRequest* req, int code, const char* msg) {
     intakeFor(req).failed = true;
     sendError(req, code, msg);
+}
+
+// Deferred error for the stream uploads (A2): record the first {code,msg},
+// mark failed so later chunks drain, but DON'T reply until completion.
+void intakeDefer(BodyIntake& in, int code, const char* msg) {
+    in.failed = true;
+    if (in.errCode == 0) {
+        in.errCode = code;
+        in.errMsg = msg;
+    }
+}
+
+// Completion handler shared by both stream uploads: send the deferred error if
+// one was recorded, else the 201 (or the no-body 400). Every reply on the
+// upload path leaves HERE — never mid-body — so clients get JSON, not an RST.
+void uploadComplete(AsyncWebServerRequest* req) {
+    BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
+    if (!st) {  // no body arrived at all
+        sendError(req, 400, "empty upload");
+        return;
+    }
+    if (st->errCode) {
+        sendError(req, st->errCode, st->errMsg.c_str());
+        return;
+    }
+    if (!st->sawBody) {
+        sendError(req, 400, "empty upload");
+        return;
+    }
+    JsonDocument doc;
+    doc["name"] = st->name;
+    std::string out;
+    serializeJson(doc, out);
+    sendJson(req, 201, out);
 }
 
 // Buffer sink: collect a small JSON body across chunks, then hand it to
@@ -101,10 +153,14 @@ void intakeFail(AsyncWebServerRequest* req, int code, const char* msg) {
 using JsonHandler =
     std::function<void(AsyncWebServerRequest*, JsonDocument&)>;
 
-void onJsonBody(const char* path, JsonHandler handle,
+// `path` is an AsyncURIMatcher: a bare "/api/foo" string implicitly converts
+// (backward-compatible prefix match, exactly as before), while a parent route
+// that must NOT swallow its children passes AsyncURIMatcher::exact("/api/foo")
+// (A1). The implicit ctor keeps every existing call-site compiling unchanged.
+void onJsonBody(AsyncURIMatcher path, JsonHandler handle,
                 size_t bodyCap = kJsonBodyCap) {
     gServer.on(
-        path, HTTP_POST | HTTP_PUT,
+        std::move(path), HTTP_POST | HTTP_PUT,
         [](AsyncWebServerRequest* req) {
             // All replies come from the body handler — which a bodyless
             // request never invokes. Answer instead of hanging the
@@ -193,6 +249,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     });
 
     // --- songs -----------------------------------------------------------
+    // T4: /api/songs stays a BARE ARRAY (coordinator ruling — a wrap would
+    // break every existing consumer). The capacity primitive (fsFree/fsTotal)
+    // lives in GET /api/status only; the library capacity bar reads it there
+    // alongside this list. See docs/API.md + ASSUMPTIONS A6.
     gServer.on("/api/songs", HTTP_GET, [&app](AsyncWebServerRequest* req) {
         JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
@@ -207,48 +267,69 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     });
 
     // Raw-body upload (stream sink): /api/songs?name=<file>.mid
+    // exact() (A1): a plain "/api/songs" would prefix-match — and so SWALLOW —
+    // /api/songs/{name}/load, /unload, /rename (their POSTs became "empty
+    // upload"). Exact matching is order-independent and lets those children
+    // register whenever. Reply always comes from uploadComplete (A2).
     gServer.on(
-        "/api/songs", HTTP_POST,
-        [](AsyncWebServerRequest* req) {
-            // Final response is sent from the body handler; this guards the
-            // no-body case (and stays quiet if a reply already went out).
-            BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
-            if (st && st->failed) return;
-            if (!st || !st->sawBody) sendError(req, 400, "empty upload");
-        },
-        nullptr,
+        AsyncURIMatcher::exact("/api/songs"), HTTP_POST, uploadComplete, nullptr,
         [&app](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                size_t index, size_t total) {
             BodyIntake& in = intakeFor(req);
-            if (in.failed) return;  // rejected earlier; drain silently
+            if (in.failed) return;  // deferred error already; drain silently
             ChunkPlan plan =
                 planChunk(index, len, total, SongStore::kMaxSongBytes);
-            if (plan.first) {  // name/size can't change mid-request
+            if (plan.first) {  // name/size/prechecks: once, on the first chunk
                 if (!req->hasParam("name")) {
-                    intakeFail(req, 400, "missing ?name=");
+                    intakeDefer(in, 400, "missing ?name=");
                     return;
                 }
                 in.name = req->getParam("name")->value().c_str();
                 if (!SongStore::validName(in.name)) {
-                    intakeFail(req, 400, "bad name (want *.mid)");
+                    intakeDefer(in, 400, "bad name (want *.mid)");
                     return;
                 }
                 if (plan.tooLarge) {
-                    intakeFail(req, 413, "file too large (256KB max)");
+                    intakeDefer(in, 413, "file too large (256KB max)");
                     return;
                 }
+                // Block-aware free-space precheck (A2): refuse BEFORE the first
+                // byte lands, so a doomed upload never leaves a partial that
+                // wedges the FS. 507 = the honest "out of space" answer.
+                if (!uploadFits(total, app.store().freeBytes())) {
+                    intakeDefer(in, 507, "insufficient storage");
+                    return;
+                }
+                // 409 when the target is the currently-loaded song (§6-3):
+                // overwriting it under a live session would desync playback.
+                std::string loaded = app.loadedSongName();
+                if (!loaded.empty() && loaded == in.name) {
+                    intakeDefer(in, 409, "song is loaded");
+                    return;
+                }
+                // Open the ONE handle for the whole transfer.
+                if (!app.store().openUpload(in.name, in.file)) {
+                    intakeDefer(in, 507, "cannot create file");
+                    return;
+                }
+                std::string discard = in.name;  // drop partial on disconnect
+                in.cleanup = [&app, discard]() { app.store().remove(discard); };
+            }
+            if (!in.file) {  // guard: never write without an open handle
+                intakeDefer(in, 500, "upload not open");
+                return;
             }
             in.sawBody = true;
-            if (!app.store().appendChunk(in.name, data, len, plan.first)) {
-                intakeFail(req, 500, "write failed");
+            if (in.file.write(data, len) != len) {
+                in.file.close();
+                app.store().remove(in.name);  // synchronous cleanup on write-fail
+                in.cleanup = nullptr;
+                intakeDefer(in, 500, "write failed");
                 return;
             }
             if (plan.last) {
-                JsonDocument doc;
-                doc["name"] = in.name;
-                std::string out;
-                serializeJson(doc, out);
-                sendJson(req, 201, out);
+                in.file.close();     // complete — keep the file
+                in.cleanup = nullptr;
             }
         });
 
@@ -299,15 +380,13 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("^\\/api\\/songs\\/([^\\/]+)$", HTTP_DELETE,
                [&app](AsyncWebServerRequest* req) {
                    std::string name = req->pathArg(0).c_str();
-                   // D2 (what-if audit, 2026-07-14 fix wave): refuse
-                   // deleting the currently-loaded song — otherwise status
-                   // keeps reporting a "loaded" song the song list no
-                   // longer has (a ghost the player can't unload or
-                   // re-select). No new engine API: the loaded name is
-                   // already on the wire via statusJson's "song" field.
-                   JsonDocument statusDoc;
-                   deserializeJson(statusDoc, app.statusJson());
-                   std::string loaded = statusDoc["song"] | "";
+                   // D2 (what-if audit, 2026-07-14 fix wave): refuse deleting
+                   // the currently-loaded song — otherwise status keeps
+                   // reporting a "loaded" song the list no longer has (a ghost
+                   // the player can't unload or re-select). Asks the
+                   // App::loadedSongName() accessor (§6-3) instead of the old
+                   // statusJson serialize-then-reparse hack.
+                   std::string loaded = app.loadedSongName();
                    if (!loaded.empty() && loaded == name) {
                        sendError(req, 409, "song is loaded");
                        return;
@@ -437,67 +516,77 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     });
 
     // Raw-body show upload (stream sink, mirrors the song upload).
+    // exact() (A1): a plain "/api/shows" swallowed POST /api/shows/stop and
+    // /api/shows/{name}/play — presentation was dead from REST. Reply always
+    // comes from uploadComplete (A2 deferred errors).
     gServer.on(
-        "/api/shows", HTTP_POST,
-        [](AsyncWebServerRequest* req) {
-            BodyIntake* st = static_cast<BodyIntake*>(req->_tempObject);
-            if (st && st->failed) return;
-            if (!st || !st->sawBody) sendError(req, 400, "empty upload");
-        },
-        nullptr,
+        AsyncURIMatcher::exact("/api/shows"), HTTP_POST, uploadComplete, nullptr,
         [&app](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                size_t index, size_t total) {
             BodyIntake& in = intakeFor(req);
-            if (in.failed) return;
+            if (in.failed) return;  // deferred error already; drain
             ChunkPlan plan =
                 planChunk(index, len, total, SongStore::kMaxShowBytes);
             if (plan.first) {
                 if (!req->hasParam("name")) {
-                    intakeFail(req, 400, "missing ?name=");
+                    intakeDefer(in, 400, "missing ?name=");
                     return;
                 }
                 in.name = req->getParam("name")->value().c_str();
                 if (!SongStore::validShowName(in.name)) {
-                    intakeFail(req, 400, "bad name (want *.vls)");
+                    intakeDefer(in, 400, "bad name (want *.vls)");
                     return;
                 }
                 if (plan.tooLarge) {
-                    intakeFail(req, 413, "show too large");
+                    intakeDefer(in, 413, "show too large");
                     return;
                 }
                 if (app.showBusy()) {  // never race a live render (OV1)
-                    intakeFail(req, 409, "busy");
+                    intakeDefer(in, 409, "busy");
                     return;
                 }
-                if (app.store().listShows().size() >=
-                        SongStore::kMaxShowCount ||
-                    app.store().showTotalBytes() + total >
-                        SongStore::kMaxShowTotalBytes) {
-                    intakeFail(req, 507, "show storage full");
+                // Net-delta quota (A2): overwriting a same-name show frees its
+                // old bytes, so an edit -> re-save no longer double-counts
+                // itself and blocks the whole loop at the cap.
+                size_t existing = app.store().showSize(in.name);
+                bool nameExists = app.store().showExists(in.name);
+                if (!showCountOk(app.store().listShows().size(), nameExists,
+                                 SongStore::kMaxShowCount) ||
+                    !showQuotaFits(app.store().showTotalBytes(), existing, total,
+                                   SongStore::kMaxShowTotalBytes)) {
+                    intakeDefer(in, 507, "show storage full");
                     return;
                 }
-            }
-            if (plan.first) {
-                // From here on a file exists on flash; if the connection
-                // drops before plan.last, discard the truncated remnant.
-                std::string discardName = in.name;
-                in.cleanup = [&app, discardName]() {
-                    app.store().removeShow(discardName);
+                // Absolute FS free-space guard too — shows share the partition
+                // with songs; refuse rather than risk the hard-full wedge.
+                if (!uploadFits(total, app.store().freeBytes())) {
+                    intakeDefer(in, 507, "insufficient storage");
+                    return;
+                }
+                if (!app.store().openShowUpload(in.name, in.file)) {
+                    intakeDefer(in, 507, "cannot create file");
+                    return;
+                }
+                std::string discard = in.name;  // drop partial on disconnect
+                in.cleanup = [&app, discard]() {
+                    app.store().removeShow(discard);
                 };
             }
+            if (!in.file) {
+                intakeDefer(in, 500, "upload not open");
+                return;
+            }
             in.sawBody = true;
-            if (!app.store().appendShowChunk(in.name, data, len,
-                                             plan.first)) {
-                intakeFail(req, 500, "write failed");
+            if (in.file.write(data, len) != len) {
+                in.file.close();
+                app.store().removeShow(in.name);
+                in.cleanup = nullptr;
+                intakeDefer(in, 500, "write failed");
                 return;
             }
             if (plan.last) {
-                in.cleanup = nullptr;  // complete — keep the file
-                JsonDocument doc;
-                doc["name"] = in.name;
-                std::string out;
-                serializeJson(doc, out);
-                sendJson(req, 201, out);
+                in.file.close();
+                in.cleanup = nullptr;
             }
         });
 
@@ -611,7 +700,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
         sendJson(req, 200, app.afkJson());
     });
 
-    onJsonBody("/api/afk",
+    // exact() (A1): a plain "/api/afk" swallowed POST /api/afk/control, which
+    // then ran afkConfigFromJson on {"action":...} and WIPED the ambient config
+    // to defaults. Exact keeps the config PUT from ever seeing a control body.
+    onJsonBody(AsyncURIMatcher::exact("/api/afk"),
                [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
                    std::string raw;
                    serializeJson(doc, raw);
@@ -634,13 +726,16 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                });
 
     // --- calibration (C3) --------------------------------------------------
-    gServer.on("/api/calibration", HTTP_GET,
+    // exact() (A1): a plain "/api/calibration" swallowed BOTH probe children —
+    // GET returned the wrong document to the wizard and POST answered "bad
+    // tier", so calibration Start did nothing. Exact frees the probe routes.
+    gServer.on(AsyncURIMatcher::exact("/api/calibration"), HTTP_GET,
                [&app](AsyncWebServerRequest* req) {
                    sendJson(req, 200, app.calibrationJson());
                });
 
     onJsonBody(
-        "/api/calibration",
+        AsyncURIMatcher::exact("/api/calibration"),
         [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
             std::string raw;
             serializeJson(doc, raw);
@@ -693,6 +788,22 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        return;
                    }
                    sendJson(req, 200, "{}");
+               });
+
+    // --- storage recovery (A3; ruling §6-2) ------------------------------
+    // Guarded factory-wipe of LittleFS — the ONLY recovery from the hard-full
+    // wedge without a USB reflash. Requires the confirm token {"confirm":
+    // "ERASE"} (400 without it). Replies immediately, then App runs the
+    // seconds-long LittleFS.format() on the loop task (never on async_tcp).
+    onJsonBody(AsyncURIMatcher::exact("/api/storage/format"),
+               [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
+                   std::string confirm = doc["confirm"] | "";
+                   if (confirm != "ERASE") {
+                       sendError(req, 400, "confirm token required");
+                       return;
+                   }
+                   app.requestStorageFormat();
+                   sendJson(req, 200, "{\"formatting\":true}");
                });
 
     gServer.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest* req) {

@@ -16,10 +16,21 @@ constexpr const char* kSongDir = "/songs";
 }  // namespace
 
 bool SongStore::begin() {
-    if (!LittleFS.begin(/*formatOnFail=*/true)) return false;
-    if (!LittleFS.exists(kSongDir)) LittleFS.mkdir(kSongDir);
-    if (!LittleFS.exists(kShowDir)) LittleFS.mkdir(kShowDir);
-    return true;
+    // formatOnFail stays true here so a brand-new device still auto-initialises
+    // its (empty) LittleFS on first boot — replicability is an iron rule. The
+    // §6-2 flip to formatOnFail=false (never wipe REAL data on a boot reflex)
+    // is B4's boot-policy change, paired there with self-heal. The health
+    // signal below still catches the WEDGE (mounted-but-can't-create), which
+    // was the actual field failure — and MountFailed wiring is ready for B4.
+    bool mounted = LittleFS.begin(/*formatOnFail=*/true);
+    bool canCreate = mounted;
+    if (mounted) {
+        if (!LittleFS.exists(kSongDir)) canCreate = LittleFS.mkdir(kSongDir);
+        if (canCreate && !LittleFS.exists(kShowDir))
+            canCreate = LittleFS.mkdir(kShowDir);
+    }
+    health_ = classifyFsHealth(mounted, canCreate);
+    return health_ == FsHealth::Mounted;
 }
 
 bool SongStore::validName(const std::string& name) {
@@ -73,6 +84,19 @@ bool SongStore::appendChunk(const std::string& name, const uint8_t* data,
     return written == len;
 }
 
+bool SongStore::openUpload(const std::string& name, fs::File& out) {
+    if (!validName(name)) return false;
+    out = LittleFS.open(songPath(name).c_str(), "w");
+    if (!out) {
+        // A create that fails is the dir-metadata hard-full wedge (overwrites
+        // and deletes still work, but NEW files don't). Surface it so the UI /
+        // status can offer the format recovery instead of silent RSTs.
+        health_ = FsHealth::Wedged;
+        return false;
+    }
+    return true;
+}
+
 bool SongStore::remove(const std::string& name) {
     if (!validName(name)) return false;
     return LittleFS.remove(songPath(name).c_str());
@@ -114,6 +138,17 @@ size_t SongStore::freeBytes() {
     size_t total = LittleFS.totalBytes();
     size_t used = LittleFS.usedBytes();
     return total > used ? total - used : 0;
+}
+
+size_t SongStore::totalBytes() { return LittleFS.totalBytes(); }
+size_t SongStore::usedBytes() { return LittleFS.usedBytes(); }
+
+bool SongStore::format() {
+    // Blocks for seconds — the caller (App loop task) invokes this off the
+    // async_tcp path after the HTTP reply is already queued.
+    LittleFS.end();
+    LittleFS.format();
+    return begin();  // re-mount, recreate dirs, reset health_
 }
 
 bool SongStore::loadSettings(Settings& s) {
@@ -187,6 +222,29 @@ size_t SongStore::showTotalBytes() {
     size_t total = 0;
     for (const SongFileInfo& s : listShows()) total += s.size;
     return total;
+}
+
+size_t SongStore::showSize(const std::string& name) {
+    for (const SongFileInfo& s : listShows())
+        if (s.name == name) return s.size;
+    return 0;
+}
+
+bool SongStore::showExists(const std::string& name) {
+    if (!validShowName(name)) return false;
+    std::string path = std::string(kShowDir) + "/" + name;
+    return LittleFS.exists(path.c_str());
+}
+
+bool SongStore::openShowUpload(const std::string& name, fs::File& out) {
+    if (!validShowName(name)) return false;
+    std::string path = std::string(kShowDir) + "/" + name;
+    out = LittleFS.open(path.c_str(), "w");
+    if (!out) {
+        health_ = FsHealth::Wedged;
+        return false;
+    }
+    return true;
 }
 
 bool SongStore::appendShowChunk(const std::string& name, const uint8_t* data,

@@ -8,6 +8,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,10 @@ public:
     // REST surface — all return false on invalid requests.
     bool loadSong(const std::string& name);
     bool unloadSong();  // M1: back to the no-song state
+    // The currently-loaded song name ("" if none), fenced. The DELETE guard
+    // and the upload first-chunk 409 both ask this (ruling §6-3) instead of
+    // serialize/reparsing the status doc.
+    std::string loadedSongName();
     bool transport(const std::string& action, uint32_t positionMs);
     bool setMode(const std::string& mode, const std::string& practice);
     bool setTempo(float percent);
@@ -66,6 +71,11 @@ public:
     std::string afkJson();
     bool applyAfk(const char* json, std::string* err);  // PUT: apply+save
     bool afkControl(const std::string& action);  // next | previous
+
+    // --- storage recovery (A3) -------------------------------------------
+    // Request a LittleFS format. The blocking format() runs on the loop task
+    // (tick) so the async_tcp reply flushes first; this just raises the flag.
+    void requestStorageFormat() { formatRequested_.store(true); }
 
     // --- shows (P2) ------------------------------------------------------
     enum class ShowPlay : uint8_t { Ok, NotFound, BadStream, NoSong, Busy };
@@ -140,6 +150,15 @@ private:
     std::string lastPractice_ = "both";
     std::string preShowMode_, preShowPractice_;
     bool preShowValid_ = false;
+
+    // Loaded-song name mirror (ruling §6-3): set on a successful loadSong,
+    // cleared on unload — the fenced source for loadedSongName(). Kept in
+    // lockstep with the engine's own songName_ (both flow from loadSong).
+    std::string loadedName_;
+
+    // Storage-format request flag (A3): set from the HTTP task, consumed by
+    // the loop task in tick() — LittleFS.format() must not block async_tcp.
+    std::atomic<bool> formatRequested_{false};
 };
 
 }  // namespace vialucis
