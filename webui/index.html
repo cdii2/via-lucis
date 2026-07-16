@@ -308,18 +308,25 @@ input:disabled, select:disabled { opacity: 0.35; cursor: not-allowed; }
 .calbody .btnrow { width: 100%; }
 .calprompt { font-size: 1.3rem; line-height: 1.4; color: var(--text); }
 .calquiet { font-size: 0.8rem; color: var(--dim); margin-top: 4px; }
-.caldot-wrap { width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex: none; }
-.caldot {
-  width: 34px; height: 34px; border-radius: 50%; background: var(--lux);
-  box-shadow: 0 0 22px rgba(240,180,76,0.75);
-  animation: caldotpulse 1.4s ease-in-out infinite;
+/* D (wd/wizard): number-in-the-middle direct manipulation — the big number
+   IS the currently-lit LED index, the single source of truth on screen.
+   Replaces the old decorative pulsing dot (killed entirely, per spec). */
+.calnum-wrap { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; flex: none; }
+.calnum { font-size: 3.4rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--lux); line-height: 1; }
+.calnum-sub { font-size: 0.78rem; color: var(--dim); }
+.calslider-wrap { width: 100%; }
+.calposbar { width: 100%; height: 6px; border-radius: 3px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; margin-top: 2px; }
+.calposbar-fill { height: 100%; background: var(--lux); box-shadow: 0 0 8px rgba(240,180,76,0.6); border-radius: 3px; }
+.calfinerow { display: flex; align-items: center; justify-content: center; gap: 20px; width: 100%; }
+.calfinerow .btn { width: 56px; height: 56px; min-height: 56px; border-radius: 50%; font-size: 1.4rem; padding: 0; flex: none; }
+.calendnote { font-size: 0.78rem; color: var(--dim); text-align: center; min-height: 1.1em; }
+.calerr {
+  width: 100%; text-align: left; padding: 12px 14px; border-radius: 10px;
+  background: rgba(229,72,77,0.08); border: 1px solid rgba(229,72,77,0.4);
+  display: flex; flex-direction: column; gap: 8px;
 }
-@keyframes caldotpulse {
-  0%, 100% { transform: scale(0.82); opacity: 0.65; }
-  50% { transform: scale(1.15); opacity: 1; }
-}
-.calmoves { display: flex; gap: 20px; align-items: center; justify-content: center; width: 100%; }
-.calmoves .btn { width: 56px; height: 56px; min-height: 56px; border-radius: 50%; font-size: 1.4rem; padding: 0; flex: none; }
+.calerr .calerr-msg { font-size: 0.88rem; color: #ff8b8e; }
+.calerr .btn { align-self: flex-start; }
 .calkeynav { display: flex; align-items: center; justify-content: space-between; width: 100%; }
 .calchecks { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .calcheck {
@@ -1957,6 +1964,11 @@ function nearestWhiteNote(n) {
 
 var cal = {}; // wizard working state, reset on each open
 
+// D (wd/wizard): normalizes BOTH failure shapes into one Error the wizard's
+// persistent inline error panel can read — an HTTP error status with a typed
+// {"error": "..."} body (409 recording/playing, 400 bad led) AND a raw fetch()
+// rejection (offline/unreachable), same two-branch split as the api() helper
+// above, duplicated here because the probe path needs its own retry closures.
 function calProbePost(led, timeoutMs) {
   return fetch("/api/calibration/probe", {
     method: "POST",
@@ -1973,7 +1985,25 @@ function calProbePost(led, timeoutMs) {
       }
       return data;
     });
+  }, function (networkErr) {
+    var e3 = new Error("unreachable");
+    e3.status = 0;
+    e3.cause = networkErr;
+    throw e3;
   });
+}
+// Plain-words message for the persistent panel — every probe screen drives
+// its error state off this (§3-D item 5): typed 409s, timedOut, network.
+function calProbeErrorMessage(e) {
+  if (e && e.status === 409 && e.message === "recording") return "The device is recording — stop recording first.";
+  if (e && e.status === 409 && e.message === "playing") return "The device is currently playing — stop playback first.";
+  if (e && e.status === 0) return "Device unreachable — check the connection.";
+  if (e && e.status === 400) return "Couldn't arm the light — try again.";
+  return (e && e.message) || "Something went wrong — try again.";
+}
+function calSetProbeError(message, retry) {
+  cal.probeError = { message: message, retry: retry };
+  calRender();
 }
 
 function openCalWizard() {
@@ -1985,7 +2015,7 @@ function openCalWizard() {
     cal.ledB = Math.round(0.88 * data.ledCount);
     cal.putMade = false;
     cal.points = [null, null];
-    cal.quiet = false;
+    cal.probeError = null;
     cal.lastFocus = document.activeElement;
     var ov = $("calWizard");
     ov.className = "show";
@@ -1999,6 +2029,7 @@ function openCalWizard() {
 function closeCalWizard(keep) {
   clearInterval(cal.pollTimer);
   clearInterval(cal.preflightTimer);
+  clearTimeout(cal.sliderDebounce);
   fetch("/api/calibration/probe", { method: "DELETE" }).catch(function () {});
   function finish() {
     var ov = $("calWizard");
@@ -2041,13 +2072,37 @@ function calRender() {
   $("calStepLabel").textContent = calStepLabel();
   switch (cal.step) {
     case "preflight": calRenderPreflight(); break;
-    case "step1": calRenderProbeUI(true); break;
+    case "step1": calRenderProbeUI(true, cal.dotIndex === 0
+      ? "Move the light onto your LOWEST key, then press that key."
+      : "Move the light onto your HIGHEST key, then press that key."); break;
     case "confirm1": calRenderConfirm1(); break;
-    case "step3": calRenderProbeUI(false); break;
+    case "step3": calRenderProbeUI(false, "Press the key closest to the lit light."); break;
     case "confirmMismatch": calRenderMismatch(); break;
     case "done": calRenderDone(); break;
     case "finetune": calRenderFineTune(); break;
   }
+}
+// D: the shared "number-in-the-middle" readout — the big number IS the LED
+// index the strip is currently lighting, single source of truth on screen
+// (§3-D item 1). Reused by step1 (interactive), step3/verify and fine-tune
+// (read-only) so every probe-driving screen looks and behaves the same way
+// (§3-D item 7).
+function calNumBlockHtml() {
+  return '<div class="calnum-wrap"><div class="calnum" id="calNumVal">' + cal.armedLed +
+    '</div><div class="calnum-sub">LED index of ' + (cal.ledCount - 1) + '</div></div>';
+}
+function calErrPanelHtml() {
+  if (!cal.probeError) return "";
+  return '<div class="calerr"><div class="calerr-msg">' + cal.probeError.message +
+    '</div><button class="btn small" id="calErrRetry">Retry</button></div>';
+}
+function calWireErrPanel() {
+  var b = $("calErrRetry");
+  if (b) b.addEventListener("click", function () {
+    var fn = cal.probeError && cal.probeError.retry;
+    cal.probeError = null;
+    if (fn) fn(); else calRender();
+  });
 }
 
 /* ---- preflight ---- */
@@ -2065,10 +2120,12 @@ function calPreflightTick() {
 function goToPreflight() {
   clearInterval(cal.pollTimer);
   clearInterval(cal.preflightTimer);
+  clearTimeout(cal.sliderDebounce);
   fetch("/api/calibration/probe", { method: "DELETE" }).catch(function () {});
   cal.step = "preflight";
   cal.bleOk = false;
   cal.stateOk = false;
+  cal.probeError = null;
   calRender();
   cal.preflightTimer = setInterval(calPreflightTick, 500);
   calPreflightTick();
@@ -2101,27 +2158,33 @@ function goToStep1(idx) {
   clearInterval(cal.preflightTimer);
   cal.dotIndex = idx;
   cal.step = "step1";
-  cal.quiet = false;
-  calRender();
-  calArm(idx === 0 ? cal.ledA : cal.ledB, 30000);
+  cal.probeError = null;
+  cal.armedLed = idx === 0 ? cal.ledA : cal.ledB;  // set BEFORE render so the
+  calRender();                                      // first paint shows the
+  calArm(cal.armedLed, 30000);                       // right number, not stale
 }
 function calArm(led, timeoutMs) {
   cal.armedLed = led;
-  cal.quiet = false;
-  // Generation counter: rapid move-dot taps can race two in-flight arms;
-  // only the newest arm may own the poller (closing review).
+  updateCalNumberDisplay();
+  // Generation counter: rapid slider/arrow moves can race two in-flight
+  // arms; only the newest arm may own the poller (closing review).
   cal.armGen = (cal.armGen || 0) + 1;
   var gen = cal.armGen;
   clearInterval(cal.pollTimer);
   calProbePost(led, timeoutMs).then(function () {
     if (gen !== cal.armGen) return;  // superseded while in flight
+    cal.probeError = null;
     clearInterval(cal.pollTimer);
     cal.pollTimer = setInterval(function () { calPollProbe(led, gen); }, 500);
     if (cal.step === "step1" || cal.step === "step3") calRender();
   }).catch(function (e) {
     if (gen !== cal.armGen) return;
-    if (e.status === 409) { goToPreflight(); return; }
-    toast(e.message || "Couldn't reach the device", true);
+    // D (§3-D item 5): every probe-arm failure — 409 recording, 409 playing,
+    // network unreachable — surfaces as a PERSISTENT inline panel with
+    // Retry, not a 2.6s toast. The old code bounced 409s straight back to
+    // preflight with no explanation; that's the exact strand-the-user bug
+    // this wave closes.
+    calSetProbeError(calProbeErrorMessage(e), function () { calArm(led, timeoutMs); });
   });
 }
 function calPollProbe(led, gen) {
@@ -2134,37 +2197,74 @@ function calPollProbe(led, gen) {
       calOnCapture(led, p.note);
       return;
     }
-    if (p.armed === false) {
-      cal.quiet = true;
-      calRender();
-      calProbePost(led, 30000).catch(function (e) {
-        if (e.status === 409) goToPreflight();
-      });
+    if (p.timedOut) {
+      // D: the old code silently re-armed forever on a bare `armed:false`,
+      // which read as "still waiting" with no way out. The real timedOut
+      // flag (B6d) lets us stop and hand the user an explicit Retry instead.
+      clearInterval(cal.pollTimer);
+      calSetProbeError("No key press came in before the light timed out.",
+        function () { calArm(led, 30000); });
     }
-  }).catch(function () { /* transient — keep polling */ });
+  }).catch(function () { /* transient poll hiccup — keep polling quietly */ });
 }
-function calMove(delta) {
+function calNudge(delta) {
   var next = Math.max(0, Math.min(cal.ledCount - 1, cal.armedLed + delta));
+  if (next === cal.armedLed) return;
   calArm(next, 30000);
 }
-function calRenderProbeUI(showMoves) {
-  var prompt = showMoves
-    ? "Move the light until it sits clearly under a key, then press that key."
-    : "Press the key closest to the lit light.";
-  var html = '<div class="caldot-wrap"><div class="caldot"></div></div>';
+// D: debounced slider re-arm (§3-D item 2) — every 'input' tick updates the
+// number/bar optimistically so the control feels direct, but the actual
+// POST /api/calibration/probe is deferred until the drag settles, so a fast
+// drag across 300 LEDs sends ONE arm, not one per pixel.
+function calOnSliderInput(newLed) {
+  cal.armedLed = newLed;
+  updateCalNumberDisplay();
+  clearTimeout(cal.sliderDebounce);
+  cal.sliderDebounce = setTimeout(function () { calArm(newLed, 30000); }, 220);
+}
+function updateCalNumberDisplay() {
+  var n = $("calNumVal");
+  if (n) n.textContent = cal.armedLed;
+  var fill = $("calPosFill");
+  if (fill) fill.style.width = (cal.ledCount > 1 ? (cal.armedLed / (cal.ledCount - 1) * 100) : 0) + "%";
+  var slider = $("calSliderInput");
+  if (slider && Number(slider.value) !== cal.armedLed) slider.value = cal.armedLed;
+  var minus = $("calNudgeMinus"), plus = $("calNudgePlus"), note = $("calEndNote");
+  if (minus) minus.disabled = cal.armedLed <= 0;
+  if (plus) plus.disabled = cal.armedLed >= cal.ledCount - 1;
+  if (note) {
+    if (cal.armedLed <= 0) note.textContent = "The light is at the very start of the strip.";
+    else if (cal.armedLed >= cal.ledCount - 1) note.textContent = "The light is at the very end of the strip.";
+    else note.textContent = "";
+  }
+}
+function calRenderProbeUI(interactive, prompt) {
+  var html = calNumBlockHtml();
+  if (interactive) {
+    html += '<div class="calslider-wrap"><input type="range" class="strip" id="calSliderInput" ' +
+      'min="0" max="' + (cal.ledCount - 1) + '" step="1" value="' + cal.armedLed +
+      '" aria-label="LED position"><div class="calposbar"><div class="calposbar-fill" id="calPosFill" ' +
+      'style="width:' + (cal.ledCount > 1 ? (cal.armedLed / (cal.ledCount - 1) * 100) : 0) +
+      '%"></div></div></div>';
+  }
   html += '<div class="calprompt">' + prompt + "</div>";
-  if (cal.quiet) html += '<div class="calquiet">Still waiting for a key press…</div>';
-  if (showMoves) {
-    html += '<div class="calmoves">' +
-      '<button class="btn" id="calMoveLeft" aria-label="Move light left">‹</button>' +
-      '<button class="btn" id="calMoveRight" aria-label="Move light right">›</button>' +
-      "</div>";
+  html += calErrPanelHtml();
+  if (interactive) {
+    html += '<div class="calfinerow">' +
+      '<button class="btn" id="calNudgeMinus" aria-label="Move light back one LED">‹ 1</button>' +
+      '<button class="btn" id="calNudgePlus" aria-label="Move light forward one LED">1 ›</button>' +
+      "</div><div class=\"calendnote\" id=\"calEndNote\"></div>";
   }
   $("calBody").innerHTML = html;
-  if (showMoves) {
-    $("calMoveLeft").addEventListener("click", function () { calMove(-4); });
-    $("calMoveRight").addEventListener("click", function () { calMove(4); });
+  if (interactive) {
+    $("calSliderInput").addEventListener("input", function (e) {
+      calOnSliderInput(parseInt(e.target.value, 10));
+    });
+    $("calNudgeMinus").addEventListener("click", function () { calNudge(-1); });
+    $("calNudgePlus").addEventListener("click", function () { calNudge(1); });
+    updateCalNumberDisplay();
   }
+  calWireErrPanel();
 }
 function calOnCapture(led, note) {
   if (cal.step === "step1") {
@@ -2178,7 +2278,7 @@ function calOnCapture(led, note) {
 }
 function calRenderConfirm1() {
   var pc = cal.pendingCapture;
-  var html = '<div class="card"><div class="calprompt">';
+  var html = '<div class="card">' + calNumBlockHtml() + '<div class="calprompt" style="margin-top:8px">';
   html += pc.dupNote
     ? "That’s the same key as the first light — the two lights need to be over different keys"
     : ("Got it — " + noteName(pc.note));
@@ -2189,7 +2289,7 @@ function calRenderConfirm1() {
   if (!pc.dupNote) $("calConfirmYes").addEventListener("click", calAcceptDot);
   $("calConfirmRetry").addEventListener("click", function () {
     cal.step = "step1";
-    cal.quiet = false;
+    cal.probeError = null;
     calRender();
     calArm(cal.armedLed, 30000);
   });
@@ -2269,8 +2369,9 @@ function calRunVerify(data) {
   }
   cal.verifyNote = verifyNote;
   cal.verifyLed = Math.round((entry.first + entry.last) / 2);
+  cal.armedLed = cal.verifyLed;  // set BEFORE render (see goToStep1 comment)
   cal.step = "step3";
-  cal.quiet = false;
+  cal.probeError = null;
   calRender();
   calArm(cal.verifyLed, 30000);
 }
@@ -2318,9 +2419,17 @@ function calGoToDone(data) {
 function calRenderDone() {
   var data = cal.lastCalData || {};
   var n = (data.landmarks || []).length;
-  var dir = data.reversed ? "reversed" : "normal";
+  var rev = !!data.reversed;
   var html = '<div class="card"><div class="calprompt">Lights aligned</div>';
-  html += '<div class="calquiet">' + n + " guide point" + (n === 1 ? "" : "s") + " · direction: " + dir + "</div></div>";
+  html += '<div class="calquiet">' + n + " guide point" + (n === 1 ? "" : "s") + "</div>";
+  // D (§3-D item 4): reversed is INFERRED by the device from landmark order
+  // (ruling §6-5) — this toggle surfaces that inferred state, consistent
+  // with the firmware, and only re-submits when the user explicitly flips
+  // it (e.g. the strip is visibly lighting back-to-front).
+  html += '<div class="row" style="margin-top:12px"><label class="name" for="calRevToggle">Reversed strip</label>' +
+    '<span class="tog"><input type="checkbox" id="calRevToggle"' + (rev ? " checked" : "") +
+    '><span class="tr"></span></span></div>';
+  html += '<div class="calquiet">Inferred automatically from your guide points — flip only if the strip lights up back-to-front.</div></div>';
   html += '<div class="btnrow"><button class="btn accent" id="calDoneBtn">Done</button>' +
     '<button class="btn" id="calCheckAnotherBtn">Check another key</button>' +
     '<button class="btn" id="calFineTuneBtn">Fine-tune keys</button></div>';
@@ -2331,6 +2440,28 @@ function calRenderDone() {
     calRunVerify(cal.lastCalData);
   });
   $("calFineTuneBtn").addEventListener("click", calEnterFineTune);
+  $("calRevToggle").addEventListener("change", function (e) { calFlipReversed(e.target.checked); });
+}
+function calFlipReversed(wantReversed) {
+  var cur = !!(cal.lastCalData && cal.lastCalData.reversed);
+  if (wantReversed === cur) return;
+  var lms = calLandmarks();
+  if (!lms.length) { toast("Nothing to flip yet", true); calRenderDone(); return; }
+  // Mirror EVERY landmark's LED about the strip center (not just swap the
+  // two endpoints) — still correct after a mismatch-fix added a 3rd point,
+  // and it's the general "flip the whole strip" operation.
+  var flipped = lms.map(function (m) { return { note: m.note, led: cal.ledCount - 1 - m.led }; })
+    .sort(function (a, b) { return a.note - b.note; });
+  api("PUT", "/api/calibration", { tier: "multiPoint", landmarks: flipped })
+    .then(function (data) {
+      cal.putMade = true;
+      cal.lastCalData = data;
+      calRenderDone();
+    })
+    .catch(function (e) {
+      toast(e.message || "Couldn't flip direction — try again", true);
+      calRenderDone();  // revert the toggle's visual state to server truth
+    });
 }
 
 /* ---- fine-tune ---- */
@@ -2341,6 +2472,7 @@ function calEnterFineTune() {
       .map(function (k) { return { note: k.note, first: k.first, last: k.last }; });
     if (!cal.ftKeys.length) { toast("No keys to fine-tune yet", true); return; }
     cal.ftIndex = 0;
+    cal.probeError = null;
     if (cal.verifyNote != null) {
       var best = Infinity;
       cal.ftKeys.forEach(function (k, i) {
@@ -2352,32 +2484,52 @@ function calEnterFineTune() {
     calRender();
   }).catch(function (e) { toast(e.message, true); });
 }
+function calFtDoShow(mid) {
+  calProbePost(mid, 5000).then(function () {
+    if (cal.probeError) { cal.probeError = null; if (cal.step === "finetune") calRender(); }
+  }).catch(function (e) {
+    calSetProbeError(calProbeErrorMessage(e), function () { calFtDoShow(mid); });
+  });
+}
 function calRenderFineTune() {
   var k = cal.ftKeys[cal.ftIndex];
+  var mid = Math.round((k.first + k.last) / 2);
+  cal.armedLed = mid;
   var html = '<div class="card"><div class="calkeynav">' +
     '<button class="btn" id="calFtPrev" aria-label="Previous key">‹</button>' +
     '<div class="calprompt" style="font-size:1.1rem">' + noteName(k.note) + "</div>" +
     '<button class="btn" id="calFtNext" aria-label="Next key">›</button></div>';
-  html += '<div class="calquiet" style="margin-top:10px;text-align:center">lights ' + k.first + '–' + k.last + "</div>";
+  // D (§3-D item 7): same number-readout component as step1/step3 — the mid
+  // LED of this key's range, since fine-tune's "light" is a span not a
+  // single index.
+  html += '<div class="calnum-wrap" style="margin-top:10px"><div class="calnum" id="calNumVal">' + mid +
+    '</div><div class="calnum-sub">LED index (lights ' + k.first + '–' + k.last + ")</div></div>";
+  html += calErrPanelHtml();
   html += '<div class="btnrow" style="margin-top:14px">' +
     '<button class="btn" id="calFtShow">Show</button>' +
     '<button class="btn" id="calFtNudgeLeft" aria-label="Nudge left">‹</button>' +
-    '<button class="btn" id="calFtNudgeRight" aria-label="Nudge right">›</button></div></div>';
+    '<button class="btn" id="calFtNudgeRight" aria-label="Nudge right">›</button></div>' +
+    '<div class="calendnote" id="calEndNote"></div></div>';
   html += '<div class="btnrow"><button class="btn" id="calFtBack">Back</button>' +
     '<button class="btn accent" id="calFtSave">Save changes</button></div>';
   $("calBody").innerHTML = html;
   $("calFtPrev").disabled = cal.ftIndex === 0;
   $("calFtNext").disabled = cal.ftIndex === cal.ftKeys.length - 1;
-  $("calFtPrev").addEventListener("click", function () { if (cal.ftIndex > 0) { cal.ftIndex--; calRender(); } });
-  $("calFtNext").addEventListener("click", function () { if (cal.ftIndex < cal.ftKeys.length - 1) { cal.ftIndex++; calRender(); } });
-  $("calFtShow").addEventListener("click", function () {
-    var mid = Math.round((k.first + k.last) / 2);
-    calProbePost(mid, 5000).catch(function (e) { toast(e.message || "Couldn't reach the device", true); });
-  });
+  $("calFtPrev").addEventListener("click", function () { if (cal.ftIndex > 0) { cal.ftIndex--; cal.probeError = null; calRender(); } });
+  $("calFtNext").addEventListener("click", function () { if (cal.ftIndex < cal.ftKeys.length - 1) { cal.ftIndex++; cal.probeError = null; calRender(); } });
+  $("calFtShow").addEventListener("click", function () { calFtDoShow(mid); });
+  var atStart = (k.first - 1) < 0, atEnd = (k.last + 1) > cal.ledCount - 1;
+  $("calFtNudgeLeft").disabled = atStart;
+  $("calFtNudgeRight").disabled = atEnd;
   $("calFtNudgeLeft").addEventListener("click", function () { calFtNudge(-1); });
   $("calFtNudgeRight").addEventListener("click", function () { calFtNudge(1); });
+  var endNote = $("calEndNote");
+  if (atStart) endNote.textContent = "Already at the very start of the strip.";
+  else if (atEnd) endNote.textContent = "Already at the very end of the strip.";
+  else endNote.textContent = "";
   $("calFtBack").addEventListener("click", function () { calGoToDone(cal.lastCalData); });
   $("calFtSave").addEventListener("click", calFtSave);
+  calWireErrPanel();
 }
 function calFtNudge(delta) {
   var k = cal.ftKeys[cal.ftIndex];
