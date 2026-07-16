@@ -1650,6 +1650,11 @@ const STOCK_PALETTES = ["rainbow","ocean","forest","lava","party","cloud","heat"
 const MIN_NOTE = 21, MAX_NOTE = 108;         // 88-key piano
 const LANE_COUNT = 8;
 const DEFAULT_DURATION = 60000;              // when no MIDI is loaded
+// BUGFIX-PLAN §3-E item 1: the floor every cue's (endMs - startMs) must clear
+// at edit time. A cue that reaches bake with endMs <= startMs bricks show
+// playback on the device (the ESP32 can't refuse one bad cue mid-stream) —
+// this constant is the UX default; the hard gate is validateShow() below.
+const MIN_CUE_SPAN_MS = 50;
 
 /* ------------------------- little-endian byte writer ------------------ */
 class BW {
@@ -1937,7 +1942,13 @@ function bakeCue(c, opacityMult, offsetMs, effIndex, palettes){
   const startMs = Math.max(0, c.startMs + offsetMs);
   const endMs = c.openEnded ? 0xFFFFFFFF : Math.max(startMs, c.endMs + offsetMs);
   const opacity = clamp(Math.round(c.opacity * opacityMult * 255), 0, 255);
-  const speed = clamp(Math.round(c.speed * 16), 1, 255);
+  // §3-E item 4: the wire speed byte (fixed-point x16) must never be 0 — a
+  // note-driven cue whose clip-clock can't advance leaves bound note-offs
+  // stuck forever. Number.isFinite guards a corrupt/NaN authored value (a
+  // hand-edited .vlp, say) from poisoning clamp() — Math.max/min propagate
+  // NaN, and NaN&0xff encodes as 0 on the wire, silently defeating the clamp.
+  const speedMult = Number.isFinite(c.speed) ? c.speed : 1.0;
+  const speed = clamp(Math.round(speedMult * 16), 1, 255);
   // palette ref
   let paletteRef;
   if(c.paletteKind === "default") paletteRef = 0xFF;
@@ -1958,7 +1969,7 @@ function bakeCue(c, opacityMult, offsetMs, effIndex, palettes){
   } else scope = { type:0 };
   return { startMs, endMs, effectIndex: effIndex, blend: c.blend & 1, opacity,
            drive: c.drive & 1, scopeType: c.scopeType, paletteRef, speed, flags: 0, scope,
-           lane: c.lane };  // lane: sort tiebreaker only, not encoded
+           lane: c.lane, name: c.name };  // lane/name: diagnostics only, not encoded (see encodeVls)
 }
 function customPalette(a, b){
   const pa = hex2rgb(a), pb = hex2rgb(b), out = [];
@@ -2002,6 +2013,31 @@ function compile(){
     showName: showNameSan(),
     effects, palettes, cues
   };
+}
+
+/* ------------------------- SAFETY GATE (§3-E items 1/3/4) --------------
+ * "The editor is not the player" (iron rule): the ESP32 only interprets the
+ * flat baked stream and has no way to refuse a single bad cue mid-show — a
+ * violation here doesn't 400 at upload time, it bricks playback live. Run
+ * this on the COMPILED model (post group-offset, post-clamp) right before
+ * any device-consumable artifact (.vls export or upload) is produced. Returns
+ * null when the show is safe to bake, or a message naming the offending clip
+ * otherwise. Does not mutate — callers must stop and surface the message. */
+function validateShow(m){
+  for(let i=0;i<m.cues.length;i++){
+    const q = m.cues[i];
+    const label = q.name ? `Clip "${q.name}"` : `Cue #${i+1}`;
+    if(!Number.isFinite(q.startMs) || !Number.isFinite(q.endMs))
+      return `${label}: start/end time isn't a number — check Start/End (ms) in the inspector.`;
+    if(q.endMs !== 0xFFFFFFFF && q.endMs <= q.startMs)
+      return `${label}: end (${q.endMs} ms) must be after start (${q.startMs} ms) — `
+           + `a zero/negative-length cue bricks playback on the device.`;
+    if(q.scopeType === 1 && q.scope && q.scope.lo > q.scope.hi)
+      return `${label}: pitch-range lo (${q.scope.lo}) is above hi (${q.scope.hi}) — swap the range.`;
+    if(!Number.isFinite(q.speed) || q.speed < 1)
+      return `${label}: speed byte ${q.speed} is below the device floor of 1 (0 would freeze the effect).`;
+  }
+  return null;
 }
 
 /* ------------------------- .vls ENCODER (SHOW-FORMAT §1) --------------- */
@@ -2313,7 +2349,7 @@ window.addEventListener("mousemove", (e)=>{
     if(!drag.clip.openEnded) drag.clip.endMs = drag.clip.startMs + len;
     scheduleDraw();
   } else if(drag.mode === "resize"){
-    drag.clip.endMs = Math.max(drag.clip.startMs+50, Math.round(drag.origEnd + msOf(x-drag.startX)));
+    drag.clip.endMs = Math.max(drag.clip.startMs+MIN_CUE_SPAN_MS, Math.round(drag.origEnd + msOf(x-drag.startX)));
     scheduleDraw();
   }
 });
@@ -2461,11 +2497,22 @@ function renderInspector(){
   const set = (id, ev, fn)=>{ const e=el(id); if(e) e.addEventListener(ev, fn); };
   set("i_name","input",e=>{ c.name=e.target.value; });
   set("i_effect","change",e=>{ c.effect=e.target.value; renderAll(); });
-  set("i_start","change",e=>{ c.startMs=Math.max(0,parseInt(e.target.value)||0); draw(); });
-  set("i_end","change",e=>{ c.endMs=Math.max(c.startMs+50,parseInt(e.target.value)||0); draw(); });
+  set("i_start","change",e=>{
+    // §3-E item 1: typing a start past the current end must not produce a
+    // zero/negative-length cue — push endMs along with it (mirrors the
+    // i_end handler's own clamp, which only guarded the other direction).
+    c.startMs=Math.max(0,parseInt(e.target.value)||0);
+    if(!c.openEnded && c.endMs <= c.startMs) c.endMs = c.startMs + MIN_CUE_SPAN_MS;
+    draw(); });
+  set("i_end","change",e=>{ c.endMs=Math.max(c.startMs+MIN_CUE_SPAN_MS,parseInt(e.target.value)||0); draw(); });
   set("i_snapS","click",()=>{ c.startMs=snap(c.startMs); renderAll(); });
   set("i_snapE","click",()=>{ c.endMs=snap(c.endMs); renderAll(); });
-  set("i_open","change",e=>{ c.openEnded=e.target.checked; renderAll(); });
+  set("i_open","change",e=>{
+    c.openEnded=e.target.checked;
+    // §3-E item 1: endMs is inert (disabled input) while open-ended, so it
+    // can go stale; re-validate the span the moment it's re-enabled.
+    if(!c.openEnded && c.endMs <= c.startMs) c.endMs = c.startMs + MIN_CUE_SPAN_MS;
+    renderAll(); });
   set("i_scope","change",e=>{ c.scopeType=parseInt(e.target.value); renderAll(); });
   set("i_lo","change",e=>{ c.lo=clamp(parseInt(e.target.value)||0,0,127); draw(); });
   set("i_hi","change",e=>{ c.hi=clamp(parseInt(e.target.value)||0,0,127); draw(); });
@@ -2688,7 +2735,11 @@ el("fileVlp").onchange = (e)=>{ const f=e.target.files[0]; if(!f) return;
   rd.readAsText(f); e.target.value=""; };
 
 /* ---- export ---- */
-el("btnVls").onclick = ()=>{ const m=compile(); const bin=encodeVls(m);
+el("btnVls").onclick = ()=>{
+  const m=compile();
+  const badCue = validateShow(m);
+  if(badCue){ toast(badCue,"err"); return; }
+  const bin=encodeVls(m);
   download(showNameSan()+".vls", bin, "application/octet-stream");
   toast(`Compiled ${m.cues.length} cue(s), ${bin.length} bytes`,"ok"); };
 el("btnVlsJson").onclick = ()=>{ const m=compile();
@@ -2730,7 +2781,11 @@ async function loadShows(){
     else { list=data.shows||[]; fv=data.formatVersion; }
     deviceFormatVersion = (typeof fv === "number") ? fv : null;
     box.innerHTML = `<div class="mini" style="margin-top:8px">Device shows${deviceFormatVersion!=null?` · format v${deviceFormatVersion}`:""}:</div>` +
-      (list.length ? list.map(s=>`<div class="showrow"><span class="nm">${esc(s.name)}</span><span>${s.size||0} B · ${((s.durationMs||0)/1000).toFixed(1)}s · clock ${s.clockSource??"?"}</span></div>`).join("")
+      // §3-E item 2: durationMs/clockSource dropped — GET /api/shows (API.md
+      // "Shows") only ever returns {name,size}; per-item meta would mean
+      // parsing every file on list (SHOW-FORMAT.md §3), so those two fields
+      // were always undefined here (dead, misleading "0.0s · clock ?" rows).
+      (list.length ? list.map(s=>`<div class="showrow"><span class="nm">${esc(s.name)}</span><span>${s.size||0} B</span></div>`).join("")
                    : '<div class="mini">(no shows on device)</div>');
   }catch(err){ box.innerHTML=`<div class="mini" style="margin-top:8px">Could not list shows: ${esc(err.message)}</div>`; }
 }
@@ -2739,7 +2794,10 @@ el("btnUpload").onclick = async ()=>{
   if(deviceFormatVersion != null && deviceFormatVersion < EMIT_MAJOR){
     toast(`Device supports format v${deviceFormatVersion}, editor emits v${EMIT_MAJOR}. Update firmware to upload.`,"err"); return;
   }
-  const m = compile(); const bin = encodeVls(m);
+  const m = compile();
+  const badCue = validateShow(m);
+  if(badCue){ toast(badCue,"err"); return; }
+  const bin = encodeVls(m);
   if(bin.length > 64*1024){ toast(`Show is ${bin.length} B — over the 64 KB per-show cap; trim it.`,"err"); return; }
   const name = showNameSan()+".vls";
   el("devStatus").textContent = "Uploading "+name+"…";
@@ -2878,6 +2936,48 @@ function runSelfTest(){
   // invisible in the UI (the select displays its first option) but bakes
   // streams the device rejects (the old "rainbow" default did exactly that).
   A(EFFECTS.includes(newClip(0,0,1).effect), "newClip default effect is firmware-valid");
+
+  // ---- validateShow() safety gate (§3-E items 1/3/4) --------------------
+  // "The editor is not the player": the device can't refuse one bad cue
+  // mid-stream, so this gate must catch it before any .vls/.vls.json/upload
+  // artifact is produced. Exercises the exact defects the bugfix plan named.
+  song = null; groups = [];
+  clips = [Object.assign(newClip(0,0,2000), { name:"good clip", effect:"fire2012" })];
+  A(validateShow(compile())===null, "validateShow: a normal show passes clean");
+
+  clips = [Object.assign(newClip(0,1000,1000), { name:"flat clip", effect:"fire2012" })];
+  let vsMsg = validateShow(compile());
+  A(!!vsMsg && vsMsg.includes("flat clip") && /after start/.test(vsMsg),
+    "validateShow: zero-length cue rejected, names the clip (\""+vsMsg+"\")");
+
+  // end authored before start: bakeCue's Math.max floors endMs up to exactly
+  // startMs (same zero-length shape as above) — must still reject, not
+  // silently accept the clamp.
+  clips = [Object.assign(newClip(0,2000,500), { name:"backwards clip", effect:"fire2012" })];
+  vsMsg = validateShow(compile());
+  A(!!vsMsg && vsMsg.includes("backwards clip"), "validateShow: end-before-start cue rejected");
+
+  clips = [Object.assign(newClip(0,0,2000), { name:"inverted range", effect:"twinklefox",
+    scopeType:1, lo:90, hi:40 })];
+  vsMsg = validateShow(compile());
+  A(!!vsMsg && vsMsg.includes("inverted range") && /lo \(90\) is above hi \(40\)/.test(vsMsg),
+    "validateShow: scope1 lo>hi rejected (\""+vsMsg+"\")");
+
+  // NaN speed (e.g. a hand-edited .vlp): bakeCue's Number.isFinite guard must
+  // floor it to 1.0x (byte 16) rather than let clamp()'s NaN propagate to a
+  // wire-encoded 0 — so the show comes out CLEAN, not rejected.
+  clips = [Object.assign(newClip(0,0,2000), { name:"nan speed", effect:"fire2012", speed: NaN })];
+  const nanModel = compile();
+  A(nanModel.cues[0].speed===16, "bakeCue: NaN speed floors to 1.0x/byte 16, not 0 ("+nanModel.cues[0].speed+")");
+  A(validateShow(nanModel)===null, "validateShow: NaN-speed clip is clean after bakeCue's floor");
+
+  // explicit speed 0 must also floor to the wire minimum of 1 (0 would freeze
+  // a note-driven cue's clip-clock forever).
+  clips = [Object.assign(newClip(0,0,2000), { name:"zero speed", effect:"fire2012", speed: 0 })];
+  const zeroSpeedModel = compile();
+  A(zeroSpeedModel.cues[0].speed>=1, "bakeCue: speed 0 clamps to wire floor >=1 ("+zeroSpeedModel.cues[0].speed+")");
+
+  clips = []; groups = [];
 
   // ===================================================================== //
   // REC6: real MIDI note editing — pure-function + round-trip assertions   //
