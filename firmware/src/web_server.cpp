@@ -6,6 +6,7 @@
 
 #include "reboot_request.h"  // B7 ask 2: loop-task reboot flag
 #include "vialucis/body_intake.h"
+#include "vialucis/show.h"  // Show::kVersionMajor (A163, §3-E item 5)
 #include "vialucis/storage_budget.h"
 
 #if __has_include("webui_gz.h")
@@ -289,10 +290,13 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("/api/songs", HTTP_GET, [&app](AsyncWebServerRequest* req) {
         JsonDocument doc;
         JsonArray arr = doc.to<JsonArray>();
-        for (const SongFileInfo& s : app.store().list()) {
+        // A170 (§3-E item 12): parseOk per song, cheaply cached — see
+        // App::songsForList() / vialucis::SongParseCache.
+        for (const App::SongListEntry& s : app.songsForList()) {
             JsonObject o = arr.add<JsonObject>();
             o["name"] = s.name;
             o["size"] = s.size;
+            o["parseOk"] = s.parseOk;
         }
         std::string out;
         serializeJson(doc, out);
@@ -384,11 +388,20 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("^\\/api\\/songs\\/([^\\/]+)\\/load$", HTTP_POST,
                [&app](AsyncWebServerRequest* req) {
                    std::string name = req->pathArg(0).c_str();
-                   if (!app.loadSong(name)) {
-                       sendError(req, 400, "cannot load song");
-                       return;
+                   // A160 (§3-E item 2): 404 for a name that doesn't exist,
+                   // 400 only for a file that exists but fails to parse —
+                   // both used to collapse into the same generic 400.
+                   switch (app.loadSong(name)) {
+                       case SongLoadOutcome::Ok:
+                           sendJson(req, 200, app.statusJson());
+                           return;
+                       case SongLoadOutcome::NotFound:
+                           sendError(req, 404, "no such song");
+                           return;
+                       case SongLoadOutcome::ParseError:
+                           sendError(req, 400, "cannot load song");
+                           return;
                    }
-                   sendJson(req, 200, app.statusJson());
                });
 
     // Rename any song (REC4: rename a recorded take; general-purpose).
@@ -553,7 +566,9 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     // --- shows (P2; SHOW-FORMAT.md §3) -----------------------------------
     gServer.on("/api/shows", HTTP_GET, [&app](AsyncWebServerRequest* req) {
         JsonDocument doc;
-        doc["formatVersion"] = 1;
+        // A163 (§3-E item 5): the real compatibility constant, not a
+        // hand-copied literal that could drift from it.
+        doc["formatVersion"] = Show::kVersionMajor;
         JsonArray arr = doc["shows"].to<JsonArray>();
         for (const SongFileInfo& s : app.store().listShows()) {
             JsonObject o = arr.add<JsonObject>();
@@ -869,8 +884,12 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
     gServer.on("/api/reboot", HTTP_POST, [](AsyncWebServerRequest* req) {
         // B7 ask 2: reply immediately, then let main.cpp's loop() honor the
         // 200 ms grace and ESP.restart() on the loop task — never delay() on
-        // async_tcp.
-        req->send(200, "application/json", "{}");
+        // async_tcp. A162 (§3-E item 4): route the reply through sendJson so
+        // it carries the SAME CORS headers every other route gets — this
+        // one used to skip addCors entirely, so the P-POC editor's fetch()
+        // from file:// (Origin: null) or a LAN page would see the reboot
+        // succeed device-side but report a failure client-side.
+        sendJson(req, 200, "{}");
         RebootRequest::pending.store(true);
         RebootRequest::requestedAtMs.store(millis());
     });

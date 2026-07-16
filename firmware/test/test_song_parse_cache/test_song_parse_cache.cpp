@@ -1,0 +1,89 @@
+// §3-E item 12 / A170: the pure recompute-decision behind GET /api/songs'
+// "parseOk" flag — see vialucis/song_parse_cache.h for the design (cached
+// per (name,size), invalidated on a size change, no file IO here).
+
+#include <unity.h>
+
+#include "vialucis/song_parse_cache.h"
+
+using namespace vialucis;
+
+void setUp() {}
+void tearDown() {}
+
+static void test_unseen_name_needs_recompute() {
+    SongParseCache c;
+    TEST_ASSERT_TRUE(c.needsRecompute("a.mid", 100));
+}
+
+static void test_get_returns_false_for_unseen_name() {
+    SongParseCache c;
+    TEST_ASSERT_FALSE(c.get("a.mid"));
+}
+
+static void test_matching_size_after_set_does_not_need_recompute() {
+    SongParseCache c;
+    c.set("a.mid", 100, true);
+    TEST_ASSERT_FALSE(c.needsRecompute("a.mid", 100));
+    TEST_ASSERT_TRUE(c.get("a.mid"));
+}
+
+static void test_cached_parse_failure_is_retained_too() {
+    SongParseCache c;
+    c.set("bad.mid", 50, false);
+    TEST_ASSERT_FALSE(c.needsRecompute("bad.mid", 50));
+    TEST_ASSERT_FALSE(c.get("bad.mid"));
+}
+
+static void test_size_change_needs_recompute_again() {
+    SongParseCache c;
+    c.set("a.mid", 100, true);
+    // Same name, different size (a re-upload/overwrite landed new bytes) —
+    // the cached parseOk from the OLD content can no longer be trusted.
+    TEST_ASSERT_TRUE(c.needsRecompute("a.mid", 101));
+}
+
+static void test_set_after_size_change_overwrites_stale_entry() {
+    SongParseCache c;
+    c.set("a.mid", 100, true);
+    c.set("a.mid", 101, false);  // overwrite-then-corrupt scenario
+    TEST_ASSERT_FALSE(c.needsRecompute("a.mid", 101));
+    TEST_ASSERT_FALSE(c.get("a.mid"));
+    // The OLD size is now a mismatch too (only one entry per name).
+    TEST_ASSERT_TRUE(c.needsRecompute("a.mid", 100));
+}
+
+static void test_prune_drops_missing_names_keeps_present_ones() {
+    SongParseCache c;
+    c.set("keep.mid", 10, true);
+    c.set("gone.mid", 20, true);
+    TEST_ASSERT_EQUAL_size_t(2, c.size());
+
+    c.prune({"keep.mid"});
+    TEST_ASSERT_EQUAL_size_t(1, c.size());
+    TEST_ASSERT_FALSE(c.needsRecompute("keep.mid", 10));  // survived
+    TEST_ASSERT_TRUE(c.needsRecompute("gone.mid", 20));   // forgotten
+}
+
+static void test_prune_forces_recompute_for_a_readded_same_name_song() {
+    // Delete "x.mid" then upload a DIFFERENT "x.mid" later, still 20 bytes
+    // (same size as the old one) — prune must have actually forgotten it,
+    // or a stale parseOk could wrongly survive a same-size coincidence.
+    SongParseCache c;
+    c.set("x.mid", 20, false);
+    c.prune({});  // x.mid no longer exists
+    TEST_ASSERT_TRUE(c.needsRecompute("x.mid", 20));
+}
+
+int main(int, char**) {
+    UNITY_BEGIN();
+    RUN_TEST(test_unseen_name_needs_recompute);
+    RUN_TEST(test_get_returns_false_for_unseen_name);
+    RUN_TEST(test_matching_size_after_set_does_not_need_recompute);
+    RUN_TEST(test_cached_parse_failure_is_retained_too);
+    RUN_TEST(test_size_change_needs_recompute_again);
+    RUN_TEST(test_set_after_size_change_overwrites_stale_entry);
+    RUN_TEST(test_prune_drops_missing_names_keeps_present_ones);
+    RUN_TEST(test_prune_forces_recompute_for_a_readded_same_name_song);
+    return UNITY_END();
+}

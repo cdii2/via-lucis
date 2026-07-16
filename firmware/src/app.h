@@ -20,6 +20,8 @@
 #include "vialucis/playback_engine.h"
 #include "vialucis/record_take.h"  // PendingSave (B5 ask 3)
 #include "vialucis/settings.h"
+#include "vialucis/song_load.h"        // SongLoadOutcome (A160, §3-E item 2)
+#include "vialucis/song_parse_cache.h"  // A170, §3-E item 12
 
 namespace vialucis {
 
@@ -32,7 +34,10 @@ public:
     void onPianoNoteOn(uint8_t note, uint8_t velocity, uint64_t nowUs);
 
     // REST surface — all return false on invalid requests.
-    bool loadSong(const std::string& name);
+    // A160 (§3-E item 2): NotFound vs ParseError so the REST layer can
+    // answer 404 (no such file) vs 400 (file exists, parseMidi rejected it)
+    // instead of collapsing both into one generic 400.
+    SongLoadOutcome loadSong(const std::string& name);
     bool unloadSong();  // M1: back to the no-song state
     // The currently-loaded song name ("" if none), fenced. The DELETE guard
     // and the upload first-chunk 409 both ask this (ruling §6-3) instead of
@@ -131,6 +136,14 @@ public:
     SongStore& store() { return store_; }
     BleMidiIo& ble() { return ble_; }
 
+    // --- songs list w/ parse status (A170, §3-E item 12) -------------------
+    struct SongListEntry { std::string name; size_t size; bool parseOk; };
+    // GET /api/songs annotated with parseOk — cached per (name,size) via
+    // parseCache_ so a ~2x/s poll never re-parses every file; only a
+    // never-seen name or a changed size (re-upload/overwrite) triggers one
+    // re-parse. Runs on the HTTP task, not the latency path.
+    std::vector<SongListEntry> songsForList();
+
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
     void touchWriteActivity();  // fenced callers only
@@ -198,6 +211,9 @@ private:
     // defaults. Surfaced to the UI via /api/status "configReset" (pending the
     // DeviceStatus.configReset field — see report handoff).
     bool configReset_ = false;
+
+    // A170 (§3-E item 12): per-boot, in-RAM parseOk cache for songsForList().
+    SongParseCache parseCache_;
 };
 
 }  // namespace vialucis
