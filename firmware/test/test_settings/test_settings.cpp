@@ -211,8 +211,110 @@ static void test_record_budget_round_trip_and_clamp() {
     TEST_ASSERT_EQUAL_UINT32(256, out.recordBudgetKB);
 }
 
+// --- wifiPass write-only (ruling §6-1, A139) ---------------------------------
+
+// THE PIN: the Public view (everything that leaves the device — GET, PUT echo,
+// Export) must NEVER contain wifiPass, and MUST advertise wifiPassSet instead.
+// If anyone reintroduces the cleartext-password leak, this fails.
+static void test_public_view_never_contains_wifipass() {
+    Settings s;
+    s.wifiSsid = "HomeNet";
+    s.wifiPass = "hunter2!";  // obviously-fake fixture — never a real secret
+    std::string pub = s.toJson(Settings::View::Public);
+
+    // Parse it and assert key-level, not substring (a value could coincide).
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, pub) == DeserializationError::Ok);
+    JsonObjectConst o = doc.as<JsonObjectConst>();
+    TEST_ASSERT_FALSE(o["wifiPass"].is<const char*>());  // key absent
+    TEST_ASSERT_TRUE(o["wifiPassSet"].is<bool>());
+    TEST_ASSERT_TRUE(o["wifiPassSet"].as<bool>());  // non-empty ⇒ true
+    TEST_ASSERT_EQUAL_STRING("HomeNet", o["wifiSsid"].as<const char*>());
+    // Belt-and-braces: the secret's bytes appear nowhere in the payload.
+    TEST_ASSERT_TRUE(pub.find("hunter2!") == std::string::npos);
+
+    // Empty stored password ⇒ wifiPassSet:false, still no wifiPass key.
+    Settings empty;
+    std::string pub2 = empty.toJson(Settings::View::Public);
+    JsonDocument doc2;
+    TEST_ASSERT_TRUE(deserializeJson(doc2, pub2) == DeserializationError::Ok);
+    JsonObjectConst o2 = doc2.as<JsonObjectConst>();
+    TEST_ASSERT_FALSE(o2["wifiPass"].is<const char*>());
+    TEST_ASSERT_TRUE(o2["wifiPassSet"].is<bool>());
+    TEST_ASSERT_FALSE(o2["wifiPassSet"].as<bool>());
+}
+
+// The Persist view (flash only) MUST carry wifiPass so a reboot reconnects —
+// and must NOT carry the wifiPassSet marker (that's a wire-only affordance).
+static void test_persist_view_carries_wifipass() {
+    Settings s;
+    s.wifiPass = "hunter2!";
+    std::string persist = s.toJson(Settings::View::Persist);
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, persist) == DeserializationError::Ok);
+    JsonObjectConst o = doc.as<JsonObjectConst>();
+    TEST_ASSERT_TRUE(o["wifiPass"].is<const char*>());
+    TEST_ASSERT_EQUAL_STRING("hunter2!", o["wifiPass"].as<const char*>());
+    TEST_ASSERT_FALSE(o["wifiPassSet"].is<bool>());  // no marker in flash doc
+    // Default view is Persist (the load-bearing flash path is unchanged).
+    TEST_ASSERT_TRUE(s.toJson().find("wifiPass") != std::string::npos);
+}
+
+// Write-only PATCH + clear semantics (A139): key present sets, "" clears, key
+// absent leaves the stored password untouched (round-trip through the redacted
+// Public view is lossless as long as the client omits the key it never saw).
+static void test_wifipass_write_only_patch_and_clear() {
+    Settings out;
+    out.wifiPass = "hunter2!";
+
+    // A body WITHOUT wifiPass leaves the stored password intact — this is what
+    // makes the redacted GET → PUT round-trip safe.
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"leadMs\":800}", out));
+    TEST_ASSERT_EQUAL_STRING("hunter2!", out.wifiPass.c_str());
+
+    // A body WITH wifiPass sets it.
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"wifiPass\":\"newpass9\"}", out));
+    TEST_ASSERT_EQUAL_STRING("newpass9", out.wifiPass.c_str());
+
+    // An explicit empty string CLEARS it (the documented clear affordance).
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"wifiPass\":\"\"}", out));
+    TEST_ASSERT_TRUE(out.wifiPass.empty());
+}
+
+// The Public view's field set is a contract too: exactly the Persist keys minus
+// wifiPass, plus wifiPassSet. Locks the redaction shape byte-exactly.
+static void test_public_view_contract_field_names() {
+    const char* kPublic[] = {
+        "leftColor", "rightColor", "wrongColor",  "previewCap",
+        "leadMs",    "offsetMm",   "ledsPerMeter", "brightness",
+        "echoWindowMs", "wifiSsid", "wifiPassSet",  // <-- not wifiPass
+        "repeatCueEnabled", "repeatColor", "repeatFillStartPct",
+        "repeatFillPeakPct", "repeatFloorMs", "repeatWaitPulseMs",
+        "afkTimeoutSec", "recordBudgetKB",
+    };
+    constexpr size_t kCount = sizeof(kPublic) / sizeof(kPublic[0]);
+    Settings s;
+    JsonDocument doc;
+    TEST_ASSERT_TRUE(deserializeJson(doc, s.toJson(Settings::View::Public)) ==
+                     DeserializationError::Ok);
+    JsonObjectConst o = doc.as<JsonObjectConst>();
+    size_t emitted = 0;
+    for (JsonPairConst kv : o) {
+        bool known = false;
+        for (const char* name : kPublic)
+            if (std::string(kv.key().c_str()) == name) known = true;
+        TEST_ASSERT_TRUE_MESSAGE(known, kv.key().c_str());  // no strays
+        ++emitted;
+    }
+    TEST_ASSERT_EQUAL_size_t(kCount, emitted);  // none missing either
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
+    RUN_TEST(test_public_view_never_contains_wifipass);
+    RUN_TEST(test_persist_view_carries_wifipass);
+    RUN_TEST(test_wifipass_write_only_patch_and_clear);
+    RUN_TEST(test_public_view_contract_field_names);
     RUN_TEST(test_record_budget_round_trip_and_clamp);
     RUN_TEST(test_wrong_color_cannot_land_on_repeat_color);
     RUN_TEST(test_defaults_match_spec);
