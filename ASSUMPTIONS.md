@@ -3,6 +3,63 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A125 (2026-07-16, Wave B-ii, wbii/runtime B7): **Wrong-flash entries are
+  dropped for every note in a newly-loaded chord's `pendingNotes()`, inside
+  `PlaybackEngine::tick()`'s `wait_->update()` branch** — not in `onKeyDown`.
+  `WaitMode::onKeyDown` only ever reports `Wrong` for a note NOT currently
+  pending, so a flash can only go stale across exactly a chord *transition*
+  (never within one chord's lifetime); the single cleanup site at the
+  transition edge is therefore complete, with no dead/untestable code at the
+  `onKeyDown` Cleared branch. Also folded in: `wait_->update()==true` now
+  unconditionally sets `frameDirty_` (previously only when `repeatCue_` was
+  enabled AND `reDueKeys()` was non-empty) — a chord transition is always a
+  visual change (new due chord, possibly a just-dropped stale flash), so it
+  renders on the very next tick instead of waiting up to one ~16.7ms frame
+  period. Minor, deliberate behavior delta (not zero-change); logged per the
+  project's convention for such deltas (cf. A32).
+- A124 (2026-07-16, Wave B-ii, wbii/runtime B7): **`pending_`/`cleared_`
+  (`WaitMode`, reserved in its constructor) and `wrongFlashes_`
+  (`PlaybackEngine`, reserved in its constructor) get `reserve(16)`** —
+  `kMaxChordNotes` in wait_mode.h, `kMaxSimultaneousWrongFlashes` in
+  playback_engine.cpp. 16 = generous headroom over a two-hand chord (~10
+  fingers), not a hard cap — a pathological song can still grow past it
+  (correctness over memory). Added `WaitMode::clearedNotes()` (public,
+  mirrors the existing `pendingNotes()`) so native tests can observe
+  capacity; no such accessor was added for `wrongFlashes_` (private, no
+  existing test-facing precedent) — its capacity test is skipped per the
+  brief's "where observable" carve-out.
+- A123 (2026-07-16, Wave B-ii, wbii/runtime B7): **Reboot moves off the
+  async_tcp task via a NEW header-only seam, `firmware/src/reboot_request.h`
+  (`RebootRequest::pending`/`requestedAtMs`, inline C++17 statics)** — not a
+  member on `App` (app.h is B4-owned this wave). `main.cpp`'s `loop()` is the
+  ONLY consumer (polls the flag, honors the old 200ms grace delay, then
+  `ESP.restart()`); the setter half (web_server.cpp's `/api/reboot` handler
+  replying immediately instead of `delay(200)`) is an ASK for B4 — my tree
+  compiles either way since the old handler still compiles unchanged against
+  the new header (the header is simply unused until B4 wires it in).
+- A122 (2026-07-16, Wave B-ii, wbii/runtime B7): **`LedOutput::show(frame)`
+  split into `setFrame(frame)` (copy into the `gLeds` shadow buffer — cheap,
+  fence-safe) + `show()` (the ~10.8ms `FastLED.show()` bit-bang, must run
+  OUTSIDE any cross-task fence) — the OLD combined `show(frame)` overload is
+  KEPT (calls `setFrame`+`show` internally) so `app.cpp`'s existing call site
+  still compiles untouched until B4 applies the ASK** (App::tick restructured
+  to snapshot+setFrame under the fence, release it, then call the bare
+  show()). No new snapshot buffer needed in App — `gLeds` (already owned by
+  led_output.cpp, sized once to `kLedCount`) IS the snapshot; the copy in
+  `setFrame` is the only "snapshot" operation, and it's the existing
+  per-pixel loop, not a new allocation. Residual, accepted micro-race noted
+  for B4: `LedOutput::setBrightness()` (called from `App::applySettings`,
+  itself fenced) can now interleave with an unfenced `show()` on the loop
+  task — a single-byte FastLED brightness-scale write/read, not the power
+  cap itself (untouched, set once in `begin()`), so left as a documented,
+  practically-benign timing note rather than adding a second lock.
+- A121 (2026-07-16, Wave B-ii, wbii/runtime B7): **`main.cpp`'s `loop()` gets
+  an unconditional `delay(1)` at the end of every iteration** (task-watchdog
+  risk: arduino-esp32's `loopTask` calls `loop()` in a tight `for(;;)` with no
+  inherent yield, so a `loop()` that never blocks can starve the idle task
+  that feeds the watchdog). 1ms is imperceptible against the ~16.7ms LED
+  frame period and the BLE/HTTP tasks' own cadence — placed after the reboot-
+  flag check so a pending reboot isn't delayed by it.
 - A120 (2026-07-16, Wave B-i, wbi/director B1a): **Test-pattern orphan timeout =
   5 minutes (`kTestPatternTimeoutMs = 300000` in mode_director.h).** Long enough
   to physically inspect the strip end to end, short enough that a vanished
