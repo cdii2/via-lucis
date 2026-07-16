@@ -3,6 +3,79 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A121 (2026-07-16, Wave B-ii, wbii/persist B4): **`SongStore::begin()`
+  flips `formatOnFail` to FALSE (ruling §6-2), SUPERSEDING A108.** A boot must
+  never wipe real user data as a reflex. A121's safety net for the replicability
+  regression A108 feared (a fresh device stranded in MountFailed) is threefold:
+  (1) the web UI is served from the firmware image, NOT LittleFS, so a
+  mount-failed device still serves the recovery UI; (2) the guarded
+  `POST /api/storage/format` initialises the empty FS in one click (documented
+  in docs/API.md as the expected first-run step); (3) boot config self-heal
+  (A124) turns a corrupt doc into defaults, not a wipe. The Wedged signal is
+  still classified. First-boot format path documented in API.md "Storage".
+- A122 (2026-07-16, Wave B-ii, wbii/persist B4): **Atomic-persist seam =
+  pure template `atomicPersist()` in `lib/core/atomic_store.h` (stage to a
+  `.tmp`, rename over target, remove tmp on any failure) over injectable FS
+  primitives, so the decision path is native-tested (test_atomic_store) while
+  only the LittleFS syscalls stay esp32-only.** Applied to ALL persisted writes:
+  the three config docs (via `writeTextFile`), the record-take `save()`, and —
+  going beyond the config docs — SONG/SHOW uploads (openUpload now opens the
+  tmp; `commitUpload`/`commitShowUpload` rename on the last chunk;
+  `abort*Upload` discards on disconnect/write-fail). The upload change closes a
+  real data-loss hole: overwriting an existing non-loaded song used to truncate
+  it in place at the first chunk, so a failed/interrupted overwrite DESTROYED
+  the old good file. `list()`/`listShows()` filter `*.tmp`; `begin()` sweeps
+  crash-orphaned temps. `.tmp` is deliberately not a valid song/show name.
+- A123 (2026-07-16, Wave B-ii, wbii/persist B4): **Schema versioning lives at
+  the SongStore FILE layer, not in each doc's parser.** `writeTextFile` stamps
+  `"schema":kConfigSchema` (config_schema.cpp, ArduinoJson, native-tested);
+  `readTextFile` rejects an unknown-HIGHER schema as corrupt and tolerates an
+  absent one (pre-B4 file). Chosen over emitting schema inside
+  `Settings::toJson`/`Calibration::toJson` because (a) it keeps the GET/PUT wire
+  shapes byte-identical (no `schema` on the API — lower contract risk), (b) it
+  covers afk.json WITHOUT editing the sibling-owned `fx::afkConfig*` serializer,
+  and (c) all three docs' parsers already ignore unknown keys, so a leftover
+  `schema` field is harmless. The pure `schemaAccepted()` decision is tested in
+  test_config_schema.
+- A124 (2026-07-16, Wave B-ii, wbii/persist B4): **Boot self-heal decision =
+  pure `decideSelfHeal(DocLoad, parsedOk)` in `lib/core/config_boot.h`
+  (native-tested).** ABSENT is the first-boot / v1 upgrade path — silent
+  defaults, NO reset flag (nothing was lost; for calibration, the settings'
+  2-point fallback stays byte-identical to v1). CORRUPT (unreadable,
+  unknown-higher schema, or unparseable) or an Ok-read-but-unparseable doc is a
+  REAL doc gone bad → defaults + atomic re-save + raise `configReset_`. The
+  loaders now return a tri-state `DocLoad` (was bool) so App::begin can tell
+  absent from corrupt.
+- A125 (2026-07-16, Wave B-ii, wbii/persist B4): **Save failures propagate to
+  507; the config still applies LIVE first.** `applySettings` returns bool;
+  `applyCalibration`/`applyAfk` gained a `bool* saveFailed` out-param (additive,
+  default nullptr). The handlers answer `507 "insufficient storage"` when the
+  atomic write fails instead of the old lying 200. Deliberate ordering: the
+  in-RAM apply happens before the persist attempt, so a full FS doesn't block a
+  live settings/calibration/ambient change — it just warns it isn't durable.
+- A126 (2026-07-16, Wave B-ii, wbii/persist B4): **`configReset` surfacing in
+  statusJson is BLOCKED on a `DeviceStatus.configReset` field in
+  `playback_engine.h` — B7-owned, which my brief forbids me to touch, and which
+  B7's finished branch did NOT add.** The App-side half is COMPLETE: self-heal
+  computes `configReset_`, `App::configWasReset()` exposes it, and API.md
+  documents the field. Since statusJson is single-authored by the engine (R4
+  forbids splicing) and every status struct (DeviceStatus/RecordStatus/…) lives
+  in playback_engine.h, there is no owned seam to emit it through. Exact 3-line
+  patch (struct field + `doc["configReset"]` emit + the app.cpp populate)
+  handed to the dispatcher in the final report. Same blocker applies to B5's
+  `overflowed` RecordStatus field (its value is already available on my branch
+  via `director_.recordStatus() == CaptureStatus::Overflowed`).
+- A127 (2026-07-16, Wave B-ii, wbii/persist B4, B5 ask 3): **`recordArm`
+  REFUSES with `409 "unsaved take pending"` while `pendingSave_.held()`**
+  (new `RecordArm::PendingUnsaved`), rather than silently dropping the retained
+  failed take — chosen per B5's recommendation because arming would re-create
+  the exact "the performance is destroyed" hazard retry-save exists to prevent.
+  `recordDiscard` also drops a held take (so the user can bail), and
+  `POST /api/record/retry-save` re-attempts the save from `pendingSave_`.
+  `recordBudgetKB` upper clamp lowered 1024→256 (B5 ask 4: 256 KB = the
+  per-song save ceiling `kMaxSongBytes`, so a bigger take was unsaveable);
+  test_settings updated. pendingSave_ is HTTP-task-owned (all record routes run
+  on async_tcp), read unfenced like store_.
 - A120 (2026-07-16, Wave B-i, wbi/director B1a): **Test-pattern orphan timeout =
   5 minutes (`kTestPatternTimeoutMs = 300000` in mode_director.h).** Long enough
   to physically inspect the strip end to end, short enough that a vanished

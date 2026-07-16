@@ -61,8 +61,10 @@ struct Settings {
 
     // Recording byte budget (v3 REC4, docs/DESIGN-record.md §8): the ceiling
     // on a single take, in KB. Bounds both the in-RAM capture buffer and the
-    // free-space check before arming. Clamped 16–1024 KB (the 256 KB per-song
-    // upload ceiling stays the outer bound). Default 64: arm() reserves the
+    // free-space check before arming. Clamped 16–256 KB — the 256 KB per-song
+    // save ceiling (kMaxSongBytes) is the hard outer bound (B5 ask 4: a bigger
+    // take can't be written, so the old 1024 max was unsaveable). Default 64:
+    // arm() reserves the
     // whole budget as ONE contiguous heap block, and a stock ESP32 with
     // BLE + WiFi up rarely has a 256 KB block free — 64 KB ≈ 8k events,
     // ample for the 10-min cap; PSRAM boards can raise it. Appended after

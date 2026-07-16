@@ -45,7 +45,9 @@ Errors: non-2xx with `{"error": "<human message>"}`.
       "usedBytes": 0,                 //   raw event bytes captured so far
       "budgetBytes": 65536,           //   recordBudgetKB * 1024
       "countIn": false,               //   Free-capture count-in requested
-      "bpm": 90                       //   count-in BPM (clamped 20-300)
+      "bpm": 90,                      //   count-in BPM (clamped 20-300)
+      "overflowed": false             //   B5: capture hit a byte/duration limit
+                                      //     and dropped events (take truncated)
     },
     "fs": "ok",                       // A3: "ok" | "error" — LittleFS health
                                       //   ("error" = mount failed OR wedged)
@@ -55,7 +57,11 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "heapFree": 142000,               // ESP.getFreeHeap()
     "heapMaxAlloc": 110000,           // largest contiguous heap block
     "uptimeMs": 3600000,              // ms since boot
-                                      //   (the seven fields above appear ONLY
+    "configReset": false,             // B4: true when boot self-heal reset a
+                                      //   corrupt persisted config to defaults
+                                      //   — the UI should tell the user to
+                                      //   re-check settings/calibration/ambient
+                                      //   (the eight fields above appear ONLY
                                       //   on GET /api/status, like wifi)
     "wifi": {"mode": "sta", "ip": "192.168.1.50"}  // mode: sta | ap — LAST key
   }
@@ -168,6 +174,9 @@ excludes any note the device sent the piano (echo guard). Live state is in the
   - `409 {"error": "already armed"}` — a take is already armed/recording.
   - `409 {"error": "playing"}` — a presentation light show is playing (arming
     is forbidden in that display context).
+  - `409 {"error": "unsaved take pending"}` — a previous save failed and the
+    take is still held (B5): `POST /api/record/retry-save` or
+    `POST /api/record/discard` it before starting a new one.
   - `507 {"error": "low space"}` — LittleFS free space can't cover the byte
     budget (`recordBudgetKB` + a small margin).
   - `507 {"error": "low memory"}` — the device can't reserve the budget as
@@ -182,8 +191,19 @@ excludes any note the device sent the piano (echo guard). Live state is in the
   track) — the editor fixes crossovers per-note. A stop with **zero** captured
   events saves nothing → `200 {"name": ""}`. `409 {"error": "not armed"}` if
   idle.
-- `POST /api/record/discard` — drop the armed/recording state, save nothing →
-  `200` + status JSON. `409 {"error": "not armed"}` if idle.
+  - `200 {"name": "recording-<n>.mid", "truncated": true}` (B5) — the take saved
+    but capture had to drop events at a byte/duration limit; the `truncated`
+    flag is present only in that case so the UI can warn.
+  - `500 {"error": "write failed"}` — the save failed (full/wedged FS) but the
+    performance is **retained** (B5): retry with `POST /api/record/retry-save`,
+    or drop it with `POST /api/record/discard`. It is NOT lost.
+- `POST /api/record/retry-save` (B5) — re-attempt the last failed save without
+  re-recording → same replies as `/stop` (`200 {"name":...}` /
+  `200 {"name":...,"truncated":true}` / `500 "write failed"` still held /
+  `409 "not armed"` when nothing is pending). On success the held take is freed.
+- `POST /api/record/discard` — drop the armed/recording state OR a held
+  unsaved take, save nothing → `200` + status JSON. `409 {"error": "not armed"}`
+  if idle with nothing pending.
 - Duration cap is a compile-time constant (~10 min); the byte budget is the
   `recordBudgetKB` setting.
 
@@ -208,7 +228,9 @@ own route). Tracks are effect configs played top→bottom→loop.
   empty playlist falls back to a gentle color wave.
 - `PUT /api/afk` — same shape → `200` + the stored config, or
   `400 {"error": "unknown effect: X" | "unknown palette: X" |
-  "too many tracks (max 16)" | "bad json"}`.
+  "too many tracks (max 16)" | "bad json"}`, or
+  `507 {"error": "insufficient storage"}` (B4: applied live but the flash write
+  failed).
   `dwellSec` clamps to 5–86400, `masterSpeed` to 0.25–4, `crossfadeMs` to
   ≤10s; a config PUT that only tunes dials (same track list) never restarts
   the running show.
@@ -241,16 +263,22 @@ own route). Tracks are effect configs played top→bottom→loop.
   ```
   The `repeat*` fields are the v2 "Incoming Re-press" cue (Q-wave growth —
   appended; nothing existing changed). `recordBudgetKB` is the v3 recording
-  byte budget (default 64, clamped 16–1024 KB — arm reserves the whole
-  budget as one contiguous RAM block, so a stock ESP32 wants ≤64; PSRAM
-  boards can raise it toward the 256 KB per-song upload ceiling), the one
+  byte budget (default 64, clamped 16–256 KB — 256 = the per-song save
+  ceiling, a bigger take is unsaveable; arm reserves the whole budget as one
+  contiguous RAM block, so a stock ESP32 wants ≤64; PSRAM boards toward 256), the one
   sanctioned v1 contract growth. Percents are 0–100 (`repeatFillPeakPct`
   100 = pure hue-snap glide at onset). A `repeatColor` equal to `wrongColor`
   is rejected (the field keeps its previous value) — a cue must never look
   like an error.
 - `PUT /api/settings` — same shape, partial OK (missing fields unchanged)
-  → `200` + full new settings. Persisted to LittleFS immediately.
-  WiFi changes apply on next reboot (`POST /api/reboot` to apply now).
+  → `200` + full new settings. Persisted to LittleFS immediately (atomically —
+  see "Persistence" below). WiFi changes apply on next reboot
+  (`POST /api/reboot` to apply now).
+  - `507 {"error": "insufficient storage"}` — the settings applied live but the
+    flash write failed (full/wedged FS). The device is not lying with a 200
+    (B4); free space (delete songs, or `POST /api/storage/format`) and re-save.
+  - `recordBudgetKB` clamps to **16–256 KB** (256 = the per-song save ceiling;
+    a bigger take can't be written).
 
 ## Calibration (v2 C-wave)
 
@@ -281,9 +309,12 @@ inputs — changing them (either route) rebuilds the table on that tier only.
   → `200` + the GET shape, or `400 {"error": "<typed message>"}` (bad json /
   bad tier / missing field / need at least 2 landmarks / landmarks must
   ascend by note / led direction inconsistent / key range off strip / key
-  ranges overlap / note out of range / led off strip).
-  Persisted to `/calibration.json`. Boot with no (or unreadable) file seeds
-  the table from the settings' 2-point values — byte-identical to v1.
+  ranges overlap / note out of range / led off strip), or
+  `507 {"error": "insufficient storage"}` (B4: the table applied live but the
+  flash write failed — free space or `POST /api/storage/format`, then re-save).
+  Persisted atomically to `/calibration.json`. Boot with no file seeds the
+  table from the settings' 2-point values — byte-identical to v1; a *corrupt*
+  file self-heals to that same default and raises `configReset` (see Status).
 - `POST /api/calibration/probe` body `{"led": 123, "timeoutMs": 30000}`
   (`timeoutMs` optional, clamped 1s–5min) — lights a single white dot at
   that LED and captures the NEXT piano note-on as the answer (the press
@@ -313,6 +344,34 @@ inputs — changing them (either route) rebuilds the table on that tier only.
   completion. Storage health is in `GET /api/status`'s `fs` field: `"error"`
   means the FS won't mount or has wedged (new-file creates fail while overwrites
   and deletes still work — the failure mode that motivated this route).
+- **First-boot / unformatted device (B4, ruling §6-2).** Boot no longer
+  auto-formats LittleFS (`formatOnFail=false` — a boot must never wipe real
+  data as a reflex). A brand-new or corrupt-filesystem device therefore boots to
+  `fs:"error"` (mount failed) **with the web UI still served from flash**
+  (the UI lives in the firmware image, not LittleFS). The user recovers by
+  running `POST /api/storage/format` **once** — this initialises the empty
+  filesystem, and uploads then work normally. This is the expected first-run
+  step for a freshly-flashed board.
+
+## Persistence (B4)
+
+- **Atomic saves.** Every persisted config doc (settings, calibration, ambient)
+  and every record-take / song / show file is written to a `.tmp` sibling and
+  then renamed over the target (LittleFS rename is atomic). A power loss or full
+  FS during a save therefore leaves the **old** file intact — never a
+  truncated-in-place partial. A save that can't complete returns `507` (see the
+  PUT routes) instead of a lying `200`.
+- **Schema.** Persisted config files carry a `"schema": 1` field for forward
+  compatibility. Loaders tolerate an absent schema (a pre-B4 file) and reject a
+  file written by a *newer* firmware (unknown-higher schema) rather than
+  misreading it. This is a file-format detail — the `GET`/`PUT` wire shapes are
+  unchanged (no `schema` field on the API).
+- **Self-heal + `configReset`.** At boot, a config doc that is present but
+  corrupt (unreadable, unknown-higher schema, or unparseable) is reset to
+  defaults, re-saved atomically, and flagged via `configReset:true` in
+  `GET /api/status` so the UI can tell the user to re-check their settings. An
+  *absent* doc is the normal first-boot / upgrade path (silent defaults, no
+  flag).
 
 ## Utility
 

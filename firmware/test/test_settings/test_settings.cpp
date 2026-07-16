@@ -190,8 +190,8 @@ static void test_wrong_color_cannot_land_on_repeat_color() {
 
 // REC4: the recording byte budget — default 64 KB (arm() reserves the whole
 // budget as one contiguous heap block; 256 KB rarely fits on a stock ESP32
-// with BLE + WiFi up), round-trips, clamps to 16–1024 KB (append-only
-// contract growth).
+// with BLE + WiFi up), round-trips, clamps to 16–256 KB (B4/B5 ask 4: the
+// 256 KB per-song save ceiling is the hard max — a bigger take is unsaveable).
 static void test_record_budget_round_trip_and_clamp() {
     Settings s;
     TEST_ASSERT_EQUAL_UINT32(64, s.recordBudgetKB);  // default
@@ -200,13 +200,15 @@ static void test_record_budget_round_trip_and_clamp() {
 
     Settings out;
     TEST_ASSERT_TRUE(
-        Settings::fromJson("{\"recordBudgetKB\":512}", out));
-    TEST_ASSERT_EQUAL_UINT32(512, out.recordBudgetKB);
+        Settings::fromJson("{\"recordBudgetKB\":200}", out));
+    TEST_ASSERT_EQUAL_UINT32(200, out.recordBudgetKB);
     // Clamp both ends.
     TEST_ASSERT_TRUE(Settings::fromJson("{\"recordBudgetKB\":4}", out));
     TEST_ASSERT_EQUAL_UINT32(16, out.recordBudgetKB);
+    TEST_ASSERT_TRUE(Settings::fromJson("{\"recordBudgetKB\":512}", out));
+    TEST_ASSERT_EQUAL_UINT32(256, out.recordBudgetKB);  // over the save ceiling
     TEST_ASSERT_TRUE(Settings::fromJson("{\"recordBudgetKB\":99999}", out));
-    TEST_ASSERT_EQUAL_UINT32(1024, out.recordBudgetKB);
+    TEST_ASSERT_EQUAL_UINT32(256, out.recordBudgetKB);
 }
 
 int main(int, char**) {

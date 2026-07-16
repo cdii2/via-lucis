@@ -18,6 +18,7 @@
 #include "vialucis/calibration.h"
 #include "vialucis/mode_director.h"
 #include "vialucis/playback_engine.h"
+#include "vialucis/record_take.h"  // PendingSave (B5 ask 3)
 #include "vialucis/settings.h"
 
 namespace vialucis {
@@ -51,15 +52,26 @@ public:
     // After PUT /api/settings: re-derive configs + save. When the caller saw
     // the 2-point scalars change, geometry deliberately reverts to the
     // 2-point tier (TROUBLESHOOTING documents this) — an untouched scalar
-    // never clobbers wizard calibration.
-    void applySettings(bool calibScalarsChanged = false);
+    // never clobbers wizard calibration. Returns FALSE when the flash save
+    // failed (a full/wedged FS) — the handler maps that to 507 (B4) instead of
+    // echoing a lying 200.
+    bool applySettings(bool calibScalarsChanged = false);
 
     // --- calibration (C3) -------------------------------------------------
     // calib_ is HTTP-task-owned like settings_ (the engine holds a table
     // copy from setTable), so the JSON getters stay unfenced; mutations
     // fence the engine swap and keep flash IO outside the critical section.
     std::string calibrationJson() const { return calib_.toJson(); }
-    CalibResult applyCalibration(const char* json);  // PUT: parse+apply+save
+    // PUT: parse+apply+save. A non-ok CalibResult is the parse failure (400).
+    // On a successful parse+apply, *saveFailed is set true when the flash write
+    // failed (507, B4) — the calibration DID apply live but did not persist.
+    CalibResult applyCalibration(const char* json, bool* saveFailed = nullptr);
+
+    // True when boot self-heal reset a corrupt persisted config to defaults
+    // (B4). Surfaced to the user via /api/status "configReset" — the App-side
+    // half is complete here; the status field awaits a DeviceStatus.configReset
+    // member in playback_engine.h (B7-owned; see final report handoff).
+    bool configWasReset() const { return configReset_; }
     ModeDirector::ProbeArm armProbe(uint16_t led, uint32_t timeoutMs);
     void cancelProbe();
     std::string probeJson();
@@ -69,7 +81,10 @@ public:
 
     // --- AFK playlist (E3) ---------------------------------------------
     std::string afkJson();
-    bool applyAfk(const char* json, std::string* err);  // PUT: apply+save
+    // PUT: apply+save. Returns false on a parse/validation failure (400, `err`
+    // set). On success, *saveFailed is set true when the flash write failed
+    // (507, B4). The config DID apply live but did not persist.
+    bool applyAfk(const char* json, std::string* err, bool* saveFailed = nullptr);
     bool afkControl(const std::string& action);  // next | previous
 
     // --- storage recovery (A3) -------------------------------------------
@@ -88,16 +103,24 @@ public:
     // checked against the recordBudgetKB setting; count-in is Free-capture
     // only (ignored with a song loaded).
     enum class RecordArm : uint8_t {
-        Ok, Playing, AlreadyArmed, LowSpace, LowMemory
+        Ok, Playing, AlreadyArmed, LowSpace, LowMemory, PendingUnsaved
     };
     RecordArm recordArm(bool countIn, uint16_t bpm);
     // Finalize: extract the take under the fence, then hand-split + writeSmf +
     // LittleFS save UNFENCED (F-wave discipline). An empty take saves nothing
     // (Empty → 200 {"name":""}); otherwise the auto-named file lands in the
     // song list. nameOut carries the saved name ("" on Empty).
-    enum class RecordStop : uint8_t { Saved, Empty, NotArmed, SaveFailed };
+    // SavedTruncated (B5 ask 1): the take saved, but capture had to drop events
+    // at a byte/duration limit — a 200 with a "truncated" flag, not an error.
+    enum class RecordStop : uint8_t {
+        Saved, SavedTruncated, Empty, NotArmed, SaveFailed
+    };
     RecordStop recordStop(std::string* nameOut);
-    bool recordDiscard();  // false when idle (409 not armed)
+    // B5 ask 3: retry the LAST failed save (held in pendingSave_) without
+    // re-recording the performance. Same typed result as recordStop();
+    // NotArmed when nothing is pending. On success clears pendingSave_.
+    RecordStop retryRecordSave(std::string* nameOut);
+    bool recordDiscard();  // false when idle AND nothing pending (409)
 
     // Raw accessors — boundary invariant (F-wave review R5): these hand out
     // state that is safe UNFENCED only because the loop task never touches
@@ -132,6 +155,11 @@ private:
     // after engine_ — it holds a reference to it.
     ModeDirector director_{engine_, LedOutput::kLedCount};
 
+    // B5 ask 3: a take whose save failed is held here so a retry-save can retry
+    // it without re-recording — "today the performance is destroyed" on
+    // SaveFailed. recordArm refuses while one is held (A-number in report).
+    PendingSave pendingSave_;
+
     // Cross-task fence (F1, A33). One plain (non-recursive) FreeRTOS mutex
     // serializes every HTTP-task entry point against the whole of tick().
     // Non-recursive is correct: no locked method calls another (the one
@@ -165,6 +193,11 @@ private:
     // Storage-format request flag (A3): set from the HTTP task, consumed by
     // the loop task in tick() — LittleFS.format() must not block async_tcp.
     std::atomic<bool> formatRequested_{false};
+
+    // B4 self-heal: set once at boot if a corrupt persisted config was reset to
+    // defaults. Surfaced to the UI via /api/status "configReset" (pending the
+    // DeviceStatus.configReset field — see report handoff).
+    bool configReset_ = false;
 };
 
 }  // namespace vialucis
