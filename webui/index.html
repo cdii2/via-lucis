@@ -111,6 +111,8 @@ nav button.active { color: var(--lux); }
 .badge.finished { color: var(--left); background: rgba(79,142,247,0.12); }
 .badge.rec { color: #ff8b8e; background: rgba(229,72,77,0.14); }
 .badge.armed { color: var(--lux); background: rgba(240,180,76,0.12); }
+/* C2: unparseable/partial song badge (feature-detected on song.parseOk === false) */
+.badge.warn { color: #ff8b8e; background: rgba(229,72,77,0.14); }
 .timerow { display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--dim); font-variant-numeric: tabular-nums; margin-top: 2px; }
 .tbtns { display: flex; gap: 12px; justify-content: center; align-items: center; margin: 14px 0 4px; }
 .tbtn {
@@ -170,6 +172,7 @@ input[type=range].strip::-moz-range-thumb { background: var(--lux); box-shadow: 
   font-size: 0.82rem; font-weight: 600; text-align: center;
 }
 .seg button.active { background: var(--lux); color: var(--lux-ink); }
+.seg button:disabled { opacity: 0.35; pointer-events: none; }
 .seg.small button { padding: 8px 4px; font-size: 0.78rem; }
 /* hand buttons wear their hand's color when active — same code as the lights */
 #practiceSeg button[data-hand=left].active { background: var(--left); color: #fff; }
@@ -192,6 +195,10 @@ input[type=color] {
   width: 46px; height: 40px; border: 1px solid var(--line); border-radius: 8px;
   background: var(--panel2); padding: 3px; cursor: pointer;
 }
+input:disabled, select:disabled { opacity: 0.35; cursor: not-allowed; }
+/* C3: NaN/invalid-numeric guard marks the offending field instead of
+   silently PUTting a value the firmware's typed guard would just drop. */
+.field-err { border-color: var(--red) !important; }
 
 /* toggle switch */
 .tog { position: relative; width: 50px; height: 30px; flex: none; }
@@ -203,6 +210,7 @@ input[type=color] {
 }
 .tog input:checked + .tr { background: rgba(240,180,76,0.30); border-color: var(--lux); }
 .tog input:checked + .tr::after { transform: translateX(20px); background: var(--lux); }
+.tog input:disabled + .tr { opacity: 0.4; cursor: not-allowed; }
 
 /* buttons */
 .btn {
@@ -213,6 +221,7 @@ input[type=color] {
 .btn.accent { background: var(--lux); border-color: var(--lux); color: var(--lux-ink); }
 .btn.danger { color: var(--red); border-color: rgba(229,72,77,0.4); }
 .btn.small { min-height: 36px; padding: 6px 10px; font-size: 0.75rem; }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
 .btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
 .btnrow .btn { flex: 1; }
 
@@ -469,8 +478,9 @@ input[type=color] {
     <h2>Guidance</h2>
     <div class="row"><label for="s_previewCap">Preview brightness cap</label><span class="valout" id="v_previewCap">45%</span></div>
     <input type="range" id="s_previewCap" min="0" max="100" step="1">
+    <div class="note-txt">A percentage cap on the lookahead "ramp" glow only — not the strip's overall brightness (see Brightness under Strip calibration below).</div>
     <div class="row"><label for="s_leadMs">Lookahead lead time</label><span class="valout" id="v_leadMs">1000 ms</span></div>
-    <input type="range" id="s_leadMs" min="0" max="3000" step="50">
+    <input type="range" id="s_leadMs" min="0" max="10000" step="50">
   </div>
 
   <div class="card set-grid">
@@ -492,9 +502,10 @@ input[type=color] {
       <label class="name" for="afkAboveKeys">Only above the keys</label>
       <span class="tog"><input type="checkbox" id="afkAboveKeys" aria-label="Only above keys"><span class="tr"></span></span>
     </div>
-    <div class="row"><label for="afkDwell">Minutes per effect</label><input type="number" id="afkDwell" step="1" min="1" max="120"></div>
+    <div class="row"><label for="afkDwell">Minutes per effect</label><input type="number" id="afkDwell" step="1" min="1" max="1440"></div>
     <div class="row"><label for="afkCap">Ambient brightness cap</label><span class="valout" id="v_afkCap">96</span></div>
     <input type="range" id="afkCap" min="8" max="255" step="1">
+    <div class="note-txt">Also 0-255 raw brightness, same units as Strip calibration's Brightness below, but applies only while the ambient show is running — ships conservative (96) since it runs unattended.</div>
   </div>
 
   <div class="card set-grid">
@@ -519,8 +530,8 @@ input[type=color] {
 
   <div class="card set-grid">
     <h2>Recording</h2>
-    <div class="row"><label for="s_recordBudgetKB">Recording budget (KB)</label><input type="number" id="s_recordBudgetKB" data-key="recordBudgetKB" step="16" min="16" max="1024"></div>
-    <div class="note-txt">Bounds how much of a take fits in memory while armed (16–1024 KB, default 64 — arm reserves the whole budget as one block, so a stock ESP32 wants ≤64). Lower this if arming refuses with "low memory".</div>
+    <div class="row"><label for="s_recordBudgetKB">Recording budget (KB)</label><input type="number" id="s_recordBudgetKB" data-key="recordBudgetKB" step="16" min="16" max="256"></div>
+    <div class="note-txt">Bounds how much of a take fits in memory while armed (16–256 KB, default 64 — arm reserves the whole budget as one block, so a stock ESP32 wants ≤64; 256 is the per-song save ceiling, a bigger take can't be written). Lower this if arming refuses with "low memory".</div>
   </div>
 
   <div class="card set-grid">
@@ -531,13 +542,14 @@ input[type=color] {
     </div>
     <details style="margin-top:12px">
       <summary style="cursor:pointer;font-size:0.82rem;color:var(--dim);padding:6px 0;min-height:44px;display:flex;align-items:center">Advanced manual calibration</summary>
-      <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5"></div>
-      <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="1"></div>
+      <div class="row"><label for="s_offsetMm">Strip offset (mm)</label><input type="number" id="s_offsetMm" data-key="offsetMm" step="0.5" min="-2000" max="2000"></div>
+      <div class="row"><label for="s_ledsPerMeter">LEDs per meter</label><input type="number" id="s_ledsPerMeter" data-key="ledsPerMeter" step="1" min="10" max="1000"></div>
     </details>
     <div class="row"><label for="s_echoWindowMs">Echo window (ms)</label><input type="number" id="s_echoWindowMs" data-key="echoWindowMs" step="50" min="0" max="5000"></div>
     <div class="note-txt">Raise the echo window if notes clear themselves in wait mode while demo or accompaniment is sounding.</div>
     <div class="row"><label for="s_brightness">Brightness</label><span class="valout" id="v_brightness">160</span></div>
     <input type="range" id="s_brightness" min="1" max="255" step="1">
+    <div class="note-txt">Raw strip brightness (1-255) — the FastLED global backstop every effect (practice, ambient, shows) renders under.</div>
     <div class="btnrow" style="margin-top:12px">
       <button class="btn" data-pattern="strip">Strip test</button>
       <button class="btn" data-pattern="rainbow">Rainbow</button>
@@ -548,8 +560,11 @@ input[type=color] {
   <div class="card set-grid">
     <h2>WiFi</h2>
     <div class="row"><label for="s_wifiSsid" style="flex:none;width:80px">SSID</label><input type="text" id="s_wifiSsid" data-key="wifiSsid" autocomplete="off"></div>
-    <div class="row"><label for="s_wifiPass" style="flex:none;width:80px">Password</label><input type="password" id="s_wifiPass" data-key="wifiPass" autocomplete="off"></div>
-    <div class="note-txt">WiFi changes apply after reboot.</div>
+    <div class="row"><label for="s_wifiPass" style="flex:none;width:80px">Password</label><input type="password" id="s_wifiPass" autocomplete="off"></div>
+    <div class="note-txt">WiFi changes apply after reboot. The password is write-only — the device never sends it back, so this field always shows blank; the placeholder tells you whether one is stored. Leave it blank to keep the current password. Type a new one and it's saved like any other setting.</div>
+    <div class="btnrow" style="margin-top:8px">
+      <button class="btn small danger" id="btnClearWifiPass" style="display:none">Clear stored password</button>
+    </div>
     <div class="btnrow" style="margin-top:12px">
       <button class="btn danger" id="btnReboot">Reboot device</button>
     </div>
@@ -703,6 +718,11 @@ navBtns.forEach(function (b) {
 var st = null;               // last status
 var seekDragging = false;
 var tempoDragging = false;
+// C1: loop-staging dirty flags — a field the user just staged (typed, or
+// "Set from here") must survive the 500ms status poll until the PUT that
+// commits it actually lands; otherwise a poll landing mid-flight stomps the
+// edit back to the device's still-old value and the user loses the race.
+var loopDirty = { start: false, end: false, enabled: false };
 var offline = true;
 var pollTimer = null;
 var blePollCounter = 0;
@@ -771,10 +791,14 @@ function renderStatus(s) {
     $("presToggle").checked = s.topMode === "presentation";
   $("fwVersion").textContent = "v" + s.version;
 
-  // wifi chip
-  var wifi = s.wifi || {};
-  $("wifiChip").className = "chip on";
-  $("wifiTxt").textContent = (wifi.mode === "ap" ? "AP " : "") + (wifi.ip || "");
+  // wifi chip — C3: most command replies (transport/mode/tempo/…) omit
+  // `wifi` entirely (only the full GET /api/status carries it, per API.md);
+  // a stale chip is far better than blanking a perfectly good value on
+  // every non-status write.
+  if (s.wifi) {
+    $("wifiChip").className = "chip on";
+    $("wifiTxt").textContent = (s.wifi.mode === "ap" ? "AP " : "") + (s.wifi.ip || "");
+  }
 
   // transport
   var dur = s.durationMs || 0;
@@ -803,24 +827,46 @@ function renderStatus(s) {
   }
 
   // mode + practice
+  // C1: reconcile the practice-hand selector against the LIVE `practice`
+  // field in status — it used to be client-only (default "both"), so any
+  // mode tap after a page reload silently reset the device back to "both".
+  // The device is authoritative; only overwrite our local guess, never the
+  // other way around.
+  if (typeof s.practice === "string" && s.practice !== practiceHand) {
+    practiceHand = s.practice;
+  }
   document.querySelectorAll("#modeSeg button").forEach(function (b) {
     b.classList.toggle("active", b.dataset.mode === s.mode);
+    b.disabled = !hasSong;  // C1: no song, nothing for a mode to apply to
+  });
+  document.querySelectorAll("#practiceSeg button").forEach(function (b) {
+    b.classList.toggle("active", b.dataset.hand === practiceHand);
+    b.disabled = !hasSong;
   });
   var practiceRelevant = (s.mode === "wait" || s.mode === "accompaniment");
   $("practiceWrap").style.display = practiceRelevant ? "" : "none";
 
-  // tempo
+  // tempo (C1: unified slider policy — see tempo change handler for the
+  // revert-on-error half; disabled entirely with no song, matching transport)
+  $("tempo").disabled = !hasSong;
+  $("tempoReset").disabled = !hasSong;
   if (!tempoDragging) {
     $("tempo").value = sliderFromTempo(s.tempoPercent);
     $("tempoVal").textContent = s.tempoPercent + "%";
   }
 
-  // loop (don't stomp fields while user edits them)
+  // loop (don't stomp fields while user edits them, or while a staged edit
+  // is still in flight — C1 loop-staging dirty flags, see sendLoop())
+  $("loopEnabled").disabled = !hasSong;
+  $("loopStart").disabled = !hasSong;
+  $("loopEnd").disabled = !hasSong;
+  $("loopSetStart").disabled = !hasSong;
+  $("loopSetEnd").disabled = !hasSong;
   var lp = s.loop || {};
-  $("loopEnabled").checked = !!lp.enabled;
+  if (!loopDirty.enabled) $("loopEnabled").checked = !!lp.enabled;
   var ae = document.activeElement;
-  if (ae !== $("loopStart") && lp.startMs !== undefined) $("loopStart").value = fmtTime(lp.startMs);
-  if (ae !== $("loopEnd") && lp.endMs !== undefined) $("loopEnd").value = fmtTime(lp.endMs);
+  if (ae !== $("loopStart") && !loopDirty.start && lp.startMs !== undefined) $("loopStart").value = fmtTime(lp.startMs);
+  if (ae !== $("loopEnd") && !loopDirty.end && lp.endMs !== undefined) $("loopEnd").value = fmtTime(lp.endMs);
 
   // tracks
   renderTracks(s.tracks || []);
@@ -878,7 +924,16 @@ seek.addEventListener("input", function () {
 });
 seek.addEventListener("change", function () {
   seekDragging = false;
-  send("POST", "/api/transport", { action: "seek", positionMs: Math.round(+seek.value) });
+  // C1: unified slider error policy — revert to the last-known-good server
+  // value + toast on failure, applied uniformly at the commit moment
+  // (release/change or a debounce flush) across every slider in the app.
+  send("POST", "/api/transport", { action: "seek", positionMs: Math.round(+seek.value) })
+    .catch(function () {
+      if (st) {
+        seek.value = Math.min(st.positionMs, +seek.max);
+        $("posTxt").textContent = fmtTime(st.positionMs);
+      }
+    });
 });
 ["pointerup", "touchend", "mouseup", "pointercancel"].forEach(function (ev) {
   seek.addEventListener(ev, function () { seekDragging = false; });
@@ -927,7 +982,17 @@ tempo.addEventListener("input", function () {
 tempo.addEventListener("change", function () {
   tempoDragging = false;
   clearTimeout(tempoSendTimer);
-  send("POST", "/api/tempo", { percent: tempoFromSlider(+tempo.value) });
+  // C1: unified slider error policy (see seek's change handler) — the
+  // in-flight throttled sends during a drag are allowed to fail silently
+  // (this settle/release send always re-issues the same value and is the
+  // one that toasts + reverts, so nothing is ever lost).
+  send("POST", "/api/tempo", { percent: tempoFromSlider(+tempo.value) })
+    .catch(function () {
+      if (st) {
+        tempo.value = sliderFromTempo(st.tempoPercent);
+        $("tempoVal").textContent = st.tempoPercent + "%";
+      }
+    });
 });
 ["pointerup", "touchend", "mouseup", "pointercancel"].forEach(function (ev) {
   tempo.addEventListener(ev, function () { tempoDragging = false; });
@@ -952,22 +1017,35 @@ function sendLoop(enabled) {
     toast("Loop end must be after start", true);
     return;
   }
-  send("POST", "/api/loop", { enabled: enabled, startMs: startMs, endMs: endMs });
+  // C1: dirty flags only clear once the device has actually accepted the
+  // values — a failed PUT leaves the staged edit in place (not reverted;
+  // the loop card has no server-truth fallback worth reverting TO here,
+  // unlike the sliders' revert-on-error policy — the user's typed intent
+  // is the more useful thing to preserve on a transient failure).
+  send("POST", "/api/loop", { enabled: enabled, startMs: startMs, endMs: endMs })
+    .then(function () { loopDirty.start = false; loopDirty.end = false; loopDirty.enabled = false; })
+    .catch(function () {});
 }
 $("loopEnabled").addEventListener("change", function () {
+  loopDirty.enabled = true;
   sendLoop($("loopEnabled").checked);
 });
 $("loopSetStart").addEventListener("click", function () {
   if (!st) return;
   $("loopStart").value = fmtTime(st.positionMs);
+  loopDirty.start = true;
   if ($("loopEnabled").checked) sendLoop(true);
 });
 $("loopSetEnd").addEventListener("click", function () {
   if (!st) return;
   $("loopEnd").value = fmtTime(st.positionMs);
+  loopDirty.end = true;
   if ($("loopEnabled").checked) sendLoop(true);
 });
 ["loopStart", "loopEnd"].forEach(function (id) {
+  $(id).addEventListener("input", function () {
+    loopDirty[id === "loopStart" ? "start" : "end"] = true;
+  });
   $(id).addEventListener("change", function () {
     if ($("loopEnabled").checked) sendLoop(true);
   });
@@ -1160,6 +1238,18 @@ function refreshSongs() {
       var nm = document.createElement("div");
       nm.className = "nm";
       nm.textContent = s.name;
+      // C2: badge unparseable/partial songs — feature-detected, so this
+      // stays invisible until the firmware side adds the field (see ASKS
+      // FOR C-LEAD in the report). Only an explicit `false` lights it;
+      // absent/true/unknown never does.
+      if (s.parseOk === false) {
+        var warn = document.createElement("span");
+        warn.className = "badge warn";
+        warn.textContent = "unparsed";
+        warn.title = "This file couldn't be fully parsed — loading it may fail or play incorrectly";
+        nm.appendChild(document.createTextNode(" "));
+        nm.appendChild(warn);
+      }
       var sz = document.createElement("div");
       sz.className = "sz";
       sz.textContent = humanBytes(s.size);
@@ -1185,17 +1275,51 @@ function refreshSongs() {
       var delBtn = document.createElement("button");
       delBtn.className = "btn small danger";
       delBtn.textContent = "Delete";
-      delBtn.addEventListener("click", function () {
-        if (!confirm("Delete " + s.name + "?")) return;
-        api("DELETE", "/api/songs/" + encodeURIComponent(s.name))
-          .then(function () { toast("Deleted " + s.name); refreshSongs(); })
-          .catch(function (e) { toast(e.message, true); });
-      });
+      delBtn.addEventListener("click", function () { deleteSong(s.name); });
       item.appendChild(delBtn);
 
       box.appendChild(item);
     });
-  }).catch(function () {});
+  }).catch(function (e) {
+    // C2: an eternal "Loading…" on a failed list fetch strands the user —
+    // show the error with a Retry instead.
+    var box = $("songList");
+    box.innerHTML = '<div class="empty">Couldn’t load the song list' +
+      (e && e.message ? " — " + e.message : "") + "</div>";
+    var retryRow = document.createElement("div");
+    retryRow.className = "btnrow";
+    retryRow.style.marginTop = "8px";
+    retryRow.style.justifyContent = "center";
+    var retryBtn = document.createElement("button");
+    retryBtn.className = "btn small";
+    retryBtn.textContent = "Retry";
+    retryBtn.addEventListener("click", refreshSongs);
+    retryRow.appendChild(retryBtn);
+    box.appendChild(retryRow);
+  });
+}
+
+// C2: delete a song, offering "unload then delete" when the device 409s
+// because it's the currently-loaded song (today that reply is a dead end).
+function deleteSong(name) {
+  if (!confirm("Delete " + name + "?")) return;
+  api("DELETE", "/api/songs/" + encodeURIComponent(name))
+    .then(function () { toast("Deleted " + name); refreshSongs(); })
+    .catch(function (e) {
+      if (e.status === 409) {
+        if (confirm(name + " is currently loaded. Unload it and delete?")) {
+          api("POST", "/api/songs/unload")
+            .then(function (s) {
+              if (s) renderStatus(s);
+              return api("DELETE", "/api/songs/" + encodeURIComponent(name));
+            })
+            .then(function () { toast("Deleted " + name); refreshSongs(); })
+            .catch(function (e2) { toast(e2.message, true); refreshSongs(); });
+        }
+        return;
+      }
+      toast(e.message, true);
+    });
 }
 
 /* ---------- upload name sanitization (A5) ----------
@@ -1264,6 +1388,18 @@ $("fileInput").addEventListener("change", function () {
 var settingsLoaded = false;
 var pendingSettings = {};
 var settingsTimer = null;
+// C1: last-known-good settings snapshot for the unified slider/field
+// revert-on-error policy. C4: NEVER holds a real wifiPass value (scrubbed
+// below) — this object outlives a single request and must never carry the
+// secret, even transiently, however it arrived.
+var settingsSnapshot = null;
+// C4: wifiPass is write-only — the device never echoes it back (GET/PUT
+// both reply with `wifiPassSet:true|false` instead). We must only send the
+// key when the user actually typed a replacement THIS session; sending an
+// untouched blank would PATCH the stored password to "" and drop the
+// device off its network on next reboot. Clearing is a separate explicit
+// affordance (btnClearWifiPass), never a side effect of an empty field.
+var wifiPassTouched = false;
 
 function queueSetting(key, value) {
   if (!settingsLoaded) return;
@@ -1277,7 +1413,13 @@ function flushSettings() {
   if (!Object.keys(body).length) return;
   api("PUT", "/api/settings", body)
     .then(function (s) { if (s) applySettings(s, true); })
-    .catch(function (e) { toast(e.message, true); });
+    .catch(function (e) {
+      toast(e.message, true);
+      // C1: unified revert-on-error policy — restore every touched field
+      // to the last-known-good server settings rather than leaving a value
+      // displayed that the device never actually applied.
+      if (settingsSnapshot) applySettings(settingsSnapshot, false);
+    });
 }
 
 function applySettings(s, quiet) {
@@ -1305,7 +1447,20 @@ function applySettings(s, quiet) {
     $("v_brightness").textContent = s.brightness;
   }
   setIf("s_wifiSsid", s.wifiSsid);
-  setIf("s_wifiPass", s.wifiPass);
+  // C4: NEVER populate the password field from any reply, on ANY contract
+  // shape — new firmware sends `wifiPassSet` (bool, no secret at all); old
+  // firmware might still leak a literal `wifiPass` string, which we must
+  // still refuse to render. Only the placeholder communicates state.
+  var passSet = (typeof s.wifiPassSet === "boolean") ? s.wifiPassSet
+    : (typeof s.wifiPass === "string" ? s.wifiPass.length > 0 : null);
+  if (passSet !== null) {
+    $("s_wifiPass").placeholder = passSet ? "(password set)" : "(not set)";
+    $("btnClearWifiPass").style.display = passSet ? "" : "none";
+  }
+  if (ae !== $("s_wifiPass")) {
+    $("s_wifiPass").value = "";
+    wifiPassTouched = false;
+  }
   if (document.activeElement !== $("s_repeatCueEnabled"))
     $("s_repeatCueEnabled").checked = !!s.repeatCueEnabled;
   setIf("s_repeatColor", s.repeatColor);
@@ -1322,6 +1477,12 @@ function applySettings(s, quiet) {
   setIf("s_afkTimeoutSec", s.afkTimeoutSec);
   setIf("s_recordBudgetKB", s.recordBudgetKB);
   settingsLoaded = true;
+  // C4: scrub the secret out of the snapshot too — settingsSnapshot exists
+  // to revert other fields on error and must never carry wifiPass, even
+  // transiently in memory, however it arrived on the wire.
+  var snap = {};
+  for (var k in s) if (k !== "wifiPass") snap[k] = s[k];
+  settingsSnapshot = snap;
 }
 
 function loadSettings() {
@@ -1333,13 +1494,49 @@ function loadSettings() {
 }
 
 // color pickers + plain inputs (data-key)
+// C3: NaN bodies were silently ignored — JSON.stringify(NaN) -> null, and
+// the firmware's typed `is<uint32_t>()`/`is<float>()` guard just quietly
+// drops an unparseable field. Block the send outright and mark the field
+// instead, reverting to the last-known-good value.
 document.querySelectorAll("[data-key]").forEach(function (el) {
   el.addEventListener("change", function () {
     var v = el.value;
-    if (el.type === "color") v = v.toUpperCase();
-    else if (el.type === "number") v = parseFloat(v);
+    if (el.type === "color") {
+      v = v.toUpperCase();
+    } else if (el.type === "number") {
+      var n = parseFloat(v);
+      if (!isFinite(n)) {
+        el.classList.add("field-err");
+        toast("Enter a valid number", true);
+        if (settingsSnapshot && el.dataset.key in settingsSnapshot) el.value = settingsSnapshot[el.dataset.key];
+        return;
+      }
+      var step = parseFloat(el.step);
+      v = (step && step >= 1) ? Math.round(n) : n;
+    }
+    el.classList.remove("field-err");
     queueSetting(el.dataset.key, v);
   });
+});
+
+// C4: wifiPass gets its own dedicated handling (no data-key attribute) —
+// touched-tracking so an untouched field never sends a key at all.
+$("s_wifiPass").addEventListener("input", function () { wifiPassTouched = true; });
+$("s_wifiPass").addEventListener("change", function () {
+  var v = $("s_wifiPass").value;
+  if (!wifiPassTouched || !v) return;  // never send an empty/untouched value
+  queueSetting("wifiPass", v);
+});
+$("btnClearWifiPass").addEventListener("click", function () {
+  if (!confirm("Clear the stored WiFi password? The device will drop off this network on its next reboot until you set a new one.")) return;
+  api("PUT", "/api/settings", { wifiPass: "" })
+    .then(function (s) {
+      $("s_wifiPass").value = "";
+      wifiPassTouched = false;
+      if (s) applySettings(s, true);
+      toast("WiFi password cleared");
+    })
+    .catch(function (e) { toast(e.message, true); });
 });
 // sliders with readouts
 $("s_previewCap").addEventListener("input", function () {
@@ -1358,14 +1555,19 @@ $("s_brightness").addEventListener("input", function () {
 /* SYNC NOTE: mirrors effectNames() in fx/effect_factory.cpp (+ mock + API.md). */
 var AFK_EFFECTS = ["fire2012","pacifica","twinklefox","colorwaves"];
 var AFK_PALETTES = ["","rainbow","ocean","forest","lava","party","cloud","heat"];
-var afkCfg = null, afkTimer = null;
+var afkCfg = null, afkTimer = null, afkSnapshot = null;
 
 function afkSave() {
   clearTimeout(afkTimer);
   afkTimer = setTimeout(function () {
     api("PUT", "/api/afk", afkCfg)
-      .then(function (c) { if (c) { afkCfg = c; renderAfk(); } })
-      .catch(function (e) { toast(e.message, true); });
+      .then(function (c) { if (c) { afkCfg = c; afkSnapshot = c; renderAfk(); } })
+      .catch(function (e) {
+        toast(e.message, true);
+        // C1: unified slider/field revert-on-error policy — the ambient
+        // brightness cap slider lives in this config, not /api/settings.
+        if (afkSnapshot) { afkCfg = afkSnapshot; renderAfk(); }
+      });
   }, 500);
 }
 function opts(list, sel) {
@@ -1402,7 +1604,7 @@ function renderAfk() {
   if (document.activeElement !== $("afkCap")) { $("afkCap").value = afkCfg.brightnessCap; $("v_afkCap").textContent = afkCfg.brightnessCap; }
 }
 function loadAfk() {
-  api("GET", "/api/afk").then(function (c) { afkCfg = c; renderAfk(); })
+  api("GET", "/api/afk").then(function (c) { afkCfg = c; afkSnapshot = c; renderAfk(); })
     .catch(function () { /* device without E3 yet */ });
 }
 $("afkAdd").addEventListener("click", function () {
@@ -1442,11 +1644,19 @@ $("s_repeatFillPeakPct").addEventListener("input", function () {
   queueSetting("repeatFillPeakPct", +$("s_repeatFillPeakPct").value);
 });
 // Same client-side rule the hand colors follow: the cue must never look
-// like the wrong-note flash (the device rejects it too).
+// like the wrong-note flash (the device rejects it too). C3: the guard is
+// symmetric server-side (settings.cpp rejects a collision from EITHER
+// field, keeping the previous value) — mirror both directions here, not
+// just repeatColor -> wrongColor.
 $("s_repeatColor").addEventListener("change", function () {
   if ($("s_repeatColor").value.toUpperCase() ===
       $("s_wrongColor").value.toUpperCase())
-    toast("Cue color can't match the wrong-note color", true);
+    toast("Cue color can't match the wrong-note color — change rejected", true);
+});
+$("s_wrongColor").addEventListener("change", function () {
+  if ($("s_wrongColor").value.toUpperCase() ===
+      $("s_repeatColor").value.toUpperCase())
+    toast("Wrong-note color can't match the repeat cue color — change rejected", true);
 });
 
 // strip test buttons
@@ -1462,7 +1672,11 @@ document.querySelectorAll("[data-pattern]").forEach(function (b) {
 $("btnExportSettings").addEventListener("click", function () {
   api("GET", "/api/settings")
     .then(function (s) {
-      var blob = new Blob([JSON.stringify(s, null, 2)], { type: "application/json" });
+      // C4: the export must never write the secret to disk, even if an
+      // old-firmware GET still leaks a literal wifiPass field.
+      var safe = {};
+      for (var k in s) if (k !== "wifiPass") safe[k] = s[k];
+      var blob = new Blob([JSON.stringify(safe, null, 2)], { type: "application/json" });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
       a.download = "vialucis-settings.json";
