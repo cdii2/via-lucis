@@ -1,0 +1,46 @@
+# Via Lucis firmware — custom partition table (T3 / A1, DESIGN-library.md §3
+# Storage, §Open threads "A1 partition table"). Board = esp32dev, 4 MB flash.
+#
+# Why: stock `huge_app.csv` gives songs only 0xE0000 (896 KB) of LittleFS —
+# a few dozen small MIDIs (BUGFIX-PLAN-2026-07-15 §2-R2). This table keeps the
+# same app-slot shape (single ota_0 app partition, no second OTA slot — we
+# flash over USB, per platformio.ini's existing note) but shrinks the app
+# partition from 3 MB to 2 MB (current firmware uses ~1.54 MB, see
+# BUILD-GUIDE.md "Custom partition table" for the measured build-size summary
+# — 2 MB leaves ~23% headroom) and hands the reclaimed space to LittleFS,
+# taking songs+settings from ~0.9 MB to ~1.9 MB (roughly doubles the onboard
+# library per DESIGN-library.md §3 item A1).
+#
+# Math (every offset/size in bytes, hex; flash = 0x400000 = 4,194,304 B):
+#   nvs      0x009000 .. 0x00E000   size 0x005000 (  20 KB)  — unchanged from huge_app.csv
+#   otadata  0x00E000 .. 0x010000   size 0x002000 (   8 KB)  — unchanged; app has no 2nd OTA
+#                                                                slot either way, kept for
+#                                                                bootloader convention
+#   app0     0x010000 .. 0x210000   size 0x200000 (2048 KB = 2 MB)   — was 0x300000 (3 MB)
+#   spiffs   0x210000 .. 0x3F0000   size 0x1E0000 (1920 KB = 1.875 MB) — was 0xE0000 (896 KB)
+#            ^ this is the LittleFS data partition (song files + settings.json).
+#            Arduino's LittleFS.begin() defaults to partition label "spiffs" —
+#            kept that literal Name so the mount call in song_store.cpp (which
+#            passes no explicit partitionLabel) finds it unchanged. Filesystem
+#            *type* is still LittleFS: board_build.filesystem = littlefs in
+#            platformio.ini controls the on-flash format, not this label.
+#   coredump 0x3F0000 .. 0x400000   size 0x010000 (  64 KB)  — unchanged from huge_app.csv
+#   ---------------------------------------------------------------------
+#   sum: 0x005000+0x002000+0x200000+0x1E0000+0x010000 = 0x3F7000
+#        + the 0x9000 preamble (bootloader + partition-table region, before
+#          nvs, same as stock) = 0x400000 = 4 MB exactly. No overflow.
+#
+# Alignment check (esp-idf rule: app-type partitions need 64 KB / 0x10000
+# alignment; data-type partitions need 4 KB / 0x1000 alignment):
+#   app0 offset 0x010000 -> 0x10000 * 1   OK (app, needs 64 KB)
+#   nvs      0x009000 -> 0x1000 * 9       OK (data, needs 4 KB)
+#   otadata  0x00E000 -> 0x1000 * 14      OK (data, needs 4 KB)
+#   spiffs   0x210000 -> 0x1000 * 528     OK (data, needs 4 KB)
+#   coredump 0x3F0000 -> 0x1000 * 1008    OK (data, needs 4 KB)
+#
+# Name,     Type, SubType,  Offset,   Size,     Flags
+nvs,        data, nvs,      0x9000,   0x5000,
+otadata,    data, ota,      0xE000,   0x2000,
+app0,       app,  ota_0,    0x10000,  0x200000,
+spiffs,     data, spiffs,   0x210000, 0x1E0000,
+coredump,   data, coredump, 0x3F0000, 0x10000,
