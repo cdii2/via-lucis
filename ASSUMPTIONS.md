@@ -3,6 +3,60 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A179 (2026-07-16, E3, we/editor): §3-E's editor items (min cue span,
+  durationMs/clockSource, scope lo<=hi, speed clamp) live entirely in
+  `editor/editor.html` (the off-device VLS show editor, docs/SHOW-FORMAT.md
+  P3), NOT `webui/index.html` — the on-device webui has no cue/scope/speed
+  authoring UI at all (confirmed by grep: zero matches for those fields
+  outside the record count-in BPM control). The E3 brief said "all in
+  webui/index.html"; built the four editor items in editor/editor.html
+  instead since that's the only place they exist, and item 5 (count-in
+  micro-copy) in webui/index.html since that control does live there. Flagged
+  as an ASK in the final report rather than silently deviating.
+- A178 (2026-07-16, E3, we/editor): "drop durationMs/clockSource from device
+  rows" (§3-E item 2) resolved as a straight bug fix, no doc ask needed —
+  `loadShows()`'s per-show row read `s.durationMs`/`s.clockSource`, but
+  `GET /api/shows` (API.md "Shows", SHOW-FORMAT.md §3) only ever returns
+  `{name,size}` ("per-item meta would mean parsing every file on list —
+  deferred"); mock_device.py's `/api/shows` handler already matches that
+  schema too. Those two fields were always `undefined` in the row, rendering
+  a permanently-fake "0.0s · clock ?" — removed, row now shows just name+size.
+  No schema violation, no discrepancy to report.
+- A177 (2026-07-16, E3, we/editor): "clamp speed >= 1" (§3-E item 4) is the
+  WIRE BYTE floor (SHOW-FORMAT.md's fixed-point x16 speed field), not a
+  product decision to disallow slow-motion cues — the inspector's speed
+  slider (0.25x-4x) is an intentional creative range, not a bug, and nothing
+  in DESIGN-lightshow/SHOW-FORMAT restricts authored speed to >=1.0x. The
+  real gap: `bakeCue`'s existing `clamp(Math.round(c.speed*16),1,255)` looks
+  like it already floors the byte at 1, but `Math.max`/`Math.min` propagate
+  NaN, and a corrupt/hand-edited `.vlp`'s `speed:NaN` (or any non-finite
+  value) poisons the clamp to NaN, which then encodes as byte 0 on the wire
+  (`NaN & 0xff === 0`) — silently defeating the very floor meant to prevent
+  it. Fixed with a `Number.isFinite(c.speed) ? c.speed : 1.0` guard before
+  the clamp; `validateShow()` (A176) re-checks `speed>=1` at the final gate
+  as defense-in-depth. `speed:0` was already safely floored to byte 1 by the
+  pre-existing clamp (no NaN involved) — verified via editor selftest and a
+  live upload through tools/mock_device.py, not just a code read.
+- A176 (2026-07-16, E3, we/editor): min-cue-span + scope-lo<=hi (§3-E items
+  1/3) enforced as TWO layers, matching the item-1 wording exactly — edit-time
+  auto-clamp (best-effort UX: the `i_start`/`i_open`-uncheck handlers now
+  re-clamp `endMs` the same way `i_end`/canvas-resize already did; introduced
+  `MIN_CUE_SPAN_MS=50` so all four call sites share one constant instead of
+  three separate hardcoded `50`s) AND a hard `validateShow(m)` gate that runs
+  on the COMPILED model (post group-offset, where a violation is actually
+  detectable) right before `.vls` export or upload — the only two paths that
+  produce a device-consumable artifact (the `.vls.json` debug twin stays
+  ungated on purpose, per SHOW-FORMAT.md: "the device never reads the JSON;
+  humans and tests do"). `validateShow` returns a message naming the specific
+  clip (`Clip "<name>": ...`) or cue index if unnamed, never mutates, and also
+  Number.isFinite-guards startMs/endMs so a NaN can't slip past a `<=`
+  comparison (NaN<=NaN is false). Verified three ways: 6 new editor-selftest
+  assertions (all PASS alongside the existing 519-native-equivalent editor
+  suite), and three live browser sessions against `tools/mock_device.py`
+  confirming (a) a zero-length cue is rejected client-side with zero network
+  calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
+  multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
+  exactly as before (L2's mock upload path untouched).
 - A175 (2026-07-16, E2, we/ble): hex-color strictness (§3-E item 7) applied
   to `settings.cpp`'s `hexToColor` — design by E1 (its branch-local A165,
   compacted to A159 at merge), handed over and applied here because `settings.cpp`/
