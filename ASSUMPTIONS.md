@@ -3,6 +3,43 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A115 (2026-07-15, Wave B lead, wbi/calib B6c/B6d): **The probe-arm-while-
+  recording refusal (B6c) and `timedOut` doc field (B6d) live in
+  `mode_director.cpp`/`.h`, a sibling-owned core module — I did NOT make
+  either edit.** `ModeDirector::armProbe`/`probeJson` are the only place that
+  holds BOTH `capture_` (MidiCapture) and `probe_` (CalibrationProbe); my
+  owned `calibration_probe.h` has no visibility into capture state, so the
+  refusal can't live there. I DID add the `CalibrationProbe::timedOut()`
+  primitive (B6d's actual state, with its own native test file
+  `test_calibration_probe`) since that's squarely mine; wiring it into
+  `probeJson()`'s output doc is the one line the lead needs to land. Exact
+  patches for both in the final report.
+- A114 (2026-07-15, Wave B lead, wbi/calib B6b): **A perKey PUT needs >= 2
+  DISTINCT populated keys, checked AFTER `TableBuilder::validate()` passes,
+  not before.** "Wrong-size" in the brief reads as: fewer genuinely distinct
+  populated keys than needed to mean anything (0 = empty, 1 = can't even
+  establish a direction, N duplicate-note entries collapsing to <2 via
+  last-write-wins overwrite). Deliberately did NOT touch
+  `TableBuilder::validate()` itself — a pinned characterization test
+  (`test_validate_accepts_sparse_and_empty_tables`) intentionally keeps it
+  accepting sparse/empty tables, which is correct when REVALIDATING an
+  already-stored/self-healed doc at boot; the floor belongs only at the
+  fresh-PUT boundary (`Calibration::fromJson`). Ran validate() BEFORE the
+  distinct-count check (not after) so a single off-strip/inverted entry
+  still reports the more specific `RangeOffStrip`/`Overlap`/etc. instead of
+  a less-informative `TooFewKeys` — this ordering is what the existing
+  pinned `test_table_errors_propagate_with_detail` (single off-strip entry)
+  required; verified "all-same-LED" is already caught as `Overlap` by
+  validate()'s existing pairwise check, so no separate case needed for it.
+- A113 (2026-07-15, Wave B lead, wbi/calib B6a): **perKey's `reversed` is
+  ALWAYS overwritten by the table's inferred direction, never left as
+  whatever the body sent (or defaulted to).** Mirrors multiPoint's existing
+  landmark-order inference (§6-5) exactly, just computed from the table's
+  own first-two-valid-entries LED order instead of landmark order (both are
+  well-defined only because `TableBuilder::validate()` already guarantees a
+  single consistent direction across the whole table). This is what
+  actually closes the bug: a stale/wrong `reversed` scalar riding in a
+  perKey body can no longer disagree with the table it came with.
 - A112 (2026-07-15, Wave A lead, wa/afk integration): **App::applyAfk seeds the
   parse with the CURRENT config, not a fresh default.** The wa/afk builder made
   `afkConfigFromJson` PATCH into the caller's `out`; a partial `PUT /api/afk`
