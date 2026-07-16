@@ -1,4 +1,4 @@
-﻿// M2 â€” ModeDirector: the top-mode gate matrix (brief Â§1) + the forced
+// M2 â€” ModeDirector: the top-mode gate matrix (brief §1) + the forced
 // sources (test pattern, calibration probe) + the single frame dispatch.
 
 #include <unity.h>
@@ -435,7 +435,7 @@ void test_score_follow_show_slaves_the_clock_to_the_performer() {
     TEST_ASSERT_TRUE(r.director.scoreFollowActive());
     // The transport is NOT started â€” the performer is the only clock.
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
-    // Pre-rolled at 0 until the first anchor is matched (Â§4a Q13).
+    // Pre-rolled at 0 until the first anchor is matched (§4a Q13).
     r.tick(2 * kSec);
     TEST_ASSERT_EQUAL_UINT64(0, r.engine.positionUs());
     // First anchor (60 at song 0) starts the clock; the second snaps the
@@ -472,7 +472,7 @@ void test_score_follow_wrong_note_never_flashes_or_moves_the_clock() {
     r.director.onKeyDown(64, 100, 2 * kSec + 500000);
     TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
     // A wrong note at the SAME instant: the clock must not move, rewind,
-    // or stall (Â§4a Q8) â€” and it can never red-flash: the engine verdict
+    // or stall (§4a Q8) â€” and it can never red-flash: the engine verdict
     // path is inert by construction (transport stopped, state Idle).
     r.director.onKeyDown(100, 100, 2 * kSec + 500000);
     TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
@@ -619,9 +619,9 @@ void test_probe_arm_counts_as_activity_but_capture_wakes_too() {
                      TopMode::Reactive);
 }
 
-// --- PIN-E coverage pack (audit Â§3, test-only pinning tests) ---------------
+// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
 
-// Â§3 item 2: CC64 (sustain pedal) during a wait hold is a no-op for the
+// §3 item 2: CC64 (sustain pedal) during a wait hold is a no-op for the
 // verdict â€” WaitMode has no pedal path at all, and renderFrame never reads
 // a pedal latch. Pedal traffic during a barrier hold must leave the wait
 // state (and the piano's position) completely untouched.
@@ -651,7 +651,7 @@ void test_p2_cc64_during_wait_hold_is_noop_for_verdict() {
     TEST_ASSERT_EQUAL_UINT64(posBefore, r.engine.positionUs());
 }
 
-// Â§3 item 3: presses while Paused/Finished are inert for practice
+// §3 item 3: presses while Paused/Finished are inert for practice
 // (playback_engine.cpp's onKeyDown early-returns when state_ != Playing)
 // but still feed capture/reactive (mode_director.cpp's onKeyDown calls
 // capture_.onNoteOn unconditionally). Covers both the Paused mid-hold case
@@ -715,7 +715,7 @@ void test_p3_presses_while_paused_or_finished_are_inert_for_practice_but_feed_ca
                              "finished-state press still fed capture");
 }
 
-// Â§3 item 6: AFK unreachable during a PAUSED (not merely loaded) practice
+// §3 item 6: AFK unreachable during a PAUSED (not merely loaded) practice
 // session â€” topMode's gate is engine_.songLoaded() only, with no PlayState
 // check, so a real play-then-pause session must stay just as AFK-proof as
 // a song that was merely loaded and never played.
@@ -739,7 +739,7 @@ void test_p6_afk_unreachable_while_paused_mid_practice() {
     }
 }
 
-// Â§3 item 7: test-pattern auto-pause during a LIVE barrier hold â€” the
+// §3 item 7: test-pattern auto-pause during a LIVE barrier hold â€” the
 // pending chord must survive the F3/A35 auto-pause, and "off" (which never
 // auto-resumes) followed by an explicit resume must re-arm the exact same
 // hold rather than losing or corrupting it.
@@ -784,7 +784,7 @@ void test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes() {
                      std::string::npos);
 }
 
-// Â§3 item 8: double-arm record race at the ModeDirector layer â€” the second
+// §3 item 8: double-arm record race at the ModeDirector layer â€” the second
 // arm must be refused (AlreadyArmed) AND must leave the director's OWN
 // bookkeeping (countIn_/bpm_) exactly as the first arm set it, not
 // partially overwritten by the refused call's parameters.
@@ -802,7 +802,7 @@ void test_p8_double_arm_record_race_at_director_layer() {
         "the refused second arm must not clobber the first arm's countIn");
 }
 
-// Â§3 item 10: director-level pedal-echo integration. mode_director.cpp's
+// §3 item 10: director-level pedal-echo integration. mode_director.cpp's
 // tick() scans the engine's MIDI-out for a Cc(64) message and credits
 // capture's OWN echo guard (capture_.pedalSent) â€” unit-tested only via
 // direct pedalSent() calls until now; this exercises the actual scan.
@@ -841,7 +841,7 @@ void test_p10_director_level_pedal_echo_excludes_song_cc64_echo() {
     TEST_ASSERT_EQUAL_UINT8(72, take.notes[0].note);
 }
 
-// Â§3 item 15: a Play-along take survives a song unload mid-take â€” topMode
+// §3 item 15: a Play-along take survives a song unload mid-take â€” topMode
 // ordering (songLoaded() > Record > idle-timeout) means losing the song
 // degrades a live take to Free capture WITHOUT dropping or resetting it.
 void test_p15_playalong_take_survives_song_unload_mid_take() {
@@ -869,7 +869,7 @@ void test_p15_playalong_take_survives_song_unload_mid_take() {
     TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
 }
 
-// --- B1a: orphaned test-pattern auto-clear (BUGFIX-PLAN Â§3-B1) -------------
+// --- B1a: orphaned test-pattern auto-clear (BUGFIX-PLAN §3-B1) -------------
 
 void test_b1a_test_pattern_expires_after_timeout() {
     Rig r;
@@ -963,7 +963,7 @@ void test_b1a_test_pattern_clears_on_show_start() {
         "(B1a) immediately, not waiting for the next tick");
 }
 
-// --- B1b: a Finished show tears itself down (BUGFIX-PLAN Â§3-B1) ------------
+// --- B1b: a Finished show tears itself down (BUGFIX-PLAN §3-B1) ------------
 
 void test_b1b_finished_demo_show_tears_itself_down() {
     Rig r;
@@ -1017,7 +1017,7 @@ void test_b1b_score_follow_show_immune_to_finished_teardown() {
         "score-follow shows must never auto-teardown via the Finished path");
 }
 
-// --- B2: AFK next/previous STEER, never WAKE (ruling Â§6-4) -----------------
+// --- B2: AFK next/previous STEER, never WAKE (ruling §6-4) -----------------
 
 void test_b2_afk_next_previous_never_wake_afk() {
     Rig r;

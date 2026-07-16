@@ -1,5 +1,5 @@
-﻿#pragma once
-// ModeDirector (M2, brief Â§1 + eng review 1A/3A): the top-mode state
+#pragma once
+// ModeDirector (M2, brief §1 + eng review 1A/3A): the top-mode state
 // machine ABOVE the practice engine, and the SINGLE frame-source dispatch â€”
 // exactly one producer paints the strip each tick.
 //
@@ -31,11 +31,11 @@
 
 namespace vialucis {
 
-// Recording duration cap (REC3, docs/DESIGN-record.md Â§8): a compile-time
+// Recording duration cap (REC3, docs/DESIGN-record.md §8): a compile-time
 // constant (~10 min), NOT a setting â€” the byte budget is the tunable bound.
 constexpr uint32_t kRecordMaxMs = 600000;
 
-// A120 (2026-07-16, B1a, BUGFIX-PLAN-2026-07-15 Â§3-B1): an orphaned test
+// A120 (2026-07-16, B1a, BUGFIX-PLAN-2026-07-15 §3-B1): an orphaned test
 // pattern (a client that POSTs test-strip/test-rainbow then vanishes) must
 // not hide the practice/show frame source forever. It auto-clears after
 // this many ms of continuous inactivity (no re-set, no "off") â€” on top of
@@ -102,7 +102,7 @@ public:
         if (clock == 2) {
             // P4: extract the anchors of the follow scope (the barrier
             // cadence over the resolved track mask) and pre-roll at 0 â€”
-            // the first matched anchor starts the clock (Â§4a Q13).
+            // the first matched anchor starts the clock (§4a Q13).
             std::vector<FollowAnchor> anchors;
             if (const Scheduler* sched = engine_.scheduler())
                 ScoreFollower::extractAnchors(
@@ -147,7 +147,7 @@ public:
     std::string afkConfigJson() const {
         return fx::afkConfigToJson(afk_.config());
     }
-    // STEERS, never WAKES (ruling Â§6-4 / B2 â€” see the activity section
+    // STEERS, never WAKES (ruling §6-4 / B2 â€” see the activity section
     // below for the full two-category split). Advancing the ambient
     // playlist is itself an ambient action: it must never reach the idle
     // clock, or the act of steering an AFK show would dismiss the very
@@ -165,7 +165,7 @@ public:
 
     // --- activity (the idle clock's only writers) -----------------------
     // Two named categories, not one universal "any write wakes" (ruling
-    // Â§6-4 â€” API.md's old wording was wrong):
+    // §6-4 â€” API.md's old wording was wrong):
     //   WAKES  â€” state mutations: anything that changes what the device IS
     //            doing (load/unload, transport, mode/tempo/loop/track,
     //            settings, calibration, record arm/stop/discard,
