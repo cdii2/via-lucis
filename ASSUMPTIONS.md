@@ -126,6 +126,28 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
   multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
   exactly as before (L2's mock upload path untouched).
+- A194 (2026-07-16, bring-up hotfix, dispatcher): **AsyncTCP pinned to core 1
+  (`-DCONFIG_ASYNC_TCP_RUNNING_CORE=1` in platformio.ini) — THE fix for the
+  piano-connected crash-loop.** Bisect proof: the last-known-stable build
+  (c16cc75, ran all afternoon piano-OFF) crash-looped identically the moment
+  the FP-30X connected (9 boots/8 aborts in 90 s), exonerating the day's
+  parse/list changes entirely. async_tcp's default core 0 is shared with the
+  WiFi task, BLE controller, and NimBLE host; a live BLE-MIDI connection
+  saturates core 0 → async_tcp starves IDLE0 → stock task-wdt panic →
+  reboot → piano reconnects → repeat. On core 1 (only loopTask, mostly
+  delay(1)-idle): 90 s piano-connected, 0 aborts, 0 wdt warnings, probe arm
+  1.2 s, song load 363 ms. RESIDUAL (both §6-6-class): HTTP is
+  functional-not-snappy while the piano is connected (status 3-8 s under a
+  request burst; single-antenna airtime is simply shared with a 7.5-40 ms
+  BLE conn interval — the next lever is negotiating a laxer interval, which
+  trades MIDI input latency = Christian's ear call), and an occasional
+  first-attempt TCP drop persists (the webui's retry/error paths absorb it).
+- A193 (2026-07-16, bring-up hotfix, dispatcher): **Task watchdog = 15 s,
+  warn-don't-panic (`esp_task_wdt_init(15, false)` in setup()).** A
+  saturated-but-progressing device must degrade into slow requests, never
+  crash-loop mid-practice; genuine hangs still print on serial for bring-up
+  eyes. Kept even after A194 removed the known starvation — defense in depth
+  for a wall-powered instrument accessory.
 - A192 (2026-07-16, bring-up hotfix, dispatcher): **NoteTracker rebuilt as a
   bounded compact open-notes list (kMaxOpenNotes=256 × 8 B ≈ 2 KB, reserved
   once; > cap ⇒ TooBigForMemory) and `kParseHeapMarginBytes` 8→4 KB** — with
