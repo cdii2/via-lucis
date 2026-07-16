@@ -610,6 +610,13 @@ function toast(msg, isErr) {
 }
 
 /* ---------- fetch helpers ---------- */
+// A5: human fallback for a non-2xx reply that has no {"error":...} body of
+// its own yet (older firmware, or a status the device can't annotate).
+function fallbackErrorMessage(status, method, url) {
+  if (status === 507) return "Device may be out of space";
+  if (status === 409) return "That's already in use on the device — try again";
+  return method + " " + url + " failed (" + status + ")";
+}
 function api(method, url, body, raw) {
   var opts = { method: method };
   if (body !== undefined && body !== null) {
@@ -625,11 +632,21 @@ function api(method, url, body, raw) {
       var data = null;
       try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* non-JSON ok */ }
       if (!r.ok) {
-        var msg = (data && data.error) ? data.error : (method + " " + url + " failed (" + r.status + ")");
-        throw new Error(msg);
+        var msg = (data && data.error) || fallbackErrorMessage(r.status, method, url);
+        var err = new Error(msg);
+        err.status = r.status;
+        throw err;
       }
       return data;
     });
+  }, function (networkErr) {
+    // fetch() itself rejected (offline, DNS/CORS, device rebooting mid-poll,
+    // etc.) — this is the TypeError branch, distinct from an HTTP error
+    // status above. Give a human message instead of "Failed to fetch".
+    var err = new Error("Device unreachable — check the connection");
+    err.status = 0;
+    err.cause = networkErr;
+    throw err;
   });
 }
 function send(method, url, body) {
