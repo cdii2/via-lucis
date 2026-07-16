@@ -3,6 +3,37 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A140 (2026-07-16, Wave C, wc/settings C4/Views): **`Settings::toJson(View)`
+  defaults to `View::Persist`; outward call-sites pass `View::Public`
+  explicitly.** Considered the "safe-by-default" inverse (default Public, opt in
+  to Persist), but the Persist path is the load-bearing one — persisting WITHOUT
+  `wifiPass` silently breaks WiFi reconnect after a reboot, and it lives in the
+  conditionally-owned `song_store.cpp` (`saveSettings` calls the default
+  `toJson()`). Defaulting to Persist keeps that path byte-identical and untouched
+  (zero song_store edit), while the ONLY two serializations that leave the
+  device — GET /api/settings and the PUT echo, both in web_server.cpp — opt into
+  Public. The known outward path is guarded by the A139 pin
+  (`test_public_view_never_contains_wifipass`) and a Public-view contract pin, so
+  a future outward call-site that forgets `View::Public` is the residual risk;
+  it's caught by review + the field-set contract test, not the type system.
+- A139 (2026-07-16, Wave C, wc/settings C4/Views): **`wifiPass` is a write-only
+  field whose redaction lives INSIDE `Settings` (ruling §6-1), not the route
+  handler.** `Settings::toJson(View::Public)` — used by every serialization that
+  LEAVES the device (GET /api/settings, the PUT echo, and the webui "Export",
+  which is just that GET) — omits `wifiPass` entirely and emits
+  `wifiPassSet: true|false` (true ⇔ a non-empty password is stored).
+  `View::Persist` (flash only) keeps the full doc so a reboot reconnects. Closes
+  the cleartext-password leak (any LAN/AP client could read the home WiFi
+  password via GET, and Export wrote it to disk). CLEAR affordance: `fromJson`
+  keeps PATCH semantics — a body WITH `wifiPass` sets it, WITHOUT it leaves the
+  stored password unchanged, and an explicit `"wifiPass": ""` CLEARS it (least
+  surprising: sending the field means you're setting the field). This makes the
+  redacted GET→PUT round-trip lossless ONLY when the client omits the key it
+  never received — flagged to the C3 webui sibling: the password input must not
+  resend `""` on save unless the user is deliberately forgetting the network.
+  Native pins: `test_public_view_never_contains_wifipass` (the leak-regression
+  pin — key-level, not substring), `test_persist_view_carries_wifipass`,
+  `test_wifipass_write_only_patch_and_clear`, `test_public_view_contract_field_names`.
 - A138 (2026-07-16, Wave B-ii, wbii/persist B4): **`SongStore::begin()`
   flips `formatOnFail` to FALSE (ruling §6-2), SUPERSEDING A108.** A boot must
   never wipe real user data as a reflex. A138's safety net for the replicability
