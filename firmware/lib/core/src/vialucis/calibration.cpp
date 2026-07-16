@@ -27,6 +27,30 @@ CalibResult fail(CalibResult::Kind k) {
     return r;
 }
 
+// B6a: does this table's LED order run backwards relative to ascending
+// notes? Only meaningful once TableBuilder::validate() has already passed
+// (that guarantees ONE consistent direction across every valid pair), so
+// the first two valid entries alone decide it — same "first differing pair"
+// definition validate() itself uses (r.last < prev.first ⇒ descending).
+// Fewer than 2 valid entries ⇒ nothing to infer from (caller must reject
+// those via TooFewKeys before ever reaching here).
+bool tableDescending(const KeyLedTable& t) {
+    LedRange first{};
+    bool haveFirst = false;
+    for (uint8_t n = KeyLedTable::kFirstNote;
+         n < KeyLedTable::kFirstNote + KeyLedTable::kKeyCount; ++n) {
+        LedRange r = t.forNote(n);
+        if (!r.valid) continue;
+        if (!haveFirst) {
+            first = r;
+            haveFirst = true;
+            continue;
+        }
+        return r.last < first.first;
+    }
+    return false;
+}
+
 }  // namespace
 
 const char* CalibResult::message() const {
@@ -45,6 +69,7 @@ const char* CalibResult::message() const {
         case TableError::DirectionMixed: return "led direction inconsistent";
         case TableError::RangeOffStrip: return "key range off strip";
         case TableError::Overlap: return "key ranges overlap";
+        case TableError::TooFewKeys: return "need at least 2 keys";
         case TableError::None: break;
     }
     return "bad table";
@@ -159,9 +184,33 @@ CalibResult Calibration::fromJson(const char* json, uint16_t ledCount,
             r.valid = true;
             c.table.set(note, r);
         }
+        // Structural checks (in-strip range, one consistent direction, no
+        // overlap) FIRST — validate() catches a single off-strip/inverted
+        // entry on its own per-entry check (badKey precision matters, e.g.
+        // RangeOffStrip on a lone entry), independent of how many keys were
+        // submitted.
         uint8_t badKey = 0;
         TableError e = TableBuilder::validate(c.table, &badKey);
         if (e != TableError::None) return tableFail(e, badKey);
+        // B6b: THEN the degeneracy floor — an empty, single-key, or
+        // duplicate-note (last write wins, so array length alone doesn't
+        // guarantee distinct keys) body validates cleanly (TableBuilder::
+        // validate() intentionally accepts sparse/empty tables — the right
+        // call when REVALIDATING an already-stored/self-healed doc) but is
+        // still useless as a fresh wizard submission: it would blank the
+        // whole strip. Typed and rejected here instead.
+        int distinct = 0;
+        for (uint8_t n = KeyLedTable::kFirstNote;
+             n < KeyLedTable::kFirstNote + KeyLedTable::kKeyCount; ++n)
+            if (c.table.forNote(n).valid) ++distinct;
+        if (distinct < 2) return tableFail(TableError::TooFewKeys);
+        // B6a: reversed is a PROPERTY of the table the wizard/hand-edit
+        // submitted, not a scalar the caller can assert independently —
+        // otherwise a later settings nudge (App::applySettings) rebuilding
+        // a twoPoint table off calib_.reversed can flip a mirrored strip
+        // the perKey table never agreed to. Same treatment multiPoint
+        // already gets from landmark order (§6-5).
+        c.reversed = tableDescending(c.table);
     }
 
     out = std::move(c);
