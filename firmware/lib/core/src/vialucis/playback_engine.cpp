@@ -550,11 +550,20 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
     else if (state_ == PlayState::Finished)
         state = "finished";
     doc["state"] = state;
-    const char* mode = "wait";
-    if (mode_ == Mode::Follow) mode = "follow";
-    else if (mode_ == Mode::Demo) mode = "demo";
-    else if (mode_ == Mode::Accompaniment) mode = "accompaniment";
-    doc["mode"] = mode;
+    // A166 (§3-E item 8): `mode` is only meaningful once a song is loaded —
+    // mode_ defaults to Wait even with no song, so a bare status poll used
+    // to report "mode":"wait" alongside "topMode":"reactive"/"afk", reading
+    // as if practice mode were somehow active with nothing loaded. Omit the
+    // field entirely rather than emit a value that means nothing yet; the
+    // webui already disables every mode control while !hasSong (Wave C1),
+    // so it never reads this field in that state.
+    if (!songName_.empty()) {
+        const char* mode = "wait";
+        if (mode_ == Mode::Follow) mode = "follow";
+        else if (mode_ == Mode::Demo) mode = "demo";
+        else if (mode_ == Mode::Accompaniment) mode = "accompaniment";
+        doc["mode"] = mode;
+    }
     doc["positionMs"] = sched_ ? sched_->positionUs() / 1000 : 0;
     doc["durationMs"] = sched_ ? sched_->durationUs() / 1000 : 0;
     doc["tempoPercent"] = sched_ ? sched_->tempoPercent() : 100.0f;
