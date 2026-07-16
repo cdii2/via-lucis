@@ -11,6 +11,9 @@ void NoteEmitter::consume(const std::vector<SchedEvent>& events,
                 out.push_back({MidiOutType::NoteOn, e.channel, e.note,
                                e.velocity});
                 sounding_.add({e.note, e.channel, e.track});
+                // FIX-C (deferred, BUGFIX-PLAN §7): registers at EMIT time,
+                // not confirmed-transmit time — see echo_guard.h::noteSent()
+                // and ble_midi_io.cpp::send().
                 if (guard_) guard_->noteSent(e.note, nowUs);
                 break;
             case SchedEventType::NoteOff:
