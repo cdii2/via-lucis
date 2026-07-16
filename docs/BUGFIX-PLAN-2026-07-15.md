@@ -255,17 +255,35 @@ GET  /api/status                   → has fsFree/heapFree/uptimeMs
 POST /api/storage/format (token)   → 200, FS empty, uploads work
 ```
 
-## 6. Christian decision queue (everything else proceeds without him)
+## 6. Decision queue — ALL RULED by Christian 2026-07-15 (architecture review)
 
-1. **wifiPass redaction** — recommend write-only (`wifiPassSet:true` in GET/export).
-2. **`formatOnFail` at boot** — today a mount hiccup silently erases every song/take;
-   recommend `false` + surfaced `fs:"error"` state + manual format route.
-3. **Upload over the currently-loaded song** — recommend 409 (matches DELETE).
-4. **AFK next/prev wake semantics** — API.md and DESIGN-lightshow disagree; recommend
-   media-control (no wake) and amend API.md.
-5. **Wizard target tier** — recommend multiPoint-with-2-landmarks (device interpolates).
-6. **Ear/eye items at bring-up** — kMaxMilliamps headroom, BLE scan backoff values,
-   wrong-flash duration.
+Rulings accepted from the /improve-codebase-architecture pass over this queue
+(each ruling = the option that leaves the module deepest; report archived at
+`%TEMP%\architecture-review-2026-07-15-vialucis.html`):
+
+1. **wifiPass redaction — RULED: write-only.** Redaction lives INSIDE `Settings`
+   (`toJson(View::Persist)` vs `toJson(View::Public)`; public emits `wifiPassSet:true`),
+   not in the route handler — secret-ness is a property of the field. Native pin:
+   "Public view never contains wifiPass". Lands in Wave C4 (or A5 if convenient).
+2. **`formatOnFail` at boot — RULED: `false` + storage health state.** SongStore gains
+   `FsHealth { Mounted, MountFailed, Wedged }` surfaced in statusJson (`fs:"error"`),
+   and `format()` becomes an explicit guarded operation (the Wave-A
+   `/api/storage/format` endpoint) — destruction is a user decision through a seam,
+   never a boot reflex. Lands in Wave A3 + B4.
+3. **Upload over the currently-loaded song — RULED: 409.** Enforced via a new
+   `App::loadedSongName()` accessor that BOTH the DELETE guard and the upload
+   first-chunk check ask (kills the DELETE handler's statusJson serialize/reparse
+   hack). Lands in Wave A2 (+ B7's accessor item merges into this).
+4. **AFK next/prev wake semantics — RULED: media-control (no wake).** Drop
+   `touchWriteActivity()` from `afkControl`; name the two categories at the App seam
+   (state mutations WAKE, ambient transport STEERS) and amend API.md to document the
+   two categories instead of the false "any write wakes" universal. Lands in Wave B2.
+5. **Wizard target tier — RULED: multiPoint with 2 landmarks.** The wizard records
+   observed facts ((led,note) anchors); the device owns the interpolation — same shape
+   as the "editor is not the player" lock. `reversed` inferred from landmark order.
+   Consumed by Wave D; scalar-drift cleanup (B6) still required regardless.
+6. **Ear/eye items at bring-up (still open, hardware-gated)** — kMaxMilliamps headroom,
+   BLE scan backoff values, wrong-flash duration.
 
 ## 7. Deferred to hardware bring-up (existing list still stands)
 
