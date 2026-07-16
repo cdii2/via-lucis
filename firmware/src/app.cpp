@@ -295,7 +295,9 @@ bool App::setTestPattern(const std::string& pattern) {
     // The F3 auto-pause rule lives in the director now; we just deliver
     // the note-offs its pause emits.
     std::vector<MidiOutMsg> out;
-    if (!director_.setTestPattern(pattern, out)) return false;
+    if (!director_.setTestPattern(
+            pattern, static_cast<uint64_t>(esp_timer_get_time()), out))
+        return false;
     sendAll(out);
     return true;
 }
