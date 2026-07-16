@@ -33,7 +33,11 @@ Errors: non-2xx with `{"error": "<human message>"}`.
     "topMode": "practice",            // v2 M3: reactive | afk | practice | presentation | record
     "idleSec": 12,                    // seconds since the last activity
     "afkTimeoutSec": 180,             // mirror of the setting (0 = never)
-                                      // (the three fields above appear in EVERY
+    "practice": "both",               // C1: player's last-chosen practice hand
+                                      //   (both | left | right) — lets the UI
+                                      //   selector reconcile after a reload
+                                      //   instead of resetting the device
+                                      // (the four fields above appear in EVERY
                                       // status-JSON reply, unlike wifi)
     "record": {                       // v3 REC4: the tape head (before wifi)
       "state": "idle",                //   idle | armed | recording
@@ -96,6 +100,9 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   Default assignment on load: track named "Left"/"LH" → left, "Right"/"RH" →
   right; else 2-track songs get track 0=right, 1=left (piano convention);
   single track → both.
+  Reassigning a hand mid-note in demo/accompaniment flushes note-offs for any
+  note the leaving track was sounding on the piano (B3a — no ringing note left
+  behind), routed through the same MIDI-out/echo-guard path as ordinary play.
 
 ## Transport
 
@@ -121,10 +128,19 @@ Errors: non-2xx with `{"error": "<human message>"}`.
 ## Top mode (v2 M-wave)
 
 The four top modes sit ABOVE the practice sub-modes: Reactive ⇄ AFK with no
-song (idle timeout arms AFK; any key or state-changing call wakes it — and
-AFK can never fire while a song is loaded), Practice ⇄ Presentation with
-one. Only the Practice⇄Presentation edge is directly settable; the rest
-follow from song state and activity.
+song (idle timeout arms AFK; AFK can never fire while a song is loaded),
+Practice ⇄ Presentation with one. Only the Practice⇄Presentation edge is
+directly settable; the rest follow from song state and activity.
+
+**Two activity categories (ruling §6-4).** Not every request touches the idle
+clock:
+- **State mutations WAKE the idle clock** (reset the AFK drift): any key press,
+  song load/unload, transport, mode/tempo/loop/track writes, settings,
+  calibration, record arm/stop/discard, presentation/shows start·stop, the test
+  pattern, AFK config writes (`PUT /api/afk`), and probe arm/cancel.
+- **Ambient transport STEERS without waking**: `POST /api/afk/control`
+  (`next`/`previous`) advances a playing AFK show but NEVER touches the idle
+  clock — waking there would dismiss the very show it is steering.
 
 - `POST /api/topmode` body `{"mode": "presentation"}` or `{"mode": "practice"}`
   → `200` + status JSON, `400 no song loaded` (presentation needs one),
