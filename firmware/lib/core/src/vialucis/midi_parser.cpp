@@ -125,39 +125,61 @@ private:
     size_t pos_ = 0;
 };
 
-struct OpenNote {
-    uint32_t onTick;
-    uint8_t velocity;
-};
-
-// One slot per (channel, note); overlapping same-note re-triggers close the
-// previous instance first, which is the sane behavior for a trainer. ~18 KB —
-// heap-allocated once per FILL pass (A181), never on the count pass.
+// Open-note tracking for the fill pass. A192: was a dense 16x128 slot array
+// (~18 KB) — bigger than the device's ENTIRE max contiguous heap block once
+// the piano's BLE connection is up (measured live: maxAlloc 17.4 KB with the
+// FP-30X connected), so nothing could load exactly when the player needed it
+// to. Real files hold a handful of simultaneously-open notes; track them in
+// a small bounded list instead (kMaxOpenNotes × 8 B = 2 KB worst case,
+// reserved once). A file exceeding the cap (pathological polyphony) is
+// refused as TooBigForMemory — it could never play on this device anyway.
+// closeAll emits in (channel, note) ascending order, byte-identical to the
+// old dense iteration, so the conformance corpus stays exact.
 struct NoteTracker {
-    OpenNote open[16][128];
-    bool active[16][128] = {};
+    struct Open {
+        uint8_t ch;
+        uint8_t note;
+        uint8_t velocity;
+        uint32_t onTick;
+    };
+    static constexpr size_t kMaxOpenNotes = 256;
+    std::vector<Open> open;
+    bool overflowed = false;
+
+    NoteTracker() { open.reserve(kMaxOpenNotes); }
 
     void on(uint8_t ch, uint8_t note, uint8_t vel, uint32_t tick,
             uint8_t track, std::vector<MidiNote>& out) {
-        if (active[ch][note]) off(ch, note, tick, track, out);
-        active[ch][note] = true;
-        open[ch][note] = {tick, vel};
+        off(ch, note, tick, track, out);  // same-note retrigger closes first
+        if (open.size() >= kMaxOpenNotes) {
+            overflowed = true;  // refused upstream as TooBigForMemory
+            return;
+        }
+        open.push_back({ch, note, vel, tick});
     }
 
     void off(uint8_t ch, uint8_t note, uint32_t tick, uint8_t track,
              std::vector<MidiNote>& out) {
-        if (!active[ch][note]) return;  // spurious note-off: ignore
-        active[ch][note] = false;
-        out.push_back({open[ch][note].onTick, tick, note,
-                       open[ch][note].velocity, ch, track});
+        for (size_t i = 0; i < open.size(); ++i) {
+            if (open[i].ch == ch && open[i].note == note) {
+                out.push_back({open[i].onTick, tick, note, open[i].velocity,
+                               ch, track});
+                open.erase(open.begin() + static_cast<ptrdiff_t>(i));
+                return;
+            }
+        }
+        // spurious note-off: ignore (same as the dense version)
     }
 
     void closeAll(uint32_t tick, uint8_t track, std::vector<MidiNote>& out) {
-        for (int ch = 0; ch < 16; ++ch)
-            for (int n = 0; n < 128; ++n)
-                if (active[ch][n]) off(static_cast<uint8_t>(ch),
-                                       static_cast<uint8_t>(n), tick,
-                                       track, out);
+        // Emit in (ch, note) ascending order — the dense array's iteration
+        // order — so output stays byte-identical to pre-A192 parses.
+        std::sort(open.begin(), open.end(), [](const Open& a, const Open& b) {
+            return a.ch != b.ch ? a.ch < b.ch : a.note < b.note;
+        });
+        for (const Open& o : open)
+            out.push_back({o.onTick, tick, o.note, o.velocity, o.ch, track});
+        open.clear();
     }
 };
 
@@ -350,7 +372,12 @@ MidiParseError runPass(ByteSource& src, Sink& sink, uint16_t& ntrks,
 
 }  // namespace
 
-size_t midiParseFixedOverhead() { return sizeof(NoteTracker); }
+size_t midiParseFixedOverhead() {
+    // A192: the tracker's real footprint is its reserved open-list capacity
+    // (kMaxOpenNotes × 8 B = 2 KB), not sizeof of the vector header.
+    return NoteTracker::kMaxOpenNotes * sizeof(NoteTracker::Open) +
+           sizeof(NoteTracker);
+}
 
 size_t midiParseOutputBytes(size_t notes, size_t tempo, size_t pedal) {
     return notes * sizeof(MidiNote) + tempo * sizeof(TempoChange) +
@@ -399,13 +426,19 @@ MidiParseResult parseMidi(ByteSource& src, size_t budgetBytes) {
         result.song.tracks.reserve(ntrks);
     }
 
-    // --- Pass 2: fill (the NoteTracker is the only big allocation, ~18 KB). ---
+    // --- Pass 2: fill (A192: the NoteTracker is a small bounded list now,
+    //     ~2 KB reserved once — no longer the budget's dominant term). ---
     src.reset();
     auto tracker = std::make_unique<NoteTracker>();
     Sink filler(result.song, *tracker);
     MidiParseError e = runPass(src, filler, ntrks, tpq);
     if (e != MidiParseError::Ok) {  // unreachable for identical bytes; stay safe
         result.error = e;
+        result.song = MidiSong{};
+        return result;
+    }
+    if (tracker->overflowed) {  // A192: > kMaxOpenNotes simultaneous opens
+        result.error = MidiParseError::TooBigForMemory;
         result.song = MidiSong{};
         return result;
     }

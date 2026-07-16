@@ -1,20 +1,22 @@
 #include "wifi_manager.h"
 
 #include <WiFi.h>
+#include <esp_coexist.h>
 
 namespace vialucis {
 
 void WifiManager::begin(const std::string& ssid, const std::string& pass) {
+    // A184 (amended twice — see ASSUMPTIONS): the webui stalls under BLE/WiFi
+    // radio contention. Attempt 1, WiFi.setSleep(false): REJECTED by the
+    // arbiter when BLE is enabled (boot abort, proven live). Attempt 2,
+    // esp_coex_preference_set(ESP_COEX_PREFER_WIFI): the device then
+    // wdt-crash-looped on async_tcp ~16 s after every boot, timed exactly
+    // with the piano's BLE connect (proven live, three boots watched).
+    // Reverted to the default (balanced) coexistence — the configuration
+    // that ran stable all afternoon. Latency tuning must find another lever
+    // (BLE connection params / request pacing), not the coex arbiter.
     if (!ssid.empty()) {
         WiFi.mode(WIFI_STA);
-        // A184: modem power-save OFF. The Arduino default (WIFI_PS_MIN_MODEM)
-        // lets the WiFi radio sleep between DTIM beacons, and under BLE
-        // coexistence (the piano-off scan cycle) that turned every HTTP
-        // request into a multi-second-to-minutes stall — the live device's
-        // webui was unusable (wizard screens took minutes to change; Load
-        // appeared dead). This is a wall-powered piano lamp: power saving
-        // buys nothing and costs the entire UI. Canonical ESP32 coex fix.
-        WiFi.setSleep(false);
         WiFi.begin(ssid.c_str(), pass.c_str());
         uint32_t start = millis();
         while (WiFi.status() != WL_CONNECTED &&
@@ -27,7 +29,6 @@ void WifiManager::begin(const std::string& ssid, const std::string& pass) {
         }
     }
     WiFi.mode(WIFI_AP);
-    WiFi.setSleep(false);  // A184: same rule on the recovery AP
     WiFi.softAP(kApSsid);  // open AP: it's a piano lamp, not a bank
     ap_ = true;
 }

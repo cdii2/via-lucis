@@ -126,6 +126,20 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
   multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
   exactly as before (L2's mock upload path untouched).
+- A192 (2026-07-16, bring-up hotfix, dispatcher): **NoteTracker rebuilt as a
+  bounded compact open-notes list (kMaxOpenNotes=256 × 8 B ≈ 2 KB, reserved
+  once; > cap ⇒ TooBigForMemory) and `kParseHeapMarginBytes` 8→4 KB** — with
+  the FP-30X CONNECTED the device's max contiguous heap block is only
+  ~17.4 KB (measured live; NimBLE connection buffers eat ~30 KB), so the old
+  18 KB dense tracker + 8 KB margin made parseNoteBudget()=0 and EVERY song
+  413'd as too-large exactly when the player needed to load one. closeAll
+  emits in (ch,note) ascending order — the dense array's iteration order —
+  so the 374-test conformance corpus stays byte-exact (530/530 green).
+  Fits-math now: budget ≈ maxAlloc − 6 KB → piano-connected ≈ 950 notes;
+  piano-off ≈ 4900 notes. Also A191 inside FileByteSource: delay(1) NOT
+  yield() every 16th gulp — taskYIELD never lets IDLE feed the core-0 task
+  watchdog, and a 105 KB streamed count pass (410 slow LittleFS gulps of
+  continuous RUNNING on async_tcp) abort-looped the device (proven live).
 - A184 (2026-07-16, bring-up hotfix, dispatcher): **`WiFi.setSleep(false)`
   in both WifiManager paths (STA + recovery AP).** The Arduino default
   (WIFI_PS_MIN_MODEM) parks the WiFi radio between DTIM beacons; under BLE

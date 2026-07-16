@@ -28,7 +28,13 @@ public:
     size_t size() const override { return size_; }
     size_t read(uint8_t* dst, size_t max) override {
         size_t n = file_.read(dst, max);
-        if ((++refills_ & 0x0F) == 0) yield();  // every 16th gulp
+        // A191: delay(1), NOT yield() — taskYIELD only cedes to EQUAL-priority
+        // tasks, so the IDLE task that feeds the core-0 task watchdog never
+        // ran during a long streamed pass (a 105 KB file = ~410 slow LittleFS
+        // gulps of continuous RUNNING on async_tcp → wdt abort, proven live).
+        // delay(1) blocks this task a tick and lets IDLE breathe; ~26 ms
+        // total on a 105 KB file, off the latency path.
+        if ((++refills_ & 0x0F) == 0) delay(1);  // every 16th gulp (~4 KB)
         return n;
     }
     void reset() override {

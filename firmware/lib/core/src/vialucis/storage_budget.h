@@ -52,7 +52,12 @@ constexpr bool uploadFits(size_t incoming, size_t freeBytes,
 // vectors, the track-name strings, and async_tcp/LittleFS overhead. Pure math,
 // native-pinned. Returns 0 (⇒ any non-empty song is refused) when the heap is
 // too fragmented to even cover the fixed overhead + margin.
-constexpr size_t kParseHeapMarginBytes = 8 * 1024;
+// A192: 4 KB (was 8 KB). With the FP-30X connected the device's max
+// contiguous block is only ~17 KB (measured live) — an 8 KB margin plus the
+// old 18 KB tracker refused EVERYTHING exactly when the player needed songs
+// to load. The tracker is now a ~2 KB bounded list and every output vector
+// is exact-reserved, so 4 KB honestly covers the aux vectors + name strings.
+constexpr size_t kParseHeapMarginBytes = 4 * 1024;
 constexpr size_t parseNoteBudget(size_t maxAllocBytes, size_t fixedOverhead,
                                  size_t margin = kParseHeapMarginBytes) {
     const size_t reserved = fixedOverhead + margin;

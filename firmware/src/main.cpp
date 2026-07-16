@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <esp_task_wdt.h>
 
 #include "app.h"
 #include "reboot_request.h"
@@ -15,6 +16,17 @@ vialucis::WebServerLayer gWeb;
 void setup() {
     Serial.begin(115200);
     Serial.printf("Via Lucis v%s\n", vialucis::kVersion);
+
+    // A193: task watchdog = warn, don't abort, and give it 15 s. With the
+    // piano CONNECTED (BLE-MIDI at a 7.5-40 ms connection interval) the
+    // radio+CPU0 load from BLE + WiFi + NimBLE + async_tcp can legitimately
+    // starve the IDLE0 task past the stock 5 s limit under a browser's
+    // request burst — the stock panic setting then hard-REBOOTED the device
+    // every ~16 s exactly while the player had the piano on (proven live,
+    // repeatedly, across coex settings). A saturated-but-progressing device
+    // must degrade (slow requests), never crash-loop. Genuine hangs still
+    // print the wdt warning on serial for bring-up eyes.
+    esp_task_wdt_init(15, /*panic=*/false);
 
     gApp.begin();
     gWifi.begin(gApp.settings().wifiSsid, gApp.settings().wifiPass);
