@@ -291,9 +291,14 @@ inputs — changing them (either route) rebuilds the table on that tier only.
   led` (no `led` in the body), `400 bad led` (off the strip), `409 playing`
   (probe never arms during playback OR a playing Presentation show — including
   score-follow, whose transport stays stopped; starting playback or a show
-  cancels an armed probe).
-- `GET /api/calibration/probe` → `{"armed": true, "led": 123, "note": null}`
+  cancels an armed probe), `409 recording` (probe never arms while a take is
+  armed or recording — it would eat the performer's notes).
+- `GET /api/calibration/probe` →
+  `{"armed": true, "led": 123, "timedOut": false, "note": null}`
   (`note` = the captured MIDI note after the press; poll ~2×/s while armed).
+  `timedOut` is true when the armed window expired without a capture —
+  distinct from an explicit cancel, which leaves it false; cleared by the
+  next arm or cancel.
 - `DELETE /api/calibration/probe` — cancel; clears any capture. → `200`.
 
 ## Storage (A3)

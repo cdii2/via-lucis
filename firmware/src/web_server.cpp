@@ -772,6 +772,10 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                        sendError(req, 409, "playing");
                        return;
                    }
+                   if (r == ModeDirector::ProbeArm::Recording) {
+                       sendError(req, 409, "recording");
+                       return;
+                   }
                    if (r == ModeDirector::ProbeArm::BadLed) {
                        sendError(req, 400, "bad led");
                        return;

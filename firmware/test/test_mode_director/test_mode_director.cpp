@@ -1,4 +1,4 @@
-// M2 — ModeDirector: the top-mode gate matrix (brief §1) + the forced
+﻿// M2 â€” ModeDirector: the top-mode gate matrix (brief Â§1) + the forced
 // sources (test pattern, calibration probe) + the single frame dispatch.
 
 #include <unity.h>
@@ -45,7 +45,7 @@ struct Rig {
 using fxtest::litCount;
 
 // A minimal one-cue show with the given clock source (chordSong is the
-// loaded song: anchors 60@0 · 64@500ms · {67,71}@1000ms on the follow mask).
+// loaded song: anchors 60@0 Â· 64@500ms Â· {67,71}@1000ms on the follow mask).
 // clock: 0 = demo, 1 = free-run, 2 = score-follow.
 Show scoreFollowShow(uint8_t clock) {
     Show s;
@@ -72,7 +72,7 @@ void test_boot_state_is_reactive() {
 void test_idle_timeout_arms_afk_with_no_song() {
     Rig r;
     r.tick(1 * kSec);  // baseline the idle clock
-    // 180s of NOTHING but time (status GETs never touch the clock —
+    // 180s of NOTHING but time (status GETs never touch the clock â€”
     // structurally: there is no director call for a GET).
     r.tick(182 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(182 * kSec) == TopMode::Afk);
@@ -97,11 +97,11 @@ void test_any_activity_wakes_afk_within_one_frame() {
     r.tick(1 * kSec);
     r.tick(200 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
-    // A key press wakes it instantly (no song ⇒ Reactive).
+    // A key press wakes it instantly (no song â‡’ Reactive).
     r.director.onKeyDown(60, 100, 200 * kSec + 1000);
     TEST_ASSERT_TRUE(r.director.topMode(200 * kSec + 2000) ==
                      TopMode::Reactive);
-    // Pedal/CC (any midi) would arrive via onMidiActivity — same effect.
+    // Pedal/CC (any midi) would arrive via onMidiActivity â€” same effect.
     r.tick(400 * kSec);
     TEST_ASSERT_TRUE(r.director.topMode(400 * kSec) == TopMode::Afk);
     r.director.onMidiActivity(400 * kSec + 1000);
@@ -201,7 +201,7 @@ void test_pattern_activation_auto_pauses_playback() {
 }
 
 // B-2 (what-if audit G15, A95): a test pattern POST during a playing
-// DEMO-clock show must not silently pause the show's transport — the pattern
+// DEMO-clock show must not silently pause the show's transport â€” the pattern
 // is a visual overlay that borrows the strip, it must not stall a live
 // performance (or the piano's own audio, which the demo transport drives).
 // Adapted from test_w29_test_pattern_refused_or_inert_during_show
@@ -229,7 +229,7 @@ void test_w29_test_pattern_refused_or_inert_during_show() {
     }
 }
 
-// B-2 (what-if audit G16, A95): the inverse hole — a test pattern over a
+// B-2 (what-if audit G16, A95): the inverse hole â€” a test pattern over a
 // SCORE-FOLLOW show must freeze its clock (the follower otherwise keeps
 // driving song position under the pattern, since there is no transport to
 // auto-pause). Adapted from test_C22_test_pattern_freezes_scorefollow_clock.
@@ -243,7 +243,7 @@ void test_C22_test_pattern_freezes_scorefollow_clock() {
     r.tick(1100000);
     r.tick(1200000);                          // clock coasts
     uint64_t frozen = r.engine.positionUs();
-    r.director.setTestPattern("strip", 1200000, gOut);  // pattern up ⇒ clock freezes
+    r.director.setTestPattern("strip", 1200000, gOut);  // pattern up â‡’ clock freezes
     r.director.onKeyDown(64, 100, 1300000);    // next anchor
     r.tick(1400000);
     TEST_ASSERT_EQUAL_UINT64_MESSAGE(
@@ -254,7 +254,7 @@ void test_C22_test_pattern_freezes_scorefollow_clock() {
 // B-3 (what-if audit G14, A96): a mode PUT during a playing show must not
 // freeze its clock. The original repro (test_s3, audit/whatif-throwaway)
 // called the raw PlaybackEngine::setMode directly, bypassing any policy
-// layer entirely — since wait mode's barrier-holding is inherent to the
+// layer entirely â€” since wait mode's barrier-holding is inherent to the
 // engine (there is no way to "leave the clock running" once mode becomes
 // "wait"), the only fix that can work without touching PlaybackEngine
 // (FIX-A's territory) is to refuse the switch at the ModeDirector layer, so
@@ -366,7 +366,7 @@ void test_presentation_plays_a_show_on_the_song_clock() {
         litCount(r.director.renderFrame(2 * kSec + 100000)) > 300,
         "the show paints the strip, not the placeholder dark frame");
     // Named P2 test: a tempo change mid-show keeps the Free-run clock
-    // continuous — song position must not jump.
+    // continuous â€” song position must not jump.
     uint64_t before = r.engine.positionUs();
     TEST_ASSERT_TRUE(r.engine.setTempo(50.0f));
     TEST_ASSERT_EQUAL_UINT64(before, r.engine.positionUs());
@@ -413,15 +413,15 @@ void test_leaving_presentation_midshow_clears_show_playing() {
     r.director.startShow(std::move(s), 7, gOut);
     TEST_ASSERT_TRUE(r.director.showPlaying());
     TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
-    // Song stays loaded — this is NOT an unload; it is the explicit exit.
+    // Song stays loaded â€” this is NOT an unload; it is the explicit exit.
     TEST_ASSERT_TRUE(r.director.setPresentation(false));
     TEST_ASSERT_FALSE_MESSAGE(r.director.showPlaying(),
         "leaving Presentation must not leave a show playing (upload 409 desync)");
     TEST_ASSERT_TRUE(r.director.topMode(3 * kSec) == TopMode::Practice);
 }
 
-// --- P4: score-follow — the performer IS the Presentation clock -------------
-// (scoreFollowShow() is defined in the top anonymous namespace — B-2 needs
+// --- P4: score-follow â€” the performer IS the Presentation clock -------------
+// (scoreFollowShow() is defined in the top anonymous namespace â€” B-2 needs
 // it too, for the demo/score-follow test-pattern-during-show tests.)
 
 void test_score_follow_show_slaves_the_clock_to_the_performer() {
@@ -433,9 +433,9 @@ void test_score_follow_show_slaves_the_clock_to_the_performer() {
     r.director.startShow(scoreFollowShow(2), 7, gOut);
     TEST_ASSERT_TRUE(r.director.topMode(2 * kSec) == TopMode::Presentation);
     TEST_ASSERT_TRUE(r.director.scoreFollowActive());
-    // The transport is NOT started — the performer is the only clock.
+    // The transport is NOT started â€” the performer is the only clock.
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
-    // Pre-rolled at 0 until the first anchor is matched (§4a Q13).
+    // Pre-rolled at 0 until the first anchor is matched (Â§4a Q13).
     r.tick(2 * kSec);
     TEST_ASSERT_EQUAL_UINT64(0, r.engine.positionUs());
     // First anchor (60 at song 0) starts the clock; the second snaps the
@@ -472,7 +472,7 @@ void test_score_follow_wrong_note_never_flashes_or_moves_the_clock() {
     r.director.onKeyDown(64, 100, 2 * kSec + 500000);
     TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
     // A wrong note at the SAME instant: the clock must not move, rewind,
-    // or stall (§4a Q8) — and it can never red-flash: the engine verdict
+    // or stall (Â§4a Q8) â€” and it can never red-flash: the engine verdict
     // path is inert by construction (transport stopped, state Idle).
     r.director.onKeyDown(100, 100, 2 * kSec + 500000);
     TEST_ASSERT_EQUAL_UINT64(500000, r.engine.positionUs());
@@ -522,7 +522,7 @@ void test_probe_dot_outranks_test_pattern_and_modes() {
     const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
     TEST_ASSERT_EQUAL_INT(1, litCount(f));
     TEST_ASSERT_EQUAL_UINT8(255, f[123].r);
-    // Probe cleared ⇒ the pattern resumes.
+    // Probe cleared â‡’ the pattern resumes.
     r.director.cancelProbe();
     TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec)) > 300);
 }
@@ -535,7 +535,7 @@ void test_probe_capture_consumes_before_practice() {
     r.engine.setMode("wait", "both", gOut);
     TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
                       r.director.armProbe(50, 1 * kSec, 30000));
-    r.director.onKeyDown(60, 100, 2 * kSec);  // the due key — probe eats it
+    r.director.onKeyDown(60, 100, 2 * kSec);  // the due key â€” probe eats it
     TEST_ASSERT_FALSE(r.director.probeArmed());
     std::string p = r.director.probeJson();
     TEST_ASSERT_TRUE(p.find("\"note\":60") != std::string::npos);
@@ -570,7 +570,7 @@ void test_probe_refused_while_playing_and_cancelled_by_play() {
 }
 
 // B-1 (what-if audit G13, A94): the probe must refuse during ANY playing
-// show, including score-follow — its transport is deliberately STOPPED (the
+// show, including score-follow â€” its transport is deliberately STOPPED (the
 // performer is the only clock), so the ordinary engine-Playing check alone
 // never catches it, and an armed probe would eat the performer's next key
 // press before the follower sees it. Adapted from the audit repro
@@ -619,10 +619,10 @@ void test_probe_arm_counts_as_activity_but_capture_wakes_too() {
                      TopMode::Reactive);
 }
 
-// --- PIN-E coverage pack (audit §3, test-only pinning tests) ---------------
+// --- PIN-E coverage pack (audit Â§3, test-only pinning tests) ---------------
 
-// §3 item 2: CC64 (sustain pedal) during a wait hold is a no-op for the
-// verdict — WaitMode has no pedal path at all, and renderFrame never reads
+// Â§3 item 2: CC64 (sustain pedal) during a wait hold is a no-op for the
+// verdict â€” WaitMode has no pedal path at all, and renderFrame never reads
 // a pedal latch. Pedal traffic during a barrier hold must leave the wait
 // state (and the piano's position) completely untouched.
 void test_p2_cc64_during_wait_hold_is_noop_for_verdict() {
@@ -651,7 +651,7 @@ void test_p2_cc64_during_wait_hold_is_noop_for_verdict() {
     TEST_ASSERT_EQUAL_UINT64(posBefore, r.engine.positionUs());
 }
 
-// §3 item 3: presses while Paused/Finished are inert for practice
+// Â§3 item 3: presses while Paused/Finished are inert for practice
 // (playback_engine.cpp's onKeyDown early-returns when state_ != Playing)
 // but still feed capture/reactive (mode_director.cpp's onKeyDown calls
 // capture_.onNoteOn unconditionally). Covers both the Paused mid-hold case
@@ -681,7 +681,7 @@ void test_p3_presses_while_paused_or_finished_are_inert_for_practice_but_feed_ca
     TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
                      std::string::npos);
     TEST_ASSERT_TRUE(r.director.recordState() == CaptureState::Recording);
-    // Resume: the SAME key must be pressed AGAIN to actually clear it — proof
+    // Resume: the SAME key must be pressed AGAIN to actually clear it â€” proof
     // the paused press was truly inert, not silently consumed by practice.
     gOut.clear();
     r.engine.transport("play", 0, gOut);
@@ -715,8 +715,8 @@ void test_p3_presses_while_paused_or_finished_are_inert_for_practice_but_feed_ca
                              "finished-state press still fed capture");
 }
 
-// §3 item 6: AFK unreachable during a PAUSED (not merely loaded) practice
-// session — topMode's gate is engine_.songLoaded() only, with no PlayState
+// Â§3 item 6: AFK unreachable during a PAUSED (not merely loaded) practice
+// session â€” topMode's gate is engine_.songLoaded() only, with no PlayState
 // check, so a real play-then-pause session must stay just as AFK-proof as
 // a song that was merely loaded and never played.
 void test_p6_afk_unreachable_while_paused_mid_practice() {
@@ -739,7 +739,7 @@ void test_p6_afk_unreachable_while_paused_mid_practice() {
     }
 }
 
-// §3 item 7: test-pattern auto-pause during a LIVE barrier hold — the
+// Â§3 item 7: test-pattern auto-pause during a LIVE barrier hold â€” the
 // pending chord must survive the F3/A35 auto-pause, and "off" (which never
 // auto-resumes) followed by an explicit resume must re-arm the exact same
 // hold rather than losing or corrupting it.
@@ -775,7 +775,7 @@ void test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes() {
     r.tick(3 * kSec + 10000);
     TEST_ASSERT_TRUE(r.engine.statusJson().find("\"pendingNotes\":[60]") !=
                      std::string::npos);
-    // The still-owed note now clears normally — the hold truly survived.
+    // The still-owed note now clears normally â€” the hold truly survived.
     r.director.onKeyDown(60, 100, 3 * kSec + 20000);
     r.tick(3 * kSec + 700000);
     TEST_ASSERT_TRUE(r.engine.statusJson().find("\"state\":\"waiting\"") !=
@@ -784,7 +784,7 @@ void test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes() {
                      std::string::npos);
 }
 
-// §3 item 8: double-arm record race at the ModeDirector layer — the second
+// Â§3 item 8: double-arm record race at the ModeDirector layer â€” the second
 // arm must be refused (AlreadyArmed) AND must leave the director's OWN
 // bookkeeping (countIn_/bpm_) exactly as the first arm set it, not
 // partially overwritten by the refused call's parameters.
@@ -802,9 +802,9 @@ void test_p8_double_arm_record_race_at_director_layer() {
         "the refused second arm must not clobber the first arm's countIn");
 }
 
-// §3 item 10: director-level pedal-echo integration. mode_director.cpp's
+// Â§3 item 10: director-level pedal-echo integration. mode_director.cpp's
 // tick() scans the engine's MIDI-out for a Cc(64) message and credits
-// capture's OWN echo guard (capture_.pedalSent) — unit-tested only via
+// capture's OWN echo guard (capture_.pedalSent) â€” unit-tested only via
 // direct pedalSent() calls until now; this exercises the actual scan.
 void test_p10_director_level_pedal_echo_excludes_song_cc64_echo() {
     Rig r;
@@ -832,7 +832,7 @@ void test_p10_director_level_pedal_echo_excludes_song_cc64_echo() {
     r.tick(2 * kSec);                    // baseline
     r.tick(2 * kSec + 501000);           // crosses the pedal event at 500ms
 
-    // The piano echoes the CC64 it just received back over BLE — must be
+    // The piano echoes the CC64 it just received back over BLE â€” must be
     // excluded from the take by the tick-scan credit, not double-captured.
     r.director.onPedal(127, 2 * kSec + 502000);
     CaptureTake take = r.director.stopRecord(2 * kSec + 600000);
@@ -841,7 +841,7 @@ void test_p10_director_level_pedal_echo_excludes_song_cc64_echo() {
     TEST_ASSERT_EQUAL_UINT8(72, take.notes[0].note);
 }
 
-// §3 item 15: a Play-along take survives a song unload mid-take — topMode
+// Â§3 item 15: a Play-along take survives a song unload mid-take â€” topMode
 // ordering (songLoaded() > Record > idle-timeout) means losing the song
 // degrades a live take to Free capture WITHOUT dropping or resetting it.
 void test_p15_playalong_take_survives_song_unload_mid_take() {
@@ -869,7 +869,7 @@ void test_p15_playalong_take_survives_song_unload_mid_take() {
     TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
 }
 
-// --- B1a: orphaned test-pattern auto-clear (BUGFIX-PLAN §3-B1) -------------
+// --- B1a: orphaned test-pattern auto-clear (BUGFIX-PLAN Â§3-B1) -------------
 
 void test_b1a_test_pattern_expires_after_timeout() {
     Rig r;
@@ -886,12 +886,12 @@ void test_b1a_test_pattern_expires_after_timeout() {
     TEST_ASSERT_FALSE_MESSAGE(
         r.director.testPatternActive(),
         "an orphaned test pattern must expire after kTestPatternTimeoutMs "
-        "(B1a/A113)");
+        "(B1a/A120)");
 }
 
 void test_b1a_test_pattern_timer_resets_on_reactivation() {
     // Switching strip<->rainbow (or re-POSTing the same pattern) is a touch
-    // — it must restart the orphan timer, not let a stale activation time
+    // â€” it must restart the orphan timer, not let a stale activation time
     // keep counting toward an early expiry underneath an actively-used
     // pattern.
     Rig r;
@@ -901,7 +901,7 @@ void test_b1a_test_pattern_timer_resets_on_reactivation() {
     uint64_t touchAt = 1 * kSec + timeoutUs - 1000;  // just before the ORIGINAL expiry
     TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", touchAt, gOut));
     // Well past the original activation's timeout, but well under the
-    // refreshed one — must still be active.
+    // refreshed one â€” must still be active.
     r.tick(touchAt + timeoutUs - 1000);
     TEST_ASSERT_TRUE_MESSAGE(r.director.testPatternActive(),
                              "re-activating must restart the orphan timer");
@@ -926,7 +926,7 @@ void test_b1a_test_pattern_clears_when_play_begins() {
     r.tick(1 * kSec);
     r.load();
     r.tick(2 * kSec);
-    // Set while Idle — no auto-pause fires (F3/A35 only pauses if it was
+    // Set while Idle â€” no auto-pause fires (F3/A35 only pauses if it was
     // Playing at set time), reproducing exactly the "vanished client, the
     // engine sits Idle underneath the pattern" scenario B1a targets.
     TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 2 * kSec, gOut));
@@ -963,7 +963,7 @@ void test_b1a_test_pattern_clears_on_show_start() {
         "(B1a) immediately, not waiting for the next tick");
 }
 
-// --- B1b: a Finished show tears itself down (BUGFIX-PLAN §3-B1) ------------
+// --- B1b: a Finished show tears itself down (BUGFIX-PLAN Â§3-B1) ------------
 
 void test_b1b_finished_demo_show_tears_itself_down() {
     Rig r;
@@ -1000,7 +1000,7 @@ void test_b1b_finished_demo_show_tears_itself_down() {
 
 void test_b1b_score_follow_show_immune_to_finished_teardown() {
     // The B1b Finished-teardown must only ever fire for demo/follow-clock
-    // shows — score-follow's transport is deliberately kept out of Playing
+    // shows â€” score-follow's transport is deliberately kept out of Playing
     // (the performer is the only clock), so it never reaches
     // PlayState::Finished. Regression guard against a broader condition
     // that mistakes Idle for Finished.
@@ -1017,7 +1017,7 @@ void test_b1b_score_follow_show_immune_to_finished_teardown() {
         "score-follow shows must never auto-teardown via the Finished path");
 }
 
-// --- B2: AFK next/previous STEER, never WAKE (ruling §6-4) -----------------
+// --- B2: AFK next/previous STEER, never WAKE (ruling Â§6-4) -----------------
 
 void test_b2_afk_next_previous_never_wake_afk() {
     Rig r;
@@ -1027,11 +1027,11 @@ void test_b2_afk_next_previous_never_wake_afk() {
     r.director.afkNext();
     TEST_ASSERT_TRUE_MESSAGE(
         r.director.topMode(200 * kSec) == TopMode::Afk,
-        "afkNext is ambient transport (STEERS) — it must not WAKE AFK");
+        "afkNext is ambient transport (STEERS) â€” it must not WAKE AFK");
     r.director.afkPrevious();
     TEST_ASSERT_TRUE_MESSAGE(
         r.director.topMode(200 * kSec) == TopMode::Afk,
-        "afkPrevious is ambient transport (STEERS) — it must not WAKE AFK");
+        "afkPrevious is ambient transport (STEERS) â€” it must not WAKE AFK");
 }
 
 int main(int, char**) {

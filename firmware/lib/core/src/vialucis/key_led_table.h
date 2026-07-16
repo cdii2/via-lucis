@@ -30,6 +30,15 @@ enum class TableError : uint8_t {
     DirectionMixed,    // LED sequence must be strictly one-directional
     RangeOffStrip,     // an entry escapes [0, ledCount) or is inverted
     Overlap,           // adjacent (valid) keys share LEDs
+    TooFewKeys,        // B6b: a perKey PUT needs >= 2 distinct populated keys
+                       // (an empty or single-key body would otherwise
+                       // validate() as a "sparse but structurally fine"
+                       // table and silently blank the whole strip — that
+                       // acceptance is correct for revalidating an
+                       // already-stored/self-healed doc, wrong for a fresh
+                       // wizard submission, so this is enforced at the
+                       // Calibration::fromJson API boundary, not inside
+                       // TableBuilder::validate()).
 };
 
 class KeyLedTable {

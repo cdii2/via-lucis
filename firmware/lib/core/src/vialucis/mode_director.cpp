@@ -211,6 +211,9 @@ ModeDirector::ProbeArm ModeDirector::armProbe(uint16_t led, uint64_t nowUs,
     // key press before the follower ever sees it.
     if (engine_.state() == PlayState::Playing || showPlaying_)
         return ProbeArm::Playing;
+    // B6c: never arm the probe mid-take (Armed count-in or Recording) — an
+    // armed probe would eat the performer's notes out of the capture stream.
+    if (capture_.state() != CaptureState::Idle) return ProbeArm::Recording;
     if (led >= ledCount_) return ProbeArm::BadLed;
     if (timeoutMs < 1000) timeoutMs = 1000;
     if (timeoutMs > 300000) timeoutMs = 300000;
@@ -228,6 +231,9 @@ std::string ModeDirector::probeJson() const {
     JsonDocument doc;
     doc["armed"] = probe_.armed();
     doc["led"] = probe_.led();
+    // B6d: expired-without-capture is a distinct answer from "not armed" —
+    // the wizard shows a Retry instead of polling a stale ambiguity.
+    doc["timedOut"] = probe_.timedOut();
     if (probe_.hasCapture()) doc["note"] = probe_.capturedNote();
     else doc["note"] = nullptr;
     std::string out;

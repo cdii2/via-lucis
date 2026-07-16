@@ -103,6 +103,112 @@ static void test_per_key_round_trip_and_gaps_stay_dark() {
     assertTablesEqual(c.table, back.table);
 }
 
+// B6a: perKey infers `reversed` from the table's own LED direction — never
+// trusts whatever scalar (or absence of one) rode along in the body.
+static void test_per_key_infers_reversed_ascending() {
+    const char* body =
+        "{\"tier\":\"perKey\",\"keys\":["
+        "{\"note\":60,\"first\":150,\"last\":152},"
+        "{\"note\":62,\"first\":158,\"last\":160}]}";
+    Calibration c;
+    TEST_ASSERT_TRUE(Calibration::fromJson(body, 360, c).ok());
+    TEST_ASSERT_FALSE(c.reversed);
+}
+
+static void test_per_key_infers_reversed_descending() {
+    const char* body =
+        "{\"tier\":\"perKey\",\"keys\":["
+        "{\"note\":60,\"first\":200,\"last\":202},"
+        "{\"note\":62,\"first\":100,\"last\":102}]}";
+    Calibration c;
+    CalibResult r = Calibration::fromJson(body, 360, c);
+    TEST_ASSERT_TRUE(r.ok());
+    TEST_ASSERT_TRUE(c.reversed);
+}
+
+// The scalar in the body must NOT win — even a body that explicitly lies
+// about `reversed` gets overridden by the table's actual direction (this is
+// the exact "settings nudge flips a mirrored strip" bug B6a closes).
+static void test_per_key_reversed_scalar_in_body_is_overridden() {
+    const char* saysForwardButIsMirrored =
+        "{\"tier\":\"perKey\",\"reversed\":false,\"keys\":["
+        "{\"note\":60,\"first\":200,\"last\":202},"
+        "{\"note\":62,\"first\":100,\"last\":102}]}";
+    Calibration c1;
+    TEST_ASSERT_TRUE(
+        Calibration::fromJson(saysForwardButIsMirrored, 360, c1).ok());
+    TEST_ASSERT_TRUE(c1.reversed);
+
+    const char* saysMirroredButIsForward =
+        "{\"tier\":\"perKey\",\"reversed\":true,\"keys\":["
+        "{\"note\":60,\"first\":150,\"last\":152},"
+        "{\"note\":62,\"first\":158,\"last\":160}]}";
+    Calibration c2;
+    TEST_ASSERT_TRUE(
+        Calibration::fromJson(saysMirroredButIsForward, 360, c2).ok());
+    TEST_ASSERT_FALSE(c2.reversed);
+}
+
+// B6b: empty/degenerate perKey bodies must not silently blank every key.
+static void test_per_key_empty_table_is_typed_error() {
+    Calibration c;
+    CalibResult r =
+        Calibration::fromJson("{\"tier\":\"perKey\",\"keys\":[]}", 360, c);
+    TEST_ASSERT_EQUAL(CalibResult::Kind::BadTable, r.kind);
+    TEST_ASSERT_EQUAL(TableError::TooFewKeys, r.tableError);
+}
+
+static void test_per_key_single_key_is_typed_error() {
+    Calibration c;
+    CalibResult r = Calibration::fromJson(
+        "{\"tier\":\"perKey\",\"keys\":[{\"note\":60,\"first\":150,"
+        "\"last\":152}]}",
+        360, c);
+    TEST_ASSERT_EQUAL(CalibResult::Kind::BadTable, r.kind);
+    TEST_ASSERT_EQUAL(TableError::TooFewKeys, r.tableError);
+}
+
+// Duplicate notes overwrite in place — a body that LOOKS like 2 entries but
+// names the same key twice must still be caught (only 1 key ever actually
+// gets populated).
+static void test_per_key_duplicate_note_collapses_to_too_few() {
+    Calibration c;
+    CalibResult r = Calibration::fromJson(
+        "{\"tier\":\"perKey\",\"keys\":["
+        "{\"note\":60,\"first\":150,\"last\":152},"
+        "{\"note\":60,\"first\":160,\"last\":162}]}",
+        360, c);
+    TEST_ASSERT_EQUAL(CalibResult::Kind::BadTable, r.kind);
+    TEST_ASSERT_EQUAL(TableError::TooFewKeys, r.tableError);
+}
+
+// A degenerate "all keys point at the same single LED" body is already
+// caught by TableBuilder::validate()'s Overlap check (equal ranges satisfy
+// neither the ascending nor descending comparison) — pin that so it's
+// documented as covered, not accidentally regressed.
+static void test_per_key_all_same_led_is_overlap_not_too_few() {
+    Calibration c;
+    CalibResult r = Calibration::fromJson(
+        "{\"tier\":\"perKey\",\"keys\":["
+        "{\"note\":60,\"first\":150,\"last\":150},"
+        "{\"note\":62,\"first\":150,\"last\":150}]}",
+        360, c);
+    TEST_ASSERT_EQUAL(CalibResult::Kind::BadTable, r.kind);
+    TEST_ASSERT_EQUAL(TableError::Overlap, r.tableError);
+}
+
+// Rejected perKey bodies must leave `out` untouched — same contract the
+// other typed-error paths already have (test_failed_parse_leaves_out_
+// untouched covers the overlap case; this covers the new TooFewKeys path).
+static void test_per_key_too_few_keys_leaves_out_untouched() {
+    Settings s;
+    Calibration current = Calibration::fromSettings(s, 360);
+    KeyLedTable before = current.table;
+    Calibration::fromJson("{\"tier\":\"perKey\",\"keys\":[]}", 360, current);
+    assertTablesEqual(before, current.table);
+    TEST_ASSERT_EQUAL_STRING("twoPoint", current.tier.c_str());
+}
+
 static void test_garbage_and_partial_bodies_are_typed_400s() {
     Calibration c;
     TEST_ASSERT_EQUAL(CalibResult::Kind::BadJson,
@@ -199,9 +305,10 @@ static void test_error_messages_are_distinct_and_nonempty() {
         "{\"tier\":\"multiPoint\",\"landmarks\":[{\"note\":21,\"led\":2}]}",
         "{\"tier\":\"perKey\",\"keys\":[{\"note\":60,\"first\":150,"
         "\"last\":155},{\"note\":61,\"first\":155,\"last\":158}]}",
+        "{\"tier\":\"perKey\",\"keys\":[]}",
     };
-    std::string seen[5];
-    for (int i = 0; i < 5; ++i) {
+    std::string seen[6];
+    for (int i = 0; i < 6; ++i) {
         CalibResult r = Calibration::fromJson(bodies[i], 360, c);
         TEST_ASSERT_FALSE(r.ok());
         seen[i] = r.message();
@@ -233,6 +340,14 @@ int main(int, char**) {
     RUN_TEST(test_multi_point_round_trip);
     RUN_TEST(test_multi_point_descending_reports_reversed);
     RUN_TEST(test_per_key_round_trip_and_gaps_stay_dark);
+    RUN_TEST(test_per_key_infers_reversed_ascending);
+    RUN_TEST(test_per_key_infers_reversed_descending);
+    RUN_TEST(test_per_key_reversed_scalar_in_body_is_overridden);
+    RUN_TEST(test_per_key_empty_table_is_typed_error);
+    RUN_TEST(test_per_key_single_key_is_typed_error);
+    RUN_TEST(test_per_key_duplicate_note_collapses_to_too_few);
+    RUN_TEST(test_per_key_all_same_led_is_overlap_not_too_few);
+    RUN_TEST(test_per_key_too_few_keys_leaves_out_untouched);
     RUN_TEST(test_garbage_and_partial_bodies_are_typed_400s);
     RUN_TEST(test_bad_or_missing_tier_is_typed);
     RUN_TEST(test_missing_tier_fields_are_typed);
