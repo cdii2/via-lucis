@@ -81,6 +81,20 @@ struct RecordStatus {
     uint16_t bpm;
 };
 
+// Device telemetry for GET /api/status (A3) — storage + heap + uptime + the FS
+// health flag. Device-side facts the engine can't know; filled by App and
+// serialized here so the status document is still authored ONCE (R4), never
+// spliced. Appended before wifi (wifi stays the last key), like top/record.
+struct DeviceStatus {
+    const char* fs;         // "ok" | "error" (FsHealth: Mounted vs any fault)
+    uint32_t fsFree;        // LittleFS free bytes
+    uint32_t fsTotal;       // LittleFS total bytes
+    uint32_t fsUsed;        // LittleFS used bytes
+    uint32_t heapFree;      // ESP.getFreeHeap()
+    uint32_t heapMaxAlloc;  // ESP.getMaxAllocHeap() (largest contiguous block)
+    uint32_t uptimeMs;      // ms since boot
+};
+
 class PlaybackEngine {
 public:
     PlaybackEngine();
@@ -169,7 +183,8 @@ public:
     // fields are included (before wifi — wifi stays the last key).
     std::string statusJson(const WifiStatus* wifi = nullptr,
                            const TopStatus* top = nullptr,
-                           const RecordStatus* rec = nullptr) const;
+                           const RecordStatus* rec = nullptr,
+                           const DeviceStatus* dev = nullptr) const;
 
     PlayState state() const { return state_; }
     uint64_t positionUs() const { return sched_ ? sched_->positionUs() : 0; }

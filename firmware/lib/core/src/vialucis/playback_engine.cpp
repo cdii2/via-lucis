@@ -501,7 +501,8 @@ const std::vector<Rgb>& PlaybackEngine::renderFrame(uint64_t nowUs) {
 
 std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
                                        const TopStatus* top,
-                                       const RecordStatus* rec) const {
+                                       const RecordStatus* rec,
+                                       const DeviceStatus* dev) const {
     JsonDocument doc;
     doc["version"] = kVersion;
     doc["song"] = songName_;
@@ -563,6 +564,16 @@ std::string PlaybackEngine::statusJson(const WifiStatus* wifi,
         r["budgetBytes"] = rec->budgetBytes;
         r["countIn"] = rec->countIn;
         r["bpm"] = rec->bpm;
+    }
+
+    if (dev) {  // A3 telemetry — also BEFORE wifi (wifi stays last)
+        doc["fs"] = dev->fs;
+        doc["fsFree"] = dev->fsFree;
+        doc["fsTotal"] = dev->fsTotal;
+        doc["fsUsed"] = dev->fsUsed;
+        doc["heapFree"] = dev->heapFree;
+        doc["heapMaxAlloc"] = dev->heapMaxAlloc;
+        doc["uptimeMs"] = dev->uptimeMs;
     }
 
     if (wifi) {
