@@ -104,8 +104,17 @@ const std::vector<std::string>& effectNames();
 const Palette16* paletteByName(const std::string& name);  // "" / unknown → null
 
 // /afk.json + GET/PUT /api/afk wire shape (VL2 — documents get resources).
-// fromJson validates track effect names against the factory; on failure
-// `err` gets the typed message and `out` is untouched.
+// PATCH semantics (mirrors Settings::fromJson, R3 fix): `out` is an IN/OUT
+// param — the caller passes the CURRENT config in, and only the keys
+// present in `json` are overwritten; every other field is left exactly as
+// it was. A body with none of the recognized AFK keys (foreign JSON, an
+// empty object, a body meant for a different route entirely) is REJECTED
+// rather than silently accepted as "no changes" — that ambiguity is what let
+// a swallowed `{"action":"stop"}` reset the whole config to defaults. Track
+// effect names are still validated against the factory. On ANY failure
+// `err` gets the typed message and `out` is left completely untouched
+// (no partial patch). `masterSpeed` and `dwellSec` are clamped to their
+// documented ranges (API.md) rather than rejected when out of range.
 std::string afkConfigToJson(const AfkConfig& c);
 bool afkConfigFromJson(const char* json, AfkConfig& out, std::string* err);
 
