@@ -233,6 +233,10 @@ input[type=color] {
 .songitem .sz { font-size: 0.7rem; color: var(--dim); }
 .songitem.current .nm { color: var(--lux); }
 .empty { color: var(--dim); font-size: 0.85rem; text-align: center; padding: 18px 0; }
+/* storage gauge (A5): device fsFree/fsTotal, no hardcoded partition size */
+.gaugetrack { height: 8px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; margin-top: 8px; }
+.gaugefill { height: 100%; background: var(--lux); border-radius: 4px 0 0 4px; transition: width 0.2s; }
+.gaugefill.low { background: var(--red); }
 
 /* ============ settings ============ */
 .set-grid label { flex: 1; font-size: 0.88rem; }
@@ -440,6 +444,11 @@ input[type=color] {
     <input type="file" id="fileInput" accept=".mid,.midi" style="display:none">
     <div class="note-txt">MIDI (.mid) files up to 256 KB. Split hands into separate tracks in MuseScore first if needed.</div>
   </div>
+  <div class="card" id="storageCard" style="display:none">
+    <h2>Storage</h2>
+    <div class="row" style="min-height:auto"><span class="grow" id="storageText">–</span></div>
+    <div class="gaugetrack"><div class="gaugefill" id="storageFill" style="width:0%"></div></div>
+  </div>
   <div class="card">
     <h2>Song library</h2>
     <div id="songList"><div class="empty">Loading…</div></div>
@@ -601,6 +610,13 @@ function toast(msg, isErr) {
 }
 
 /* ---------- fetch helpers ---------- */
+// A5: human fallback for a non-2xx reply that has no {"error":...} body of
+// its own yet (older firmware, or a status the device can't annotate).
+function fallbackErrorMessage(status, method, url) {
+  if (status === 507) return "Device may be out of space";
+  if (status === 409) return "That's already in use on the device — try again";
+  return method + " " + url + " failed (" + status + ")";
+}
 function api(method, url, body, raw) {
   var opts = { method: method };
   if (body !== undefined && body !== null) {
@@ -616,11 +632,21 @@ function api(method, url, body, raw) {
       var data = null;
       try { data = txt ? JSON.parse(txt) : null; } catch (e) { /* non-JSON ok */ }
       if (!r.ok) {
-        var msg = (data && data.error) ? data.error : (method + " " + url + " failed (" + r.status + ")");
-        throw new Error(msg);
+        var msg = (data && data.error) || fallbackErrorMessage(r.status, method, url);
+        var err = new Error(msg);
+        err.status = r.status;
+        throw err;
       }
       return data;
     });
+  }, function (networkErr) {
+    // fetch() itself rejected (offline, DNS/CORS, device rebooting mid-poll,
+    // etc.) — this is the TypeError branch, distinct from an HTTP error
+    // status above. Give a human message instead of "Failed to fetch".
+    var err = new Error("Device unreachable — check the connection");
+    err.status = 0;
+    err.cause = networkErr;
+    throw err;
   });
 }
 function send(method, url, body) {
@@ -801,6 +827,32 @@ function renderStatus(s) {
 
   // record
   renderRecord(s);
+
+  // storage gauge (A5)
+  renderStorage(s);
+}
+
+/* =========================================================
+   STORAGE GAUGE (A5) — fed by /api/status fsFree/fsTotal/fsUsed.
+   Old firmware won't have these fields yet: hide the card entirely
+   rather than show a bogus/zero gauge. Never hardcode the partition
+   size — always compute off fsTotal (a repartition is coming).
+   ========================================================= */
+function renderStorage(s) {
+  var card = $("storageCard");
+  if (typeof s.fsTotal !== "number" || typeof s.fsFree !== "number" || s.fsTotal <= 0) {
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "";
+  var used = (typeof s.fsUsed === "number") ? s.fsUsed : Math.max(0, s.fsTotal - s.fsFree);
+  var usedKB = Math.round(used / 1024);
+  var totalKB = Math.round(s.fsTotal / 1024);
+  $("storageText").textContent = usedKB + " of " + totalKB + " KB used";
+  var pct = Math.min(100, Math.max(0, (used / s.fsTotal) * 100));
+  var fill = $("storageFill");
+  fill.style.width = pct + "%";
+  fill.className = "gaugefill" + (s.fsFree < 64 * 1024 ? " low" : "");
 }
 
 /* =========================================================
@@ -1146,13 +1198,46 @@ function refreshSongs() {
   }).catch(function () {});
 }
 
+/* ---------- upload name sanitization (A5) ----------
+   charset [A-Za-z0-9-_ .], length 5-64 incl. extension, extension forced
+   to lowercase ".mid", common accents transliterated away first (é/ü/ñ/ç
+   etc. — String.normalize + strip combining marks, no library needed). */
+var SONG_NAME_CHARSET = /^[A-Za-z0-9\-_ .]+$/;
+function transliterate(s) {
+  return (typeof s.normalize === "function")
+    ? s.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    : s;
+}
+function sanitizeSongName(rawName) {
+  var name = transliterate(String(rawName || "").trim());
+  var extMatch = name.match(/\.(mid|midi)$/i);
+  if (!extMatch) return { ok: false, reason: "Only .mid files can be uploaded" };
+  name = name.slice(0, extMatch.index) + ".mid"; // lowercase the extension
+  if (!SONG_NAME_CHARSET.test(name)) {
+    return { ok: false, reason: "Name can only use letters, numbers, spaces, - and _" };
+  }
+  if (name.length < 5 || name.length > 64) {
+    return { ok: false, reason: "Name must be 5-64 characters, including \".mid\"" };
+  }
+  return { ok: true, name: name };
+}
+
 $("btnUpload").addEventListener("click", function () { $("fileInput").click(); });
 $("fileInput").addEventListener("change", function () {
   var f = $("fileInput").files[0];
   if (!f) return;
-  var name = f.name.replace(/\.midi$/i, ".mid");
-  if (!/\.mid$/i.test(name)) { toast("Only .mid files can be uploaded", true); return; }
-  if (f.size > 256 * 1024) { toast("File too big (max 256 KB)", true); return; }
+  var sanitized = sanitizeSongName(f.name);
+  if (!sanitized.ok) {
+    toast(sanitized.reason, true);
+    $("fileInput").value = "";
+    return;
+  }
+  var name = sanitized.name;
+  if (f.size > 256 * 1024) {
+    toast("File too big (max 256 KB)", true);
+    $("fileInput").value = "";
+    return;
+  }
   var btn = $("btnUpload");
   btn.disabled = true;
   btn.textContent = "Uploading…";
@@ -1160,13 +1245,16 @@ $("fileInput").addEventListener("change", function () {
     return api("POST", "/api/songs?name=" + encodeURIComponent(name), buf, true);
   }).then(function () {
     toast("Uploaded " + name);
-    refreshSongs();
   }).catch(function (e) {
-    toast(e.message, true);
+    var msg = e && e.message;
+    if (e && e.status === 409) msg = "That song is currently loaded — unload it first, then upload again";
+    else if (e && e.status === 507) msg = "Upload failed — device may be out of space";
+    toast(msg || "Upload failed", true);
   }).finally(function () {
     btn.disabled = false;
     btn.textContent = "Upload MIDI file…";
     $("fileInput").value = "";
+    refreshSongs(); // A5: never leave a stale list after a failed upload
   });
 });
 
@@ -1319,7 +1407,9 @@ function loadAfk() {
 }
 $("afkAdd").addEventListener("click", function () {
   if (!afkCfg) return;
-  (afkCfg.tracks = afkCfg.tracks || []).push({ effect: "rainbow", palette: "" });
+  // A5/R4: default to the first REAL effect, never a palette name (the
+  // firmware rejects the whole playlist PUT if effect/palette cross-wire).
+  (afkCfg.tracks = afkCfg.tracks || []).push({ effect: AFK_EFFECTS[0], palette: "" });
   renderAfk(); afkSave();
 });
 $("afkShuffle").addEventListener("change", function () { if (afkCfg) { afkCfg.shuffle = $("afkShuffle").checked; afkSave(); } });
