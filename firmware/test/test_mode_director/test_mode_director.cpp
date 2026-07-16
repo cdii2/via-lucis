@@ -167,13 +167,13 @@ void test_reactive_renders_dark_practice_renders_engine() {
 void test_test_pattern_is_a_forced_source_over_any_mode() {
     Rig r;
     r.tick(1 * kSec);
-    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", gOut));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 1 * kSec, gOut));
     const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
     TEST_ASSERT_EQUAL_INT(1, litCount(f));  // the walking white dot
-    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", gOut));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", 1 * kSec, gOut));
     TEST_ASSERT_TRUE(litCount(r.director.renderFrame(1 * kSec)) > 300);
-    TEST_ASSERT_FALSE(r.director.setTestPattern("nope", gOut));
-    TEST_ASSERT_TRUE(r.director.setTestPattern("off", gOut));
+    TEST_ASSERT_FALSE(r.director.setTestPattern("nope", 1 * kSec, gOut));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off", 1 * kSec, gOut));
     TEST_ASSERT_EQUAL_INT(0, litCount(r.director.renderFrame(1 * kSec)));
 }
 
@@ -189,14 +189,14 @@ void test_pattern_activation_auto_pauses_playback() {
     r.tick(2 * kSec);              // baseline
     r.tick(2 * kSec + 100000);     // 100ms in, notes sounding
     std::vector<MidiOutMsg> out;
-    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", out));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 2 * kSec + 100000, out));
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);  // paused
     int offs = 0;
     for (const MidiOutMsg& m : out)
         if (m.type == MidiOutType::NoteOff) ++offs;
     TEST_ASSERT_TRUE_MESSAGE(offs >= 1, "pause flushes sounding notes");
     // "off" does not auto-resume; the position is frozen where it paused.
-    TEST_ASSERT_TRUE(r.director.setTestPattern("off", out));
+    TEST_ASSERT_TRUE(r.director.setTestPattern("off", 2 * kSec + 150000, out));
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
 }
 
@@ -217,7 +217,7 @@ void test_w29_test_pattern_refused_or_inert_during_show() {
     r.tick(1000);
     r.tick(200000);
     TEST_ASSERT_TRUE(r.director.showPlaying());
-    bool accepted = r.director.setTestPattern("rainbow", gOut);
+    bool accepted = r.director.setTestPattern("rainbow", 200000, gOut);
     // Correct behavior: refuse the pattern while a show performs, or at
     // minimum leave the show's clock running.
     if (accepted) {
@@ -243,7 +243,7 @@ void test_C22_test_pattern_freezes_scorefollow_clock() {
     r.tick(1100000);
     r.tick(1200000);                          // clock coasts
     uint64_t frozen = r.engine.positionUs();
-    r.director.setTestPattern("strip", gOut);  // pattern up ⇒ clock freezes
+    r.director.setTestPattern("strip", 1200000, gOut);  // pattern up ⇒ clock freezes
     r.director.onKeyDown(64, 100, 1300000);    // next anchor
     r.tick(1400000);
     TEST_ASSERT_EQUAL_UINT64_MESSAGE(
@@ -516,7 +516,7 @@ void test_score_follow_deactivates_on_every_show_exit_path() {
 void test_probe_dot_outranks_test_pattern_and_modes() {
     Rig r;
     r.tick(1 * kSec);
-    r.director.setTestPattern("rainbow", gOut);
+    r.director.setTestPattern("rainbow", 1 * kSec, gOut);
     TEST_ASSERT_EQUAL(ModeDirector::ProbeArm::Ok,
                       r.director.armProbe(123, 1 * kSec, 30000));
     const std::vector<Rgb>& f = r.director.renderFrame(1 * kSec);
@@ -757,14 +757,16 @@ void test_p7_test_pattern_autopause_preserves_barrier_hold_and_resumes() {
                      std::string::npos);
 
     std::vector<MidiOutMsg> patOut;
-    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", patOut));  // auto-pause
+    TEST_ASSERT_TRUE(
+        r.director.setTestPattern("strip", 2 * kSec + 50000, patOut));  // auto-pause
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
     TEST_ASSERT_TRUE_MESSAGE(
         r.engine.statusJson().find("\"pendingNotes\":[60]") !=
             std::string::npos,
         "the pending chord must survive the auto-pause, not wipe");
 
-    TEST_ASSERT_TRUE(r.director.setTestPattern("off", patOut));  // no auto-resume
+    TEST_ASSERT_TRUE(
+        r.director.setTestPattern("off", 2 * kSec + 60000, patOut));  // no auto-resume
     TEST_ASSERT_TRUE(r.engine.state() == PlayState::Idle);
 
     gOut.clear();
@@ -867,6 +869,171 @@ void test_p15_playalong_take_survives_song_unload_mid_take() {
     TEST_ASSERT_EQUAL_size_t(2, take.notes.size());
 }
 
+// --- B1a: orphaned test-pattern auto-clear (BUGFIX-PLAN §3-B1) -------------
+
+void test_b1a_test_pattern_expires_after_timeout() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 1 * kSec, gOut));
+    TEST_ASSERT_TRUE(r.director.testPatternActive());
+    uint64_t timeoutUs = static_cast<uint64_t>(kTestPatternTimeoutMs) * 1000ull;
+    // Just under the timeout: a vanished client's pattern is still up.
+    r.tick(1 * kSec + timeoutUs - 1000);
+    TEST_ASSERT_TRUE_MESSAGE(r.director.testPatternActive(),
+                             "must not expire before the timeout elapses");
+    // At the timeout: auto-cleared, with nothing else having touched it.
+    r.tick(1 * kSec + timeoutUs);
+    TEST_ASSERT_FALSE_MESSAGE(
+        r.director.testPatternActive(),
+        "an orphaned test pattern must expire after kTestPatternTimeoutMs "
+        "(B1a/A113)");
+}
+
+void test_b1a_test_pattern_timer_resets_on_reactivation() {
+    // Switching strip<->rainbow (or re-POSTing the same pattern) is a touch
+    // — it must restart the orphan timer, not let a stale activation time
+    // keep counting toward an early expiry underneath an actively-used
+    // pattern.
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 1 * kSec, gOut));
+    uint64_t timeoutUs = static_cast<uint64_t>(kTestPatternTimeoutMs) * 1000ull;
+    uint64_t touchAt = 1 * kSec + timeoutUs - 1000;  // just before the ORIGINAL expiry
+    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", touchAt, gOut));
+    // Well past the original activation's timeout, but well under the
+    // refreshed one — must still be active.
+    r.tick(touchAt + timeoutUs - 1000);
+    TEST_ASSERT_TRUE_MESSAGE(r.director.testPatternActive(),
+                             "re-activating must restart the orphan timer");
+    r.tick(touchAt + timeoutUs);
+    TEST_ASSERT_FALSE(r.director.testPatternActive());
+}
+
+void test_b1a_test_pattern_clears_on_fresh_song_load() {
+    Rig r;
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 1 * kSec, gOut));
+    TEST_ASSERT_TRUE(r.director.testPatternActive());
+    r.load();  // a fresh load reclaims the strip (next tick's edge check)
+    r.tick(2 * kSec);
+    TEST_ASSERT_FALSE_MESSAGE(
+        r.director.testPatternActive(),
+        "a fresh song load must auto-clear an orphaned test pattern (B1a)");
+}
+
+void test_b1a_test_pattern_clears_when_play_begins() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.load();
+    r.tick(2 * kSec);
+    // Set while Idle — no auto-pause fires (F3/A35 only pauses if it was
+    // Playing at set time), reproducing exactly the "vanished client, the
+    // engine sits Idle underneath the pattern" scenario B1a targets.
+    TEST_ASSERT_TRUE(r.director.setTestPattern("strip", 2 * kSec, gOut));
+    TEST_ASSERT_TRUE(r.director.testPatternActive());
+    gOut.clear();
+    r.engine.transport("play", 0, gOut);  // the physical player hits Play
+    r.tick(3 * kSec);
+    TEST_ASSERT_FALSE_MESSAGE(
+        r.director.testPatternActive(),
+        "transport entering Playing must reclaim the strip from an "
+        "orphaned pattern (B1a)");
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.engine.state() == PlayState::Playing,
+        "the play action itself must not be undone by the auto-clear");
+}
+
+void test_b1a_test_pattern_clears_on_show_start() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    TEST_ASSERT_TRUE(r.director.setTestPattern("rainbow", 1 * kSec, gOut));
+    TEST_ASSERT_TRUE(r.director.testPatternActive());
+    r.load();
+    Show s;
+    s.effects.push_back("colorwaves");
+    ShowCue cue;
+    cue.endMs = 0xFFFFFFFFu;
+    s.cues.push_back(cue);
+    gOut.clear();
+    r.director.startShow(std::move(s), 7, gOut);  // no intervening tick()
+    TEST_ASSERT_FALSE_MESSAGE(
+        r.director.testPatternActive(),
+        "starting a show must reclaim the strip from an orphaned pattern "
+        "(B1a) immediately, not waiting for the next tick");
+}
+
+// --- B1b: a Finished show tears itself down (BUGFIX-PLAN §3-B1) ------------
+
+void test_b1b_finished_demo_show_tears_itself_down() {
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(0), 99, gOut);  // demo clock
+    TEST_ASSERT_TRUE(r.director.showPlaying());
+    TEST_ASSERT_TRUE(r.director.topMode(1 * kSec) == TopMode::Presentation);
+    r.tick(1 * kSec + 10000);            // baseline (transport play re-arms
+                                          // the engine's own delta clock)
+    uint64_t finishedAt = 1 * kSec + 10000 + 1700000;  // ~1.7s later: past
+                                                        // chordSong's 1.5s end
+    r.tick(finishedAt);
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.engine.state() == PlayState::Finished,
+        "precondition: the demo-clocked practiced song reached its end");
+    TEST_ASSERT_FALSE_MESSAGE(
+        r.director.showPlaying(),
+        "PlayState::Finished must tear the show down without a manual "
+        "/api/shows/stop (B1b)");
+    TEST_ASSERT_TRUE(r.director.topMode(finishedAt) == TopMode::Practice);
+    // The teardown must also lift the show-only refusals: setMode and the
+    // probe are refused ONLY while showPlaying_.
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.setMode("wait", "both", gOut),
+        "mode PUT must no longer be refused once the show tore itself down");
+    TEST_ASSERT_EQUAL_MESSAGE(
+        static_cast<int>(ModeDirector::ProbeArm::Ok),
+        static_cast<int>(r.director.armProbe(5, finishedAt, 30000)),
+        "probe must no longer be refused once the show tore itself down");
+}
+
+void test_b1b_score_follow_show_immune_to_finished_teardown() {
+    // The B1b Finished-teardown must only ever fire for demo/follow-clock
+    // shows — score-follow's transport is deliberately kept out of Playing
+    // (the performer is the only clock), so it never reaches
+    // PlayState::Finished. Regression guard against a broader condition
+    // that mistakes Idle for Finished.
+    Rig r;
+    r.director.setTable(TableBuilder::fromTwoPoint(LedMapConfig{}));
+    r.tick(1 * kSec);
+    r.load();
+    gOut.clear();
+    r.director.startShow(scoreFollowShow(2), 7, gOut);
+    r.director.onKeyDown(60, 100, 1 * kSec);  // starts the follower's clock
+    for (int i = 1; i <= 20; ++i) r.tick(1 * kSec + i * 500000ull);
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.showPlaying(),
+        "score-follow shows must never auto-teardown via the Finished path");
+}
+
+// --- B2: AFK next/previous STEER, never WAKE (ruling §6-4) -----------------
+
+void test_b2_afk_next_previous_never_wake_afk() {
+    Rig r;
+    r.tick(1 * kSec);
+    r.tick(200 * kSec);  // idle timeout elapses with no song
+    TEST_ASSERT_TRUE(r.director.topMode(200 * kSec) == TopMode::Afk);
+    r.director.afkNext();
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.topMode(200 * kSec) == TopMode::Afk,
+        "afkNext is ambient transport (STEERS) — it must not WAKE AFK");
+    r.director.afkPrevious();
+    TEST_ASSERT_TRUE_MESSAGE(
+        r.director.topMode(200 * kSec) == TopMode::Afk,
+        "afkPrevious is ambient transport (STEERS) — it must not WAKE AFK");
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_boot_state_is_reactive);
@@ -904,5 +1071,13 @@ int main(int, char**) {
     RUN_TEST(test_p8_double_arm_record_race_at_director_layer);
     RUN_TEST(test_p10_director_level_pedal_echo_excludes_song_cc64_echo);
     RUN_TEST(test_p15_playalong_take_survives_song_unload_mid_take);
+    RUN_TEST(test_b1a_test_pattern_expires_after_timeout);
+    RUN_TEST(test_b1a_test_pattern_timer_resets_on_reactivation);
+    RUN_TEST(test_b1a_test_pattern_clears_on_fresh_song_load);
+    RUN_TEST(test_b1a_test_pattern_clears_when_play_begins);
+    RUN_TEST(test_b1a_test_pattern_clears_on_show_start);
+    RUN_TEST(test_b1b_finished_demo_show_tears_itself_down);
+    RUN_TEST(test_b1b_score_follow_show_immune_to_finished_teardown);
+    RUN_TEST(test_b2_afk_next_previous_never_wake_afk);
     return UNITY_END();
 }
