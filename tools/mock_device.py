@@ -41,18 +41,23 @@ state = {
         {"index": 1, "name": "Left", "hand": "left", "lights": True},
     ],
     "pendingNotes": [60, 64, 67],  # C4-E4-G4 chord owed in wait mode
+    "practice": "both",  # C1: player's last-chosen practice hand (webui Wave C)
 }
 settings = {
     "leftColor": "#0000FF", "rightColor": "#00FF00", "wrongColor": "#FF0000",
     "previewCap": 0.45, "leadMs": 1000,
     "offsetMm": 0.0, "ledsPerMeter": 180.0,
     "brightness": 160, "echoWindowMs": 250,
-    "wifiSsid": "HomeNet", "wifiPass": "",
+    "wifiSsid": "HomeNet",
     "repeatCueEnabled": True, "repeatColor": "#FFFFFF",
     "repeatFillStartPct": 0, "repeatFillPeakPct": 45,
     "repeatFloorMs": 35, "repeatWaitPulseMs": 60,
     "afkTimeoutSec": 180,
 }
+# C4 (webui Wave C, confirmed contract from wc/settings): wifiPass is
+# write-only. GET/PUT replies carry `wifiPassSet` instead of the literal
+# password; the actual value lives only here, never serialized out.
+wifi_pass_actual = ""
 top = {"presentation": False, "last_activity": time.time()}
 afk = {
     "tracks": [{"effect": "pacifica", "palette": ""},
@@ -68,9 +73,13 @@ show_playing = [None]
 songs = [
     {"name": "clair-de-lune.mid", "size": 4321},
     {"name": "ode-to-joy.mid", "size": 1290},
-    {"name": "amazing-grace.mid", "size": 2210},
+    {"name": "amazing-grace.mid", "size": 2210, "parseOk": True},
     {"name": "minuet-in-g.mid", "size": 3105},
     {"name": "vivaldi-largo.mid", "size": 2874},
+    # C2 (webui Wave C): test data for the parseOk badge feature-detect —
+    # no real firmware field exists yet (see ASKS FOR C-LEAD), but the
+    # mock lets the badge rendering be exercised end-to-end regardless.
+    {"name": "corrupted-partial.mid", "size": 512, "parseOk": False},
 ]
 last_tick = time.time()
 
@@ -204,7 +213,9 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/songs":
             self._json(200, songs)
         elif self.path == "/api/settings":
-            self._json(200, settings)
+            out = dict(settings)
+            out["wifiPassSet"] = bool(wifi_pass_actual)
+            self._json(200, out)
         elif self.path == "/api/ble":
             self._json(200, {"connected": True, "device": "FP-30X BLE-MIDI"})
         elif self.path == "/api/calibration":
@@ -301,6 +312,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/mode":
             b = self._body()
             state["mode"] = b.get("mode", "wait")
+            # C1 (webui Wave C): the device is the practice-hand source of
+            # truth — persist whatever the client sent so a later reload's
+            # GET /api/status echoes it back for the selector to reconcile.
+            if "practice" in b:
+                state["practice"] = b["practice"]
             if state["state"] in ("playing", "waiting"):
                 state["state"] = ("waiting" if state["mode"] in
                                   ("wait", "accompaniment") else "playing")
@@ -360,8 +376,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, afk)
             return
         if self.path == "/api/settings":
-            settings.update(self._body())
-            self._json(200, settings)
+            global wifi_pass_actual
+            b = self._body()
+            # C4: PATCH semantics for the write-only field — key ABSENT
+            # leaves the stored password unchanged, key PRESENT (including
+            # "") sets/clears it. Never let it leak back out via `settings`.
+            if "wifiPass" in b:
+                wifi_pass_actual = b.pop("wifiPass")
+            settings.update(b)
+            out = dict(settings)
+            out["wifiPassSet"] = bool(wifi_pass_actual)
+            self._json(200, out)
         elif self.path == "/api/calibration":
             b = self._body()
             tier = b.get("tier")
@@ -442,6 +467,24 @@ class Handler(BaseHTTPRequestHandler):
             probe.update(armed=False, note=None)
             self._json(200, {"armed": False, "led": probe["led"],
                              "note": None})
+            return
+        # C2 (webui Wave C): DELETE /api/songs/{name} was previously
+        # unhandled (fell through to the blanket 204 below, which never
+        # mutated `songs` and never enforced the "song is loaded" 409) —
+        # added so the unload-then-delete flow has a real 409 to exercise.
+        if self.path.startswith("/api/songs/"):
+            name = urllib.parse.unquote(self.path[len("/api/songs/"):])
+            if name == state["song"]:
+                self._json(409, {"error": "song is loaded"})
+                return
+            before = len(songs)
+            songs[:] = [s for s in songs if s["name"] != name]
+            if len(songs) == before:
+                self._json(404, {"error": "no such song"})
+            else:
+                self.send_response(204)
+                self._cors()
+                self.end_headers()
             return
         self._json(204, {})
 

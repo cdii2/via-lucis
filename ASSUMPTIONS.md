@@ -3,7 +3,7 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
-- A140 (2026-07-16, Wave C, wc/settings C4/Views): **`Settings::toJson(View)`
+- A148 (2026-07-16, Wave C, wc/settings C4/Views): **`Settings::toJson(View)`
   defaults to `View::Persist`; outward call-sites pass `View::Public`
   explicitly.** Considered the "safe-by-default" inverse (default Public, opt in
   to Persist), but the Persist path is the load-bearing one — persisting WITHOUT
@@ -12,11 +12,11 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   `toJson()`). Defaulting to Persist keeps that path byte-identical and untouched
   (zero song_store edit), while the ONLY two serializations that leave the
   device — GET /api/settings and the PUT echo, both in web_server.cpp — opt into
-  Public. The known outward path is guarded by the A139 pin
+  Public. The known outward path is guarded by the A147 pin
   (`test_public_view_never_contains_wifipass`) and a Public-view contract pin, so
   a future outward call-site that forgets `View::Public` is the residual risk;
   it's caught by review + the field-set contract test, not the type system.
-- A139 (2026-07-16, Wave C, wc/settings C4/Views): **`wifiPass` is a write-only
+- A147 (2026-07-16, Wave C, wc/settings C4/Views): **`wifiPass` is a write-only
   field whose redaction lives INSIDE `Settings` (ruling §6-1), not the route
   handler.** `Settings::toJson(View::Public)` — used by every serialization that
   LEAVES the device (GET /api/settings, the PUT echo, and the webui "Export",
@@ -34,6 +34,78 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   Native pins: `test_public_view_never_contains_wifipass` (the leak-regression
   pin — key-level, not substring), `test_persist_view_carries_wifipass`,
   `test_wifipass_write_only_patch_and_clear`, `test_public_view_contract_field_names`.
+- A146 (2026-07-16, Wave C, wc/webui C2): mock_device.py additive fixes needed
+  to test C2 at all — `DELETE /api/songs/{name}` was previously unhandled
+  (fell through to a blanket `204` that never mutated the `songs` list and
+  never enforced the "song is loaded" 409), so the unload-then-delete flow
+  had nothing real to exercise; added a proper handler. Also added one
+  `parseOk: false` test song (plus a `parseOk: true` one) so the C2 badge
+  feature-detect has real data to light up against, since no firmware field
+  exists yet (see report's ASKS FOR C-LEAD).
+- A145 (2026-07-16, Wave C, wc/webui C4): wifiPass write-only UI built
+  against the contract the dispatcher relayed mid-task from wc/settings
+  (`GET`/`PUT` reply `wifiPassSet:true|false`, no literal `wifiPass`; PUT
+  PATCH semantics — key absent leaves it unchanged, key present incl. `""`
+  sets/clears it). Per the dispatcher's explicit ruling, clearing is a
+  dedicated "Clear stored password" button + confirm — NEVER an automatic
+  consequence of an untouched/blanked field — because the field is always
+  rendered blank (write-only), so a naive load→edit-something-else→save
+  would otherwise silently wipe the stored password. A `wifiPassTouched`
+  flag (set on `input`, read on `change`) means the `wifiPass` key is only
+  ever included in a PUT body when the user actually typed a replacement
+  this session. `settingsSnapshot` (used for the C1 revert-on-error policy)
+  is scrubbed of any `wifiPass` key before being retained, so the secret
+  never persists in JS state even transiently, however it arrived on the
+  wire (old-firmware fallback included).
+- A144 (2026-07-16, Wave C, wc/webui C3): settings input clamps realigned to
+  the actual firmware bounds in `settings.h`/`settings.cpp` (read-only,
+  not touched) — `offsetMm` ±2000mm (was unbounded), `ledsPerMeter` 10-1000
+  (was min=1, no max), `leadMs` max 10000 (was 3000), `recordBudgetKB` max
+  256 (was 1024 — the old max was a real bug: firmware clamps to the 256KB
+  per-song save ceiling, so 1024 was unsaveable and misleading), `afkDwell`
+  max widened to 1440 min (dwellSec's real 86400s ceiling). Added: symmetric
+  wrongColor↔repeatColor collision toast (firmware already rejects the
+  collision from either field; the UI previously only warned one direction);
+  a NaN/invalid-numeric guard on every `[data-key]` number input — blocks
+  the send, marks the field (`.field-err`), toasts, and reverts to the last-
+  known-good value, instead of letting `JSON.stringify(NaN)->null` sail
+  through and get silently dropped by the firmware's typed guard; a guard on
+  the header WiFi chip so command replies that omit `wifi` (most non-status
+  writes, per API.md) leave the chip alone instead of blanking it; subtext
+  under all three brightness-shaped controls (previewCap %, strip
+  brightness 1-255 raw, ambient cap 0-255 raw) naming their distinct
+  units/backends.
+- A143 (2026-07-16, Wave C, wc/webui C2): songs screen — badge rendering for
+  `song.parseOk === false` is feature-detected (absent/true/unknown never
+  shows it; see report's ASKS FOR C-LEAD for the requested shape); a 409 on
+  DELETE (song is loaded) now offers a one-click "unload it and delete?"
+  confirm instead of a dead end; a failed `GET /api/songs` now renders an
+  error message + Retry button instead of leaving the "Loading…" placeholder
+  forever.
+- A142 (2026-07-16, Wave C, wc/webui C1): unified slider error policy across
+  the app — every slider/field that drives a live device write (seek,
+  tempo, the ambient brightness cap, and every `/api/settings` numeric
+  field) reverts its displayed value to the last-known-good server value
+  and toasts on failure, applied at the commit moment (release/change, or a
+  debounce flush) rather than on every intermediate drag tick — an
+  in-flight throttled send failing silently mid-drag is fine because the
+  release/flush always re-issues the authoritative value and is the one
+  that surfaces the error.
+- A141 (2026-07-16, Wave C, wc/webui C1): loop staging now tracks per-field
+  `loopDirty` flags (start/end/enabled) set the moment the user edits or
+  taps "Set from here", cleared only once a PUT actually commits — closes
+  the race where a 500ms status poll landing mid-flight (or before the user
+  even sends, e.g. staging while Loop is off) stomped the staged value back
+  to the device's still-old loop config.
+- A140 (2026-07-16, Wave C, wc/webui C1): tempo/loop/mode/practice controls
+  are now `disabled` (not just error-toasting on click) whenever no song is
+  loaded, mirroring the pattern the transport buttons already used.
+- A139 (2026-07-16, Wave C, wc/webui C1): the practice-hand selector now
+  reconciles from the live `practice` field in `GET /api/status` (landed
+  Wave B-i) instead of a client-only default — closes the bug where any
+  mode tap after a page reload silently reset the device's practice hand
+  back to "both" because the client had forgotten what the device actually
+  had armed.
 - A138 (2026-07-16, Wave B-ii, wbii/persist B4): **`SongStore::begin()`
   flips `formatOnFail` to FALSE (ruling §6-2), SUPERSEDING A108.** A boot must
   never wipe real user data as a reflex. A138's safety net for the replicability
