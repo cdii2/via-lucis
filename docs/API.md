@@ -98,6 +98,88 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   source, `409 {"error": "exists"}` if the target name is taken. (Used to
   rename a recorded take; general-purpose for any song.)
 
+### Upload contract (T5/T6, DESIGN-library.md §4, L2)
+
+The definitive shape of `POST /api/songs`, written so webui and any future PC
+sync agent (Phase 2, held) implement the SAME behavior instead of drifting.
+
+- **Request shape.** Raw request body = the file bytes, exactly. No
+  multipart/form-data, no JSON envelope. `?name=<filename>.mid` is the only
+  parameter, and it's on the query string, not the body. `Content-Length`
+  must be present and accurate — it is the "announced size" every precheck
+  below is based on, checked BEFORE the body is read off the socket (so a
+  doomed upload never lands a partial file).
+- **Whole-file only — NOT resumable.** Every `POST /api/songs` is one
+  complete file, start to finish, in a single request. There is no offset/
+  range parameter, no "continue this upload" verb, and no partial-file
+  commit. A dropped connection mid-transfer means the WHOLE file is retried
+  from byte 0 next attempt (the server-side cleanup already removes the
+  partial — see A2 in BUGFIX-PLAN-2026-07-15). This is a decided scope limit
+  (DESIGN-library.md §4), not an oversight: real resumable upload needs
+  firmware support that does not exist yet (temp file + offset param +
+  commit/abort verb + a content checksum to verify the resumed range lines
+  up) — see "Future: resumable upload" below.
+- **Free-space precondition (507).** Before accepting any bytes, the
+  precheck mirrors `firmware/lib/core/src/vialucis/storage_budget.h`
+  EXACTLY: round the announced size up to whole 4 KB LittleFS blocks
+  (`kFsBlockBytes`), add a fixed 32 KB safety reserve (`kUploadReserveBytes`
+  — the headroom a dir-metadata split needs so the filesystem can never hit
+  the hard-full wedge), and refuse with `507 {"error": "insufficient
+  storage"}` if that sum exceeds `fsFree` (from `GET /api/status`). A
+  well-behaved client (webui's bulk uploader, T6) runs this SAME math
+  client-side before even starting an upload, so it can skip a doomed
+  attempt with a clear "would eat into the reserve" message instead of
+  discovering it via a failed request. The device's own precheck is still
+  the final authority — a stale client-side `fsFree` reading never causes a
+  wedge, only a wasted round trip.
+- **Retry policy.** `507` (out of space) and `409` (target is the
+  loaded song) are typed, durable refusals — retrying them changes nothing,
+  so clients should surface them immediately and NOT retry. Every other
+  failure (a network-level drop/reset, any other HTTP status, or a
+  verify-after-write mismatch — see below) should be retried whole-file, up
+  to a small bounded attempt count, with a backoff between attempts. Both
+  `tools/bulk_upload.py` (the reference implementation) and the webui bulk
+  uploader (T5) use **3 attempts, backoff = 1.5s × attempt number**
+  (so ~1.5s then ~3s between attempts 1→2→3). There is no different
+  policy for "the webui" vs "a sync agent" — one retry contract, one place
+  it's written down (here).
+- **Verify-after-write (recommended, not optional).** A `201` reply is not
+  proof the file is correct on the device — re-`GET /api/songs` after every
+  upload and confirm the uploaded name appears with the exact byte size
+  sent. A name+size mismatch (or the name missing entirely) should be
+  treated as a failure and retried under the same policy above. This is the
+  same reason `GET /api/songs` is the reconciliation source of truth for any
+  future sync agent (DESIGN-library.md §4) — never trust a local record of
+  what "should" be on the device.
+- **`409` loaded-song rule.** `POST /api/songs?name=X` where `X` is the
+  currently-loaded song's name always `409`s (`{"error": "song is
+  loaded"}`), even if the new content is identical — overwriting a live
+  song's backing file while it's the active playback source would desync
+  transport/practice state. The client must `POST /api/songs/unload` (or let
+  the user do so) before a same-name re-upload can proceed. Bulk tooling
+  should surface this as an actionable message ("currently loaded — unload
+  it first"), never auto-unload silently.
+- **Atomic swap guidance (replace-in-place).** When a client wants to swap
+  one song for a re-exported version of itself: **upload-then-delete when
+  the free-space precheck allows it** (upload the new content under a
+  temporary/different name, verify it, delete the old, rename into place —
+  or simplest, if the name differs, just upload new + delete old) so a
+  failed upload never leaves the device with neither copy. Only when
+  capacity is tight enough that the new copy can't coexist with the old
+  should a client fall back to delete-first — and even then, a client
+  should WARN the user and let them decide, rather than automatically
+  deleting anything on their behalf (T6's bulk-manage screen never
+  auto-deletes to make room; it skips the upload and says so).
+- **Future: resumable upload (NOT implemented — needs firmware).** If a
+  future wave adds true resumable/chunked upload, the shape sketched in
+  DESIGN-library.md §4 is: a temp-file handle keyed by an upload id, an
+  `offset` param on each chunk POST, an explicit `commit`/`abort` verb, and
+  a whole-file checksum client and device agree on before commit (so a
+  resumed upload can't silently splice mismatched ranges together). Until
+  that lands, EVERY client — webui, `tools/bulk_upload.py`, and any Phase 2
+  sync agent — implements whole-file retry + verify exactly as described
+  above, so behavior never diverges by client.
+
 ## Track / hand assignment
 
 - `PUT /api/tracks/{index}` body `{"hand": "left|right|both|off", "lights": true|false}`
