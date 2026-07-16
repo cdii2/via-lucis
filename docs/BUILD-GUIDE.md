@@ -108,6 +108,68 @@ it onto an ESP32. You will only ever click buttons in it.
 The board is now programmed. **Unplug the USB cable.** Set the board aside; time
 to build the hardware.
 
+### 2d. Custom partition table (why songs get twice the room)
+
+You can skip this box if you're flashing a **brand-new board that has never
+run Via Lucis before** — step 2c above already used the current table, and
+there's nothing extra to do.
+
+A **partition table** is a small map baked into the chip alongside the
+program: it says which bytes of the chip's storage are "the program" and
+which are "your song files." Via Lucis ships a custom map (instead of the
+ESP32's stock one) so more of the chip goes to songs instead of sitting idle
+as unused program space — it roughly **doubles how many songs fit** on the
+device (from about 0.9 MB to about 1.9 MB of room). See
+[DESIGN-library.md](DESIGN-library.md) §3 if you want the full reasoning.
+
+**If you are re-flashing a board that already had an older Via Lucis build on
+it** (this includes any board that went through an earlier version of this
+guide), do one extra one-time step: **erase the chip first**, then upload as
+normal. Reason, in plain terms: the new map moves where song storage lives
+on the chip, overlapping space that used to belong to the program. A plain
+re-upload won't clean that overlap out reliably, so we erase everything and
+start fresh rather than leave it to chance.
+
+Using the PlatformIO panel (same click-only method as 2c):
+
+1. Click the **alien head icon** → **Project Tasks**.
+2. Expand **esp32dev → Platform**, then click **Erase Flash**. Wait for the
+   black panel to finish (a few seconds) — you want it to end quietly with no
+   red error.
+3. Now do step 5 from 2c again: expand **esp32dev → General** → **Upload**.
+
+If you'd rather type the two commands instead of clicking through the tree,
+open a terminal from inside VSCode (**Terminal → New Terminal** in the top
+menu, or the PlatformIO alien head → **PlatformIO Core CLI**) and paste,
+one line at a time:
+
+```powershell
+cd "<path to your via-lucis folder>\firmware"
+pio run -e esp32dev -t erase
+pio run -e esp32dev -t upload
+```
+
+(Replace `<path to your via-lucis folder>` with wherever you put the project,
+e.g. `C:\Users\you\via-lucis`.)
+
+**This erase wipes every stored song and every saved setting** (WiFi
+password, calibration, ambient config) — that is expected and unavoidable for
+this one-time step, not a bug. After the upload finishes:
+
+- **Songs:** the fastest way back is
+  `python tools/bulk_upload.py --src "<folder with your MIDI files>" --device http://<device-ip>`
+  from a PC with Python installed — it re-uploads a whole folder of MIDIs in
+  one go and verifies each one landed. No Python handy? Re-upload one file at
+  a time from the web UI's **Songs** screen instead — slower, but no extra
+  install.
+- **WiFi + calibration:** redo section 6 (WiFi) and the calibration wizard
+  in [BRINGUP.md](BRINGUP.md) — same steps as a first-time bring-up.
+
+Nothing about this changes what the web UI shows you: the Songs screen's
+storage gauge reads the chip's *actual* current free/total space every time,
+so it just starts reporting the new, bigger number on its own — there is no
+separate setting to update there.
+
 ---
 
 ## 3. Know your parts
