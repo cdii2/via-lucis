@@ -185,6 +185,18 @@ std::string afkConfigToJson(const AfkConfig& c) {
     return out;
 }
 
+namespace {
+// The complete set of recognized AFK config keys — shared between the
+// "does this body touch AFK at all" reject check and (implicitly) the
+// per-field patch below. A body with none of these present is foreign
+// (e.g. a route-shadowed `{"action":"stop"}`) and must be rejected, not
+// treated as "no changes" (R3: that ambiguity is what let a swallowed
+// control POST silently reset the config to defaults).
+constexpr const char* kAfkFields[] = {
+    "tracks",     "shuffle",       "repeatCurrent", "dwellSec",
+    "crossfadeMs", "brightnessCap", "masterSpeed",   "aboveKeysOnly"};
+}  // namespace
+
 bool afkConfigFromJson(const char* json, AfkConfig& out, std::string* err) {
     auto fail = [&](const std::string& m) {
         if (err) *err = m;
@@ -197,10 +209,24 @@ bool afkConfigFromJson(const char* json, AfkConfig& out, std::string* err) {
     if (!doc.is<JsonObjectConst>()) return fail("bad json");
     JsonObjectConst o = doc.as<JsonObjectConst>();
 
-    AfkConfig c;
+    bool anyField = false;
+    for (const char* f : kAfkFields) {
+        if (!o[f].isNull()) {
+            anyField = true;
+            break;
+        }
+    }
+    if (!anyField) return fail("no recognized AFK config field");
+
+    // PATCH semantics: start from the CALLER'S current config (not a fresh
+    // default) so unmentioned fields survive untouched; only commit to
+    // `out` once every present field has validated (failure must leave
+    // `out` completely alone — no partial patch).
+    AfkConfig c = out;
     if (o["tracks"].is<JsonArrayConst>()) {
+        std::vector<AfkTrack> tracks;  // replace the whole list atomically
         for (JsonObjectConst t : o["tracks"].as<JsonArrayConst>()) {
-            if (c.tracks.size() >= 16)  // each track owns a live effect —
+            if (tracks.size() >= 16)  // each track owns a live effect —
                 return fail("too many tracks (max 16)");  // bound the heap
             AfkTrack track;
             track.effect = t["effect"] | "";
@@ -209,16 +235,28 @@ bool afkConfigFromJson(const char* json, AfkConfig& out, std::string* err) {
                 return fail("unknown effect: " + track.effect);
             if (!track.palette.empty() && !paletteByName(track.palette))
                 return fail("unknown palette: " + track.palette);
-            c.tracks.push_back(std::move(track));
+            tracks.push_back(std::move(track));
         }
+        c.tracks = std::move(tracks);
     }
-    c.shuffle = o["shuffle"] | false;
-    c.repeatCurrent = o["repeatCurrent"] | false;
-    c.dwellSec = std::min<uint32_t>(o["dwellSec"] | 60u, 86400u);
-    c.crossfadeMs = std::min<uint32_t>(o["crossfadeMs"] | 2000u, 10000u);
-    c.brightnessCap = o["brightnessCap"] | uint8_t{96};
-    c.masterSpeed = o["masterSpeed"] | 1.0f;
-    c.aboveKeysOnly = o["aboveKeysOnly"] | false;
+    if (o["shuffle"].is<bool>()) c.shuffle = o["shuffle"].as<bool>();
+    if (o["repeatCurrent"].is<bool>())
+        c.repeatCurrent = o["repeatCurrent"].as<bool>();
+    if (o["dwellSec"].is<uint32_t>())
+        // Documented clamp (API.md): 5-86400s; dwell=0 is a config bug.
+        c.dwellSec = std::min<uint32_t>(
+            std::max<uint32_t>(o["dwellSec"].as<uint32_t>(), 5u), 86400u);
+    if (o["crossfadeMs"].is<uint32_t>())
+        c.crossfadeMs =
+            std::min<uint32_t>(o["crossfadeMs"].as<uint32_t>(), 10000u);
+    if (o["brightnessCap"].is<uint8_t>())
+        c.brightnessCap = o["brightnessCap"].as<uint8_t>();
+    if (o["masterSpeed"].is<float>())
+        // Documented clamp (API.md): 0.25-4, scales effect time.
+        c.masterSpeed =
+            std::min(4.0f, std::max(0.25f, o["masterSpeed"].as<float>()));
+    if (o["aboveKeysOnly"].is<bool>())
+        c.aboveKeysOnly = o["aboveKeysOnly"].as<bool>();
     out = std::move(c);
     return true;
 }
