@@ -57,6 +57,16 @@ Autonomous decisions made without asking, one per line, newest on top. Format:
   calls, (b) a lo>hi scope1 cue is rejected the same way, (c) a valid
   multi-cue show still compiles, encodes, and POSTs to `/api/shows` for a 201
   exactly as before (L2's mock upload path untouched).
+- A184 (2026-07-16, bring-up hotfix, dispatcher): **`WiFi.setSleep(false)`
+  in both WifiManager paths (STA + recovery AP).** The Arduino default
+  (WIFI_PS_MIN_MODEM) parks the WiFi radio between DTIM beacons; under BLE
+  coexistence (piano-off scan cycle: lathoub scans at ~83% duty — window
+  500/interval 600 slots — for 1 s per E2-backoff slot) every HTTP request
+  stalled seconds-to-minutes and the live webui was unusable (wizard screens
+  took ~3 min to change; Load appeared completely dead — the JS was fine,
+  browser fetches simply have no timeout). Wall-powered device: power saving
+  buys nothing. Canonical ESP32 coex fix. Found live 2026-07-16 evening,
+  Christian driving the real UI.
 - A183 (2026-07-16, bring-up hotfix, dispatcher): **`App::songsForList`
   parse-checks at most `kParseChecksPerListCall` (4) uncached files per call,
   yields (`delay(1)`) between each, and reports still-unchecked files with
