@@ -18,11 +18,13 @@ public:
         led_ = led;
         deadlineUs_ = nowUs + timeoutUs;
         captured_ = false;
+        timedOut_ = false;  // B6d: a fresh arm clears any prior expiry flag
     }
 
     void cancel() {
         armed_ = false;
         captured_ = false;
+        timedOut_ = false;  // explicit user cancel is NOT a timeout
     }
 
     // Note-on while armed: capture it and disarm. True = consumed — the
@@ -32,6 +34,7 @@ public:
         note_ = note;
         captured_ = true;
         armed_ = false;
+        timedOut_ = false;  // captured before the deadline: not a timeout
         return true;
     }
 
@@ -40,6 +43,7 @@ public:
     bool tickExpire(uint64_t nowUs) {
         if (!armed_ || nowUs < deadlineUs_) return false;
         armed_ = false;
+        timedOut_ = true;  // B6d: sticky until the next arm()/cancel()
         return true;
     }
 
@@ -47,10 +51,17 @@ public:
     uint16_t led() const { return led_; }
     bool hasCapture() const { return captured_; }
     uint8_t capturedNote() const { return note_; }
+    // B6d: distinguishes "disarmed because it expired" from "disarmed
+    // because the wizard cancelled it / a note was captured" — the wizard
+    // was polling a stale armed:false ambiguously without this. Sticky
+    // across ticks so a poll landing after the expiring tick still sees it;
+    // cleared only by the next arm() or cancel().
+    bool timedOut() const { return timedOut_; }
 
 private:
     bool armed_ = false;
     bool captured_ = false;
+    bool timedOut_ = false;
     uint16_t led_ = 0;
     uint8_t note_ = 0;
     uint64_t deadlineUs_ = 0;
