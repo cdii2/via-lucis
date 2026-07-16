@@ -3,6 +3,80 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A153 (2026-07-16, Wave L2, wl2/library): **mock_device.py gets two additive
+  fixes beyond the strict T5/T6 ask, same spirit as A146.** (1)
+  `POST /api/songs/{name}/rename` was completely unhandled (fell through to
+  404) despite the webui's `renameSong()` already calling it — fixed to mirror
+  API.md (400 bad/non-.mid name, 404 missing source, 409 exists), since an
+  honest mock shouldn't 404 a route production code already depends on. (2)
+  Added a mock-only `POST /api/mock/fail-uploads` control endpoint (body
+  `{"times": N}`) that makes the next N song uploads drop the connection with
+  no HTTP reply at all — a real network-level failure, not a typed error
+  status — so T5's retry-on-network-error path has something deterministic to
+  exercise. Documented in the mock's own docstring as NOT part of
+  docs/API.md; a real device has no such route.
+- A152 (2026-07-16, Wave L2, wl2/library): **T6 bulk-manage extends the
+  existing Songs screen rather than adding a new page** — the file already had
+  exactly three nav pages (Play/Songs/Settings) and an existing-but-dormant
+  storage gauge card on the Songs screen (fed by fsFree/fsTotal, previously
+  invisible because no mock ever supplied those fields) — bulk upload and
+  bulk delete are just more affordances on the screen that already owns
+  "songs," not a new concept needing its own page. Multi-select delete is a
+  toggled "Select" mode (checkboxes appear, single-song Load/Rename/Delete
+  buttons hide) rather than always-on checkboxes, so the common single-song
+  path stays exactly as uncluttered as before. Bulk delete on a
+  currently-loaded song's 409 is reported per-file ("currently loaded —
+  unload it first") rather than auto-unloading — no bulk action silently
+  interrupts playback, extending the wifiPass-clear precedent (A145: explicit
+  user action only, never an automatic side effect) to this destructive path.
+- A151 (2026-07-16, Wave L2, wl2/library): **T5's retry policy is 3 whole-file
+  attempts with a 1.5s × attempt-number backoff, matching tools/bulk_upload.py
+  bit for bit** (that script is the only prior art for this exact contract).
+  `507`/`409` are typed, durable device refusals and are never retried
+  (surfaced immediately as `failed`); every other failure — network-level
+  drop, any other HTTP status, or a post-write verify mismatch — retries
+  under the same backoff. Verify-after-write re-`GET`s `/api/songs` and
+  checks name+size; a mismatch is treated exactly like a failed attempt
+  (retried, not silently accepted), because a `201` reply is not proof the
+  bytes landed correctly. This policy is now the single documented contract
+  (docs/API.md "Upload contract") that webui, bulk_upload.py, and any future
+  Phase 2 sync agent should all implement identically.
+- A150 (2026-07-16, Wave L2, wl2/library): **The T6 free-space margin guard
+  mirrors `firmware/lib/core/src/vialucis/storage_budget.h`'s `uploadFits`
+  math byte-for-byte in webui JS** (`roundUpToBlock`/`clientUploadFits` in
+  index.html): round the file's size up to 4 KB LittleFS blocks, add the
+  same 32 KB `kUploadReserveBytes` reserve, refuse to even attempt the
+  upload if that exceeds the freshest `GET /api/status` `fsFree` reading.
+  Chose to re-fetch `/api/status` immediately before EACH file in a bulk
+  queue (rather than maintaining a running client-side estimate across the
+  batch) so a concurrent actor (someone using the device's own UI, or a
+  slow-draining previous upload in the same queue) can't make the guard
+  stale — same "never trust a cached view" principle DESIGN-library.md §4
+  applies to the PC-shelf sync agent, applied here to a single browser
+  session. A failed status fetch doesn't block the attempt (falls back to
+  trying the upload) — the device's own 507 precheck remains the final
+  authority either way, so a guard that can't be evaluated should never wedge
+  the whole bulk flow.
+- A149 (2026-07-16, Wave L2, wl2/library): **mock_device.py's own R1-style
+  bug, found while building T5/T6: `self.path == "/api/songs"` never matches
+  `POST /api/songs?name=foo.mid`** (the query string breaks exact-string
+  route matching), so every song upload silently 404'd — the mirror image of
+  the real firmware's route-SHADOWING bug (a prefix match swallowing a
+  child), except here it's a query string breaking an exact match into a
+  false negative. Fixed by splitting path from query EVERYWHERE in the mock
+  (`Handler._split`) and routing on path only. While rewriting the upload
+  handler, made it a REAL implementation instead of the old hardcoded
+  `{"name": "uploaded.mid"}` stub: mirrors `web_server.cpp`'s exact
+  validation order (missing name -> bad name -> too-large -> free-space
+  507 -> loaded-name 409 -> write), using the SAME storage_budget.h math
+  server-side too. Also added real fsFree/fsTotal/fsUsed to `GET
+  /api/status` (previously absent, which is why the webui's existing A5
+  storage-gauge card was invisible against the mock) with `fsTotal` set to
+  the ACTUAL post-A1 partition size (`0x1E0000` / 1,966,080 bytes, per A121)
+  rather than an arbitrary mock number, and `fsUsed` computed from
+  block-rounded song+show sizes so it genuinely depletes as songs upload —
+  giving T6's capacity bar and margin guard, and T5's retry path (see A150/
+  A151), something real to react to end to end.
 - A148 (2026-07-16, Wave C, wc/settings C4/Views): **`Settings::toJson(View)`
   defaults to `View::Persist`; outward call-sites pass `View::Public`
   explicitly.** Considered the "safe-by-default" inverse (default Public, opt in

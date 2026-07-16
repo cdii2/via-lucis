@@ -246,6 +246,13 @@ input:disabled, select:disabled { opacity: 0.35; cursor: not-allowed; }
 .gaugetrack { height: 8px; border-radius: 4px; background: var(--panel2); border: 1px solid var(--line); overflow: hidden; margin-top: 8px; }
 .gaugefill { height: 100%; background: var(--lux); border-radius: 4px 0 0 4px; transition: width 0.2s; }
 .gaugefill.low { background: var(--red); }
+/* T6: bulk select checkbox + per-file upload/delete result rows */
+.songcheck { width: 18px; height: 18px; flex: none; accent-color: var(--lux); cursor: pointer; }
+.bulkrow { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 0.78rem; border-top: 1px solid var(--line); }
+.bulkrow .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bulkrow .outcome { color: var(--dim); text-align: right; flex: none; max-width: 60%; }
+.bulkrow.warn .outcome { color: var(--lux); }
+.bulkrow.err .outcome { color: var(--red); }
 
 /* ============ settings ============ */
 .set-grid label { flex: 1; font-size: 0.88rem; }
@@ -448,10 +455,13 @@ input:disabled, select:disabled { opacity: 0.35; cursor: not-allowed; }
   <div class="card">
     <h2>Upload</h2>
     <div class="btnrow">
-      <button class="btn accent" id="btnUpload">Upload MIDI file…</button>
+      <button class="btn accent" id="btnUpload">Upload MIDI files…</button>
     </div>
-    <input type="file" id="fileInput" accept=".mid,.midi" style="display:none">
-    <div class="note-txt">MIDI (.mid) files up to 256 KB. Split hands into separate tracks in MuseScore first if needed.</div>
+    <input type="file" id="fileInput" accept=".mid,.midi" multiple style="display:none">
+    <div class="note-txt">MIDI (.mid) files up to 256 KB each. Select more than one to bulk-upload — each
+      file is retried a few times and verified against the device's song list; an upload that would eat
+      into the device's free-space safety reserve is skipped instead of started (T5/T6, DESIGN-library.md
+      §4). Split hands into separate tracks in MuseScore first if needed.</div>
   </div>
   <div class="card" id="storageCard" style="display:none">
     <h2>Storage</h2>
@@ -459,8 +469,17 @@ input:disabled, select:disabled { opacity: 0.35; cursor: not-allowed; }
     <div class="gaugetrack"><div class="gaugefill" id="storageFill" style="width:0%"></div></div>
   </div>
   <div class="card">
-    <h2>Song library</h2>
+    <div class="row" style="min-height:auto">
+      <h2 class="grow">Song library</h2>
+      <button class="btn small" id="btnSelectMode">Select</button>
+    </div>
+    <div class="btnrow" id="bulkDeleteRow" style="display:none;margin-bottom:10px">
+      <button class="btn small" id="btnSelectAll">Select all</button>
+      <button class="btn small" id="btnSelectNone">Clear</button>
+      <button class="btn small danger" id="btnDeleteSelected" disabled>Delete selected</button>
+    </div>
     <div id="songList"><div class="empty">Loading…</div></div>
+    <div id="bulkResults"></div>
   </div>
 </section>
 
@@ -1221,17 +1240,50 @@ $("btnRecRename").addEventListener("click", function () {
 /* =========================================================
    SONGS
    ========================================================= */
+// T6: bulk-select state for multi-delete. Plain object keyed by name (not a
+// Set) purely for readability parity with the rest of this file's ES5 style.
+var selectMode = false;
+var selectedSongs = {};
+var lastSongsList = [];
+
+function selectedCount() {
+  var n = 0;
+  for (var k in selectedSongs) if (selectedSongs[k]) n++;
+  return n;
+}
+function updateBulkDeleteBtn() {
+  var n = selectedCount();
+  var btn = $("btnDeleteSelected");
+  btn.textContent = "Delete selected" + (n ? " (" + n + ")" : "");
+  btn.disabled = n === 0;
+}
+
 function refreshSongs() {
   api("GET", "/api/songs").then(function (songs) {
+    lastSongsList = songs || [];
     var box = $("songList");
     box.innerHTML = "";
     if (!songs || !songs.length) {
       box.innerHTML = '<div class="empty">No songs yet — upload a MIDI file above.</div>';
+      if (selectMode) updateBulkDeleteBtn();
       return;
     }
     songs.forEach(function (s) {
       var item = document.createElement("div");
       item.className = "songitem" + (st && st.song === s.name ? " current" : "");
+
+      if (selectMode) {
+        var cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.className = "songcheck";
+        cb.setAttribute("aria-label", "Select " + s.name);
+        cb.checked = !!selectedSongs[s.name];
+        cb.addEventListener("change", function () {
+          if (cb.checked) selectedSongs[s.name] = true; else delete selectedSongs[s.name];
+          updateBulkDeleteBtn();
+        });
+        item.appendChild(cb);
+      }
 
       var meta = document.createElement("div");
       meta.className = "meta";
@@ -1257,29 +1309,32 @@ function refreshSongs() {
       meta.appendChild(sz);
       item.appendChild(meta);
 
-      var loadBtn = document.createElement("button");
-      loadBtn.className = "btn small accent";
-      loadBtn.textContent = "Load";
-      loadBtn.addEventListener("click", function () {
-        send("POST", "/api/songs/" + encodeURIComponent(s.name) + "/load")
-          .then(function () { toast("Loaded " + s.name); refreshSongs(); });
-      });
-      item.appendChild(loadBtn);
+      if (!selectMode) {
+        var loadBtn = document.createElement("button");
+        loadBtn.className = "btn small accent";
+        loadBtn.textContent = "Load";
+        loadBtn.addEventListener("click", function () {
+          send("POST", "/api/songs/" + encodeURIComponent(s.name) + "/load")
+            .then(function () { toast("Loaded " + s.name); refreshSongs(); });
+        });
+        item.appendChild(loadBtn);
 
-      var renBtn = document.createElement("button");
-      renBtn.className = "btn small";
-      renBtn.textContent = "Rename";
-      renBtn.addEventListener("click", function () { renameSong(s.name); });
-      item.appendChild(renBtn);
+        var renBtn = document.createElement("button");
+        renBtn.className = "btn small";
+        renBtn.textContent = "Rename";
+        renBtn.addEventListener("click", function () { renameSong(s.name); });
+        item.appendChild(renBtn);
 
-      var delBtn = document.createElement("button");
-      delBtn.className = "btn small danger";
-      delBtn.textContent = "Delete";
-      delBtn.addEventListener("click", function () { deleteSong(s.name); });
-      item.appendChild(delBtn);
+        var delBtn = document.createElement("button");
+        delBtn.className = "btn small danger";
+        delBtn.textContent = "Delete";
+        delBtn.addEventListener("click", function () { deleteSong(s.name); });
+        item.appendChild(delBtn);
+      }
 
       box.appendChild(item);
     });
+    if (selectMode) updateBulkDeleteBtn();
   }).catch(function (e) {
     // C2: an eternal "Loading…" on a failed list fetch strands the user —
     // show the error with a Retry instead.
@@ -1296,6 +1351,101 @@ function refreshSongs() {
     retryBtn.addEventListener("click", refreshSongs);
     retryRow.appendChild(retryBtn);
     box.appendChild(retryRow);
+  });
+}
+
+/* ---------- select mode / bulk delete (T6) ---------- */
+$("btnSelectMode").addEventListener("click", function () {
+  selectMode = !selectMode;
+  if (!selectMode) selectedSongs = {};
+  $("btnSelectMode").textContent = selectMode ? "Done" : "Select";
+  $("bulkDeleteRow").style.display = selectMode ? "" : "none";
+  if (!selectMode) $("bulkResults").innerHTML = "";
+  refreshSongs();
+});
+$("btnSelectAll").addEventListener("click", function () {
+  lastSongsList.forEach(function (s) { selectedSongs[s.name] = true; });
+  refreshSongs();
+});
+$("btnSelectNone").addEventListener("click", function () {
+  selectedSongs = {};
+  refreshSongs();
+});
+$("btnDeleteSelected").addEventListener("click", function () {
+  var names = [];
+  for (var k in selectedSongs) if (selectedSongs[k]) names.push(k);
+  if (!names.length) return;
+  if (!confirm("Delete " + names.length + " song" + (names.length > 1 ? "s" : "") + "?")) return;
+  var btn = $("btnDeleteSelected");
+  btn.disabled = true;
+  var results = [];
+  var i = 0;
+  function step() {
+    if (i >= names.length) return Promise.resolve();
+    var name = names[i++];
+    return api("DELETE", "/api/songs/" + encodeURIComponent(name)).then(function () {
+      results.push({ name: name, outcome: "deleted" });
+    }, function (e) {
+      // T6: warn rather than force — no automatic unload-and-delete in the
+      // bulk path (DESIGN-library.md §4 "warn rather than auto-delete" spirit
+      // extended to conflicts, not just tight free space); the single-song
+      // Delete button's interactive unload-then-delete confirm still covers
+      // that case one at a time.
+      var reason = (e && e.status === 409)
+        ? "currently loaded — unload it first"
+        : ((e && e.message) || "delete failed");
+      results.push({ name: name, outcome: "failed", reason: reason });
+    }).then(function () {
+      renderBulkResults("Delete results", results);
+      return step();
+    });
+  }
+  step().then(function () {
+    selectedSongs = {};
+    updateBulkDeleteBtn();
+    refreshSongs();
+    pollNow();
+    var ok = results.filter(function (r) { return r.outcome === "deleted"; }).length;
+    toast(ok + " of " + names.length + " deleted", ok < names.length);
+  });
+});
+
+/* ---------- shared bulk-result rendering (T5/T6) ---------- */
+function outcomeLabel(o) {
+  switch (o) {
+    case "uploaded": return "Uploaded";
+    case "deleted": return "Deleted";
+    case "skipped": return "Skipped";
+    case "skipped-margin": return "Skipped (low space)";
+    case "failed-after-retries": return "Failed";
+    case "failed": return "Failed";
+    default: return o;
+  }
+}
+function renderBulkResults(title, results) {
+  var box = $("bulkResults");
+  box.innerHTML = "";
+  if (!results || !results.length) return;
+  var heading = document.createElement("div");
+  heading.className = "subrow";
+  var lbl = document.createElement("div");
+  lbl.className = "lbl";
+  lbl.textContent = title;
+  heading.appendChild(lbl);
+  box.appendChild(heading);
+  results.forEach(function (r) {
+    var row = document.createElement("div");
+    var ok = r.outcome === "uploaded" || r.outcome === "deleted";
+    row.className = "bulkrow" + (ok ? "" : (r.outcome.indexOf("skip") === 0 ? " warn" : " err"));
+    var nm = document.createElement("span");
+    nm.className = "nm";
+    nm.textContent = r.name;
+    var out = document.createElement("span");
+    out.className = "outcome";
+    out.textContent = outcomeLabel(r.outcome) + (r.reason ? " — " + r.reason : "");
+    row.appendChild(nm);
+    row.appendChild(out);
+    box.appendChild(row);
   });
 }
 
@@ -1346,39 +1496,114 @@ function sanitizeSongName(rawName) {
   return { ok: true, name: name };
 }
 
-$("btnUpload").addEventListener("click", function () { $("fileInput").click(); });
-$("fileInput").addEventListener("change", function () {
-  var f = $("fileInput").files[0];
-  if (!f) return;
-  var sanitized = sanitizeSongName(f.name);
-  if (!sanitized.ok) {
-    toast(sanitized.reason, true);
-    $("fileInput").value = "";
-    return;
+/* ---------- T5: hardened whole-file upload (retry + verify) ----------
+   Whole-file per attempt only — NO chunked/resumable protocol (that needs
+   firmware support; see docs/API.md "Upload contract"). Bounded retries with
+   backoff mirror tools/bulk_upload.py's reference pattern exactly: 507
+   (out of space) and 409 (loaded) are typed device refusals and never
+   retried; everything else (network error, other HTTP status, or a
+   post-write verify mismatch) gets up to UPLOAD_MAX_ATTEMPTS attempts with
+   a 1.5s * attempt backoff. Verify-after-write re-GETs the song list and
+   checks name+size — never trust the 201 alone. */
+var UPLOAD_MAX_ATTEMPTS = 3;
+var UPLOAD_RETRY_BASE_MS = 1500;
+// T6 free-space margin guard — mirrors
+// firmware/lib/core/src/vialucis/storage_budget.h EXACTLY
+// (kFsBlockBytes=4096, kUploadReserveBytes=32KB, roundUpToBlock, uploadFits)
+// so the client never queues an upload the device would 507 anyway.
+var FS_BLOCK_BYTES = 4096;
+var UPLOAD_RESERVE_BYTES = 32 * 1024;
+function roundUpToBlock(bytes) {
+  return Math.ceil(bytes / FS_BLOCK_BYTES) * FS_BLOCK_BYTES;
+}
+function clientUploadFits(incomingBytes, freeBytes) {
+  return roundUpToBlock(incomingBytes) + UPLOAD_RESERVE_BYTES <= freeBytes;
+}
+
+function uploadOneFile(name, buf) {
+  function attempt(n) {
+    return api("POST", "/api/songs?name=" + encodeURIComponent(name), buf, true)
+      .then(function () { return api("GET", "/api/songs"); })
+      .then(function (list) {
+        var found = null;
+        (list || []).forEach(function (s) { if (s.name === name) found = s; });
+        if (found && found.size === buf.byteLength) return { outcome: "uploaded" };
+        return retryOrFail(n, "verify mismatch (device has " +
+          (found ? found.size + " bytes" : "no file") + ", wanted " + buf.byteLength + ")");
+      })
+      .catch(function (e) {
+        if (e && e.status === 507) return { outcome: "failed", reason: "device out of space" };
+        if (e && e.status === 409) return { outcome: "failed", reason: "song is currently loaded" };
+        return retryOrFail(n, (e && e.message) || "upload error");
+      });
   }
+  function retryOrFail(n, reason) {
+    if (n >= UPLOAD_MAX_ATTEMPTS) return { outcome: "failed-after-retries", reason: reason };
+    return new Promise(function (resolve) {
+      setTimeout(function () { resolve(attempt(n + 1)); }, UPLOAD_RETRY_BASE_MS * n);
+    });
+  }
+  return attempt(1);
+}
+
+// One file through: name/size validation -> margin guard (fresh /api/status
+// read, never a stale cached fsFree) -> uploadOneFile. A failed status read
+// doesn't block the attempt — the device's own 507 precheck is still the
+// final authority either way.
+function processUploadFile(f) {
+  var sanitized = sanitizeSongName(f.name);
+  if (!sanitized.ok) return Promise.resolve({ name: f.name, outcome: "skipped", reason: sanitized.reason });
   var name = sanitized.name;
   if (f.size > 256 * 1024) {
-    toast("File too big (max 256 KB)", true);
-    $("fileInput").value = "";
-    return;
+    return Promise.resolve({ name: name, outcome: "skipped", reason: "over 256 KB" });
   }
+  function go() {
+    return f.arrayBuffer().then(function (buf) {
+      return uploadOneFile(name, buf).then(function (r) { r.name = name; return r; });
+    });
+  }
+  return api("GET", "/api/status").then(function (s) {
+    if (typeof s.fsFree === "number" && !clientUploadFits(f.size, s.fsFree)) {
+      return {
+        name: name, outcome: "skipped-margin",
+        reason: "would leave less than the " + humanBytes(UPLOAD_RESERVE_BYTES) +
+          " safety reserve free — delete a song first, then retry"
+      };
+    }
+    return go();
+  }, go);
+}
+
+$("btnUpload").addEventListener("click", function () { $("fileInput").click(); });
+$("fileInput").addEventListener("change", function () {
+  var files = Array.prototype.slice.call($("fileInput").files);
+  $("fileInput").value = "";
+  if (!files.length) return;
   var btn = $("btnUpload");
   btn.disabled = true;
-  btn.textContent = "Uploading…";
-  f.arrayBuffer().then(function (buf) {
-    return api("POST", "/api/songs?name=" + encodeURIComponent(name), buf, true);
-  }).then(function () {
-    toast("Uploaded " + name);
-  }).catch(function (e) {
-    var msg = e && e.message;
-    if (e && e.status === 409) msg = "That song is currently loaded — unload it first, then upload again";
-    else if (e && e.status === 507) msg = "Upload failed — device may be out of space";
-    toast(msg || "Upload failed", true);
+  var results = [];
+  var i = 0;
+  function step() {
+    if (i >= files.length) return Promise.resolve();
+    btn.textContent = files.length > 1
+      ? "Uploading " + (i + 1) + "/" + files.length + "…" : "Uploading…";
+    var f = files[i++];
+    return processUploadFile(f).then(function (r) {
+      results.push(r);
+      renderBulkResults("Upload results", results);
+      pollNow(); // T6: keep the capacity bar live between files, not just at the end
+      return step();
+    });
+  }
+  step().then(function () {
+    var ok = results.filter(function (r) { return r.outcome === "uploaded"; }).length;
+    if (ok === results.length) toast(ok === 1 ? "Uploaded " + results[0].name : ok + " uploaded");
+    else toast(ok + " of " + results.length + " uploaded — see results below", true);
   }).finally(function () {
     btn.disabled = false;
-    btn.textContent = "Upload MIDI file…";
-    $("fileInput").value = "";
+    btn.textContent = "Upload MIDI files…";
     refreshSongs(); // A5: never leave a stale list after a failed upload
+    pollNow();
   });
 });
 
