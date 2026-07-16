@@ -90,9 +90,34 @@ void test_has_tracks_known_separately_from_good() {
     TEST_ASSERT_FALSE(c.has("x.mid"));       // pruned: unknown again
 }
 
+// A185: the failure reason is stored additively so the songs list can say
+// "memory" vs "corrupt". The bool-only setter defaults a failure to Corrupt
+// (pre-A185 behavior); the reason-aware setter records Memory.
+void test_fail_reason_defaults_and_records() {
+    SongParseCache c;
+    // Never seen: no reason.
+    TEST_ASSERT_TRUE(c.failReason("x.mid") == ParseFail::None);
+    // Good parse: reason None even though we set true.
+    c.set("ok.mid", 10, true);
+    TEST_ASSERT_TRUE(c.failReason("ok.mid") == ParseFail::None);
+    // Bool-only failure -> Corrupt (back-compat).
+    c.set("bad.mid", 20, false);
+    TEST_ASSERT_FALSE(c.get("bad.mid"));
+    TEST_ASSERT_TRUE(c.failReason("bad.mid") == ParseFail::Corrupt);
+    // Reason-aware failure -> Memory.
+    c.set("big.mid", 30, false, ParseFail::Memory);
+    TEST_ASSERT_FALSE(c.get("big.mid"));
+    TEST_ASSERT_TRUE(c.failReason("big.mid") == ParseFail::Memory);
+    // A parseOk=true always normalizes the reason to None, even if a stray
+    // ParseFail is passed.
+    c.set("good2.mid", 40, true, ParseFail::Memory);
+    TEST_ASSERT_TRUE(c.failReason("good2.mid") == ParseFail::None);
+}
+
 int main(int, char**) {
     UNITY_BEGIN();
     RUN_TEST(test_has_tracks_known_separately_from_good);
+    RUN_TEST(test_fail_reason_defaults_and_records);
     RUN_TEST(test_unseen_name_needs_recompute);
     RUN_TEST(test_get_returns_false_for_unseen_name);
     RUN_TEST(test_matching_size_after_set_does_not_need_recompute);

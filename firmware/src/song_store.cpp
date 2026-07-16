@@ -1,5 +1,6 @@
 #include "song_store.h"
 
+#include <Arduino.h>  // yield() — feed the task watchdog during a long parse
 #include <FS.h>
 #include <LittleFS.h>
 
@@ -9,6 +10,38 @@
 namespace vialucis {
 
 namespace {
+
+// Streaming MIDI source over a LittleFS file (A185): refills the parser's small
+// buffer directly from flash, so the whole song never sits in RAM. The refill
+// is also the on-device yield seam — a large streamed parse (two passes over
+// the file) runs on the async_tcp/HTTP task, and iron rule 1 keeps it off the
+// BLE→match→LED latency path; yield() here feeds the core-0 task watchdog every
+// few gulps so a big file can't starve it (the A183 failure mode), without
+// adding any per-note latency.
+class FileByteSource : public vialucis::ByteSource {
+public:
+    FileByteSource(fs::File file, size_t size)
+        : file_(std::move(file)), size_(size) {}
+    ~FileByteSource() override {
+        if (file_) file_.close();
+    }
+    size_t size() const override { return size_; }
+    size_t read(uint8_t* dst, size_t max) override {
+        size_t n = file_.read(dst, max);
+        if ((++refills_ & 0x0F) == 0) yield();  // every 16th gulp
+        return n;
+    }
+    void reset() override {
+        file_.seek(0);
+        refills_ = 0;
+    }
+
+private:
+    fs::File file_;
+    size_t size_;
+    unsigned refills_ = 0;
+};
+
 constexpr const char* kSettingsPath = "/settings.json";
 constexpr const char* kCalibrationPath = "/calibration.json";
 constexpr const char* kAfkPath = "/afk.json";
@@ -160,28 +193,22 @@ bool SongStore::remove(const std::string& name) {
     return LittleFS.remove(songPath(name).c_str());
 }
 
-bool SongStore::read(const std::string& name, std::vector<uint8_t>& out) {
-    if (!validName(name)) return false;
+std::unique_ptr<vialucis::ByteSource> SongStore::openSongSource(
+    const std::string& name) {
+    if (!validName(name)) return nullptr;
     File f = LittleFS.open(songPath(name).c_str(), "r");
-    if (!f) return false;
+    if (!f) return nullptr;  // missing file / open failed
     size_t len = f.size();
-    if (len > kMaxSongBytes) {
+    if (len > kMaxSongBytes) {  // storage cap — never a load/parse decision
         f.close();
-        return false;
+        return nullptr;
     }
-    // A180/A182: refuse a read whose read+PARSE the heap can't hold — every
-    // consumer of this read (songs-list parse-check, song load) parses next,
-    // and a failed mid-parse allocation aborts uncatchably on the async_tcp
-    // task (crash-looping GET /api/songs; proven live, decoded backtrace).
-    // See storage_budget.h::parseWorkFits — factor is bring-up-tunable.
-    if (!parseWorkFits(len, ESP.getMaxAllocHeap())) {
-        f.close();
-        return false;
-    }
-    out.resize(len);
-    size_t got = f.read(out.data(), len);
-    f.close();
-    return got == len;
+    // No heap guard here anymore: the file is streamed, not RAM-buffered, and
+    // the parser itself refuses (TooBigForMemory) if the PARSED output won't
+    // fit the caller's budget — the exact, honest check that replaces A182's
+    // factor-4 whole-file heuristic.
+    return std::unique_ptr<vialucis::ByteSource>(
+        new FileByteSource(std::move(f), len));
 }
 
 SongStore::RenameResult SongStore::rename(const std::string& from,

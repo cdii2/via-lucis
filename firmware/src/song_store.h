@@ -2,11 +2,13 @@
 // LittleFS persistence: songs under /songs/, settings at /settings.json.
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "vialucis/atomic_store.h"    // tmp+rename atomic-persist seam (B4)
 #include "vialucis/config_boot.h"     // DocLoad self-heal classification (B4)
+#include "vialucis/midi_parser.h"     // ByteSource (streaming parse seam, A185)
 #include "vialucis/settings.h"
 #include "vialucis/storage_budget.h"  // FsHealth + block/quota math
 
@@ -53,7 +55,17 @@ public:
     bool commitShowUpload(const std::string& name);  // rename tmp -> show
     void abortShowUpload(const std::string& name);    // discard the tmp
     bool remove(const std::string& name);
-    bool read(const std::string& name, std::vector<uint8_t>& out);
+
+    // Open a song for STREAMING parse (A185): returns a ByteSource that refills
+    // from the LittleFS file in small gulps, so the whole file never sits in
+    // RAM at once (the parse budget no longer carries a whole-file buffer). The
+    // returned source owns the open file handle — destroying it closes the
+    // file. nullptr on a bad name, a missing file, or a size over the storage
+    // cap. Replaces the old whole-file read() that both song load and the
+    // songs-list parse check used to call (that path RAM-buffered every file
+    // and A182-guarded it with a factor-4 heuristic).
+    std::unique_ptr<vialucis::ByteSource> openSongSource(
+        const std::string& name);
 
     // Rename a song (REC4: rename a recorded take, general-purpose). Typed so
     // the REST layer maps to 400 / 404 / 409. Both names are validated.

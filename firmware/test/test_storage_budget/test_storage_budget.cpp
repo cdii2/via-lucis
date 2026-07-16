@@ -91,41 +91,28 @@ void test_fs_health_field_is_ok_only_when_mounted() {
     TEST_ASSERT_EQUAL_STRING("error", fsHealthField(FsHealth::Wedged));
 }
 
-// A180: a whole-file read is refused, not attempted, when the largest
-// allocatable heap block can't hold the file plus working margin — the
-// live-device crash was a 105 KB song against ~80 KB of heap, aborting the
-// vector resize on the async_tcp task and crash-looping GET /api/songs.
-void test_whole_file_read_fits_guards_heap() {
-    // Plenty of heap: fits.
-    TEST_ASSERT_TRUE(wholeFileReadFits(100 * 1024, 200 * 1024));
-    // The live failure shape: 105 KB file, ~80 KB max alloc — refused.
-    TEST_ASSERT_FALSE(wholeFileReadFits(105 * 1024, 80 * 1024));
-    // Exactly at the boundary: file + margin == maxAlloc is allowed...
-    TEST_ASSERT_TRUE(
-        wholeFileReadFits(64 * 1024, 64 * 1024 + kReadHeapMarginBytes));
-    // ...one byte over is not.
-    TEST_ASSERT_FALSE(
-        wholeFileReadFits(64 * 1024 + 1, 64 * 1024 + kReadHeapMarginBytes));
-    // A tiny file always fits any sane heap.
-    TEST_ASSERT_TRUE(wholeFileReadFits(1524, 64 * 1024));
-}
-
-// A182: the parse-work guard budgets file + parsed-notes expansion, not just
-// the read — the live failure was the notes vector's growth aborting, with
-// the 105 KB file itself having fit the heap fine.
-void test_parse_work_fits_budgets_expansion() {
-    // The live failure shape: 105 KB file, ~110 KB max alloc — the READ
-    // fit (which is why A180 alone didn't save it) but the PARSE cannot.
-    TEST_ASSERT_TRUE(wholeFileReadFits(105 * 1024, 130 * 1024));
-    TEST_ASSERT_FALSE(parseWorkFits(105 * 1024, 130 * 1024));
-    // A typical practice MIDI (~20 KB) parses within a fresh-boot heap.
-    TEST_ASSERT_TRUE(parseWorkFits(20 * 1024, 110 * 1024));
-    // Boundary: factor*file + margin == maxAlloc passes; one byte over fails.
-    TEST_ASSERT_TRUE(parseWorkFits(
-        16 * 1024, 16 * 1024 * kParseExpansionFactor + kReadHeapMarginBytes));
-    TEST_ASSERT_FALSE(parseWorkFits(
-        16 * 1024 + 1,
-        16 * 1024 * kParseExpansionFactor + kReadHeapMarginBytes));
+// A185: the device derives the parser's note budget from the largest
+// allocatable heap block, minus the parser's fixed overhead (the ~18 KB
+// NoteTracker) and a working margin. The old whole-file read-fits / factor-4
+// parse-work guards are retired — the parser now measures its exact need and
+// refuses (TooBigForMemory) itself, so nothing here sizes the whole file.
+void test_parse_note_budget_subtracts_overhead_and_margin() {
+    // Typical fresh-boot heap: budget = maxAlloc - overhead - margin.
+    TEST_ASSERT_EQUAL_size_t(
+        100 * 1024 - 18 * 1024 - kParseHeapMarginBytes,
+        parseNoteBudget(100 * 1024, 18 * 1024));
+    // Custom margin honored.
+    TEST_ASSERT_EQUAL_size_t(50 * 1024 - 18 * 1024 - 4 * 1024,
+                             parseNoteBudget(50 * 1024, 18 * 1024, 4 * 1024));
+    // Heap too fragmented to even cover overhead+margin -> budget 0 (every
+    // non-empty song is then refused, never gambled on).
+    TEST_ASSERT_EQUAL_size_t(0, parseNoteBudget(20 * 1024, 18 * 1024));
+    TEST_ASSERT_EQUAL_size_t(0, parseNoteBudget(0, 18 * 1024));
+    // Exactly at the boundary (maxAlloc == overhead+margin) -> 0, one over -> 1.
+    TEST_ASSERT_EQUAL_size_t(
+        0, parseNoteBudget(18 * 1024 + kParseHeapMarginBytes, 18 * 1024));
+    TEST_ASSERT_EQUAL_size_t(
+        1, parseNoteBudget(18 * 1024 + kParseHeapMarginBytes + 1, 18 * 1024));
 }
 
 int main(int, char**) {
@@ -141,7 +128,6 @@ int main(int, char**) {
     RUN_TEST(test_show_count_cap);
     RUN_TEST(test_fs_health_classification);
     RUN_TEST(test_fs_health_field_is_ok_only_when_mounted);
-    RUN_TEST(test_whole_file_read_fits_guards_heap);
-    RUN_TEST(test_parse_work_fits_budgets_expansion);
+    RUN_TEST(test_parse_note_budget_subtracts_overhead_and_margin);
     return UNITY_END();
 }

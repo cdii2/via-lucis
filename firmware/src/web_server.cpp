@@ -299,6 +299,11 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
             // A183: omitted while unchecked (budgeted warm-up) — absent
             // means "not checked yet", never "bad".
             if (s.parseKnown) o["parseOk"] = s.parseOk;
+            // A185: when it IS known-bad, say WHY so the webui can distinguish a
+            // valid-but-too-big song ("memory") from a broken one ("corrupt").
+            if (s.parseKnown && !s.parseOk)
+                o["parseFail"] =
+                    s.parseFail == ParseFail::Memory ? "memory" : "corrupt";
         }
         std::string out;
         serializeJson(doc, out);
@@ -402,6 +407,14 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                            return;
                        case SongLoadOutcome::ParseError:
                            sendError(req, 400, "cannot load song");
+                           return;
+                       // A185: distinct from a parse error — the file is valid
+                       // but beyond this device's RAM ceiling to load. 413 (the
+                       // load payload is too large), a different status AND
+                       // message from the 256 KB upload cap and the 400 corrupt.
+                       case SongLoadOutcome::TooBig:
+                           sendError(req, 413,
+                                     "song too large to load (device memory)");
                            return;
                    }
                });

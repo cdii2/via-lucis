@@ -145,6 +145,11 @@ public:
         size_t size;
         bool parseOk;
         bool parseKnown;
+        // A185: when parseOk is false, WHY — Memory (too big for this device's
+        // RAM) vs Corrupt (unparseable). None when parseOk / unchecked. The
+        // route surfaces it as parseFail:"memory"|"corrupt" so the webui can
+        // tell the player a valid-but-large song apart from a broken one.
+        ParseFail parseFail;
     };
     // GET /api/songs annotated with parseOk — cached per (name,size) via
     // parseCache_ so a ~2x/s poll never re-parses every file; only a
@@ -154,6 +159,10 @@ public:
 
 private:
     void sendAll(const std::vector<MidiOutMsg>& msgs);
+    // A185: the streaming-parse memory budget for THIS moment — the largest
+    // allocatable heap block minus the parser's fixed overhead + margin. Read
+    // fresh each parse (heap fragmentation shifts with BLE/WiFi/TCP load).
+    size_t parseBudget();
     void touchWriteActivity();  // fenced callers only
     void stopShowLocked();      // shared show-teardown; caller holds lock_
     // Restore the transport + pre-show practice mode/hand the player had before

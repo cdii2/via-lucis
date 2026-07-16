@@ -3,6 +3,75 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A190 (2026-07-16, ParseMem, we): **FileByteSource yields (`yield()`) every
+  16th refill gulp, and the fill-pass NoteTracker is allocated ONCE per parse
+  and reused across all tracks** (was `make_unique` PER track). The refill is
+  the sole on-device yield seam (iron rule 1): a streamed parse runs the file
+  TWICE (count + fill), both on the async_tcp/HTTP task, so a big file could
+  otherwise starve the core-0 watchdog (the A183 failure mode) — yielding every
+  16 × 256 B ≈ 4 KB feeds it without touching the BLE→match→LED latency path.
+  Reusing one tracker is behavior-identical because `closeAll` resets every
+  `active[]` slot at end-of-track, so the next track starts clean; it also drops
+  the per-track 18 KB alloc/free churn. Reader gulp buffer = 256 B on the stack
+  (the 18 KB tracker is the only heap; A181 stack-overflow stays fixed).
+- A189 (2026-07-16, ParseMem, we): **the songs-list parse check runs
+  `checkMidi` (the COUNT pass only — no NoteTracker, no notes vector) and caches
+  a `ParseFail` reason (`Memory`/`Corrupt`) additively**, surfaced as
+  `parseFail:"memory"|"corrupt"` alongside `parseOk:false` (absent while
+  unknown / when ok). Cheaper than the old read+full-parse AND honest about WHY
+  a badge is bad. `SongParseCache` gained a reason-aware `set()` overload +
+  `failReason()`; the bool-only `set()` still defaults a failure to `Corrupt`
+  (pre-A185 behavior) so nothing else changed. WEBUI ASK in the report (tooltip
+  copy) — I do not touch webui/.
+- A188 (2026-07-16, ParseMem, we): **`SongLoadOutcome::TooBig` split out of
+  `ParseError`; the load route returns `413 {"error":"song too large to load
+  (device memory)"}`** — a status AND message distinct from the corrupt `400`
+  and the 256 KB upload `413`. Rationale: a VALID-but-large song must not be
+  mislabeled corrupt (the player would delete a good file); 413 = "this payload
+  is too large to load here", which it is. Documented in API.md with an explicit
+  **storage-cap ≠ load-cap** callout (`kMaxSongBytes` 256 KB is a DISK ceiling;
+  the load 413 is a RAM ceiling; the two are independent). `kMaxSongBytes`
+  unchanged (LOCKED item 6-6 spirit).
+- A187 (2026-07-16, ParseMem, we): **retired A180's `wholeFileReadFits` and
+  A182's factor-4 `parseWorkFits`, and removed `SongStore::read`** — all three
+  were the "buffer the whole file in RAM, then guess if the parse fits with a
+  fudge factor" model that streaming (A185) eliminates. What remains device-side
+  is `parseNoteBudget(maxAlloc, fixedOverhead, margin)` (storage_budget.h,
+  native-pinned): the honest budget = largest allocatable heap block −
+  `midiParseFixedOverhead()` (the ~18 KB NoteTracker) − 8 KB working margin,
+  clamped to 0. No cheap SIZE-only reject is kept because size alone cannot
+  PROVE a file too big (a large file can be mostly meta); the exact count pass
+  is the honest gate, and the only size gate that remains is the 256 KB storage
+  cap in `openSongSource`.
+- A186 (2026-07-16, ParseMem, we): **exact TWO-PASS budgeting — pass 1 COUNTS
+  events (note-ons == emitted notes, exactly), the exact output size is checked
+  against the budget BEFORE any large allocation, then pass 2 reserves each
+  vector once at its final size and fills.** This kills the vector-doubling
+  transient A182 fought (capacity == size, zero realloc), and makes the refusal
+  a clean typed `MidiParseError::TooBigForMemory` (song handed back EMPTY) — an
+  over-budget song is never gambled on an allocation that would abort on
+  -fno-exceptions. Trade documented: 2× file IO + 2× parse CPU vs the old single
+  pass, paid because parse is HTTP-task/on-demand (not the latency path), the
+  IO is streamed (no RAM), and the yield seam (A190) feeds the watchdog. Budget
+  defaults to `SIZE_MAX` so every native caller is unchanged. Chose a byte
+  budget over a note-count cap so the device math (`getMaxAllocHeap()` in bytes)
+  maps directly; `midiParseOutputBytes()` folds notes+tempo+pedal so a
+  pedal-heavy file can't slip the cap.
+- A185 (2026-07-16, ParseMem, we): **the MIDI parser now STREAMS its input
+  through a pure-virtual `ByteSource` (midi_parser.h), pulled forward through a
+  256 B refill buffer — the whole-file RAM buffer is gone from the parse
+  budget.** The parser only ever reads forward, so a small gulp buffer suffices;
+  `parseMidi(const uint8_t*, len, budget=SIZE_MAX)` keeps the buffer API for
+  native callers, and a new `parseMidi(ByteSource&, budget)` + `checkMidi(...)`
+  serve the device. Chose **virtual dispatch over templating** the parser on the
+  source type: dispatch is per-REFILL (once per 256 B), not per byte, so the
+  cost is negligible AND the parser instantiates ONCE (flash-thrifty on ESP32),
+  and it keeps lib/core pure C++ — the LittleFS file-handle source
+  (`FileByteSource`) lives behind the seam in firmware/src, the native fakes in
+  tests (iron rule 4). Device song load + list now call `store_.openSongSource`
+  (returns a `unique_ptr<ByteSource>` owning the file handle) instead of the
+  removed `read()`. The whole corpus is pinned byte-exact through a 1-/2-/3-/7-/
+  64-/512-byte chunk source (test_midi_stream) — the equivalence sweep.
 - A179 (2026-07-16, E3, we/editor): §3-E's editor items (min cue span,
   durationMs/clockSource, scope lo<=hi, speed clamp) live entirely in
   `editor/editor.html` (the off-device VLS show editor, docs/SHOW-FORMAT.md

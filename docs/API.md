@@ -88,16 +88,23 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   `GET /api/status`. `parseOk` (A164, §3-E item 12 — the queued Wave C ask)
   is `false` when the file's MIDI fails to parse (a corrupt/partial upload
   that still landed on the device) OR when the file is beyond what the
-  device's RAM can parse/load at all (A182 — such a song can't play on this
+  device's RAM can parse/load at all (such a song can't play on this
   hardware, so the badge is honest). `parseOk` may be **absent** on a song
   the device simply hasn't checked yet: checks are budgeted a few per list
   call (A183) so a cold cache can't stall the request — absent means
   "unknown, warming up", never "bad"; it fills in across subsequent list
-  fetches. The webui badges only an explicit `parseOk: false`, so a player isn't
-  left guessing why a song silently won't load. It's cheap: a per-boot,
-  in-RAM cache keyed by (name, size) means re-parsing only happens for a
-  song this call has never seen or whose byte size just changed (a
-  re-upload/overwrite) — NOT on every poll.
+  fetches. When `parseOk` is `false`, an additional **`parseFail`** field
+  (A185) says WHY: `"memory"` (the file is a valid MIDI but too large for
+  this device's RAM to load — keep it, it may load on a PSRAM board / roomier
+  boot) or `"corrupt"` (unparseable — a broken/partial upload). `parseFail`
+  is present only alongside `parseOk: false`; absent while unknown, and absent
+  when `parseOk: true`. The webui badges only an explicit `parseOk: false` and
+  can use `parseFail` for the tooltip, so a player isn't left guessing why a
+  song won't load. It's cheap: a per-boot, in-RAM cache keyed by (name, size)
+  means re-checking only happens for a song this call has never seen or whose
+  byte size just changed (a re-upload/overwrite) — NOT on every poll. The
+  check STREAMS the file off flash (A185, one count pass, no whole-file RAM
+  buffer, no note allocation), so even a large song is checked without risk.
 - `POST /api/songs` — raw body upload, `?name=<filename>.mid` query param.
   → `201 {"name": "..."}`. Rejects non-`.mid` names and files > 256 KB.
   Errors are deferred to the end of the transfer and returned as JSON (never a
@@ -113,11 +120,29 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   `409 {"error": "song is loaded"}` if it's the currently-loaded song
   (`POST /api/songs/unload` it first — otherwise status/practice would keep
   reporting a "loaded" song the list no longer has).
-- `POST /api/songs/{name}/load` → `200` + status JSON. Parses the file,
-  resets transport to 0, state `idle`. Typed failures (A154, §3-E item 2 —
-  these used to collapse into one generic 400): `404 {"error": "no such
-  song"}` when the name isn't on the device, `400 {"error": "cannot load
-  song"}` only when the file exists but its MIDI fails to parse.
+- `POST /api/songs/{name}/load` → `200` + status JSON. STREAMS the file off
+  flash and parses it (A185 — no whole-file RAM buffer), resets transport to 0,
+  state `idle`. Typed failures (A154, §3-E item 2 + A185 — these used to
+  collapse into one generic 400):
+  - `404 {"error": "no such song"}` — the name isn't on the device.
+  - `400 {"error": "cannot load song"}` — the file exists but its MIDI is
+    corrupt/unparseable.
+  - `413 {"error": "song too large to load (device memory)"}` — the file is a
+    VALID MIDI but its parsed note/tempo/pedal data would exceed this device's
+    free RAM (A185). Distinct from the corrupt `400` and from the upload
+    `413` below: **the song is fine and stays on the device** — it simply can't
+    be held in memory on this heap right now. It may load after a reboot (less
+    fragmentation), with fewer background radios active, or on a PSRAM board.
+    This is the honest surface for the DESIGN's out-of-scope big-single-file
+    RAM-ceiling case (DESIGN-library.md §1), not a bug.
+
+  > **Storage cap ≠ load cap.** `kMaxSongBytes` (256 KB, the upload/storage
+  > ceiling — see below) is about DISK: the largest file that may be *stored*.
+  > The load `413` above is about RAM: whether the *parsed* song fits the heap
+  > at load time. A song can sit happily in flash (≤ 256 KB) yet be too big to
+  > load into RAM on a stock ESP32 — the two limits are independent, and a song
+  > between them lists with `parseOk:false, parseFail:"memory"` rather than
+  > being refused at upload.
 - `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →
   `200 {"name": "new-name.mid"}`. `400` bad/non-`.mid` name, `404` missing
   source, `409 {"error": "exists"}` if the target name is taken. (Used to
