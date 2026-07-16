@@ -926,7 +926,52 @@ capture-timing upgrade (hardware-gated).
     status fields at merge. A-collisions renumbered → **A121–A138**. Gate on
     merged tree: **native 494/494**, esp32 SUCCESS (RAM 22.8%, Flash 73.7% of
     the new 2 MB slot), songs/local clean.
-  - Device recovery (reflash w/ new table → format → bulk re-upload → §5 REST
-    checklist) = Needs Christian (USB re-seat first). Remaining waves: C
-    (webui flows + wifiPass), L2 (T5/T6 library Phase-1 finish), D (wizard
-    rebuild), E (polish). Library Phase 2 (T7/T8 sync agent) HELD.
+  - **WAVE C (landed @ 0b2d78a):** wifiPass leak CLOSED per ruling §6-1 —
+    `Settings::toJson(View::Persist|Public)` split, GET/PUT/Export emit
+    `wifiPassSet` not the secret, key-level leak-regression pin; explicit
+    `"wifiPass":""` clears; webui C1 (practice reconcile off live status,
+    controls disabled w/o song, loop staging survives the 500 ms poll,
+    unified revert-on-error slider policy), C2 (parseOk badge
+    feature-detected, unload-then-delete on 409, list error+Retry), C3
+    (clamps aligned to firmware bounds incl. the real recordBudgetKB
+    1024→256 UI bug, collision toast both ways, NaN guard, wifi-chip guard,
+    brightness subtext), C4 (write-only password UI, touched-flag gating,
+    confirm-gated Clear button — a naive blank-field save would have wiped
+    the stored password). A139–A148. Native 498.
+  - **WAVE L2 (landed @ f28f24c) = library Phase 1 COMPLETE:** T5 hardened
+    whole-file upload (3 attempts + backoff matching bulk_upload.py,
+    verify-after-write by re-GET) + API.md "Upload contract"; T6 bulk-manage
+    on the Songs screen (multi-select upload/delete, capacity bar off live
+    fsTotal/fsFree, client margin guard mirroring storage_budget.h
+    byte-for-byte); mock_device.py made honest (its own R1-style
+    query-string route bug meant every mock upload 404'd; real DELETE
+    handler; fs telemetry; deterministic fail hook). A149–A153.
+  - **WAVE D (landed @ 85b39e4):** calibration wizard rebuilt to §3-D —
+    centered number IS the lit LED, full-width slider + ±1 arrows, 220 ms
+    debounced re-arm (4 drag ticks → 1 POST, proven), lowest/highest capture
+    → `{tier:"multiPoint", landmarks:[2]}` (§6-5; reversed inferred from
+    landmark order, Done-screen toggle mirrors the whole strip), one shared
+    persistent error panel + Retry (timedOut / 409 recording / 409 playing /
+    network), clamp-at-strip-end, verify+fine-tune adopt the same readout,
+    decorative dot deleted. A166–A169 (compacted).
+  - **WAVE E (landed @ 85b39e4 + editor merge):** E1 polish — API.md Shows
+    section, 404 load-nonexistent (`song_load.h` typed outcome), palette
+    reset on paletteRef==0xFF (`Effect::resetPalette()`), effect buffer
+    guards, order-independent unison blend, `mode` omitted w/o song,
+    per-boot `SongParseCache` → `parseOk` in GET /api/songs, CORS reboot,
+    formatVersion from Show::kVersionMajor; 405-for-wrong-method SKIPPED
+    (would reopen the R1 routing surface). A154–A165 (compacted). E2 BLE —
+    scan backoff (2s→60s exp, bring-up-tunable), optional `bleTargetName`
+    filter (accept-any default, boot-applied like wifiSsid), atomic
+    gConnected, FIX-C comments at both echo-credit sites (mechanism stays
+    deferred §7), hex-color strictness (sscanf %2x max-width looseness →
+    exact #+6), Active Sensing verified-unreachable. A170–A175. E3 editor —
+    `validateShow` gate on Compile+Upload (min cue span 50 ms, scope lo≤hi,
+    NaN-proof speed clamp — NaN slipped Math.max/min and encoded wire byte
+    0), dead durationMs/clockSource device-row fields dropped, count-in
+    micro-copy in webui. A176–A179. Native 519.
+  - **PIPELINE STOPPED here by design: library Phase 2 (T7 watched-folder
+    semantics, T8 sync agent) NOT built — HELD pending Christian living
+    with Phase 1.**
+  - Device recovery (reflash w/ new table → erase → format → bulk re-upload
+    → §5 REST checklist) = Needs Christian (USB re-seat first).
