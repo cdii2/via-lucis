@@ -3,6 +3,20 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A175 (2026-07-16, E2, we/ble): hex-color strictness (§3-E item 7) applied
+  to `settings.cpp`'s `hexToColor` — design by E1 (ASSUMPTIONS A165 on
+  we/polish), handed over and applied here because `settings.cpp`/
+  `test_settings` are E2-owned this wave. Replaced
+  `sscanf(s+1, "%2x%2x%2x", ...)` (whose `%2x` is a per-conversion MAXIMUM
+  width, not a fixed count — "#12345" and "#0000000000" both slipped through
+  as "valid") with manual digit-by-digit validation requiring EXACTLY `#` +
+  6 hex digits, case-insensitive, nothing more or fewer. `readColor()`
+  already left a field at its previous value on a `hexToColor` rejection —
+  unchanged, so the PATCH-leaves-existing-value behavior came for free.
+  Added `test_malformed_hex_strings_are_rejected` (8 bad bodies: short,
+  long, way-too-long, missing `#`, non-hex letters, embedded space, empty,
+  bare `#`; plus a good-value control and a lowercase-hex control). Native
+  503 (was 502).
 - A174 (2026-07-16, E2, we/ble): Active Sensing (0xFE) → onActivity verified
   NOT a bug (BUGFIX-PLAN §3-E item 5) — pinned with a comment only, not a
   native test: `firmware/src/ble_midi_io.cpp` wires `noteActivity()` from

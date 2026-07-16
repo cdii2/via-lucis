@@ -83,6 +83,51 @@ static void test_color_hex_strings() {
     TEST_ASSERT_TRUE(s.toJson().find("#FF8000") != std::string::npos);
 }
 
+// §3-E item 7 (hex-color-strictness, ASSUMPTIONS A165/A175): a malformed hex
+// body must be REJECTED, not silently zeroed or truncated-and-accepted. The
+// old sscanf("%2x%2x%2x") used %2x as a per-conversion MAXIMUM, not a fixed
+// count — "#12345" (5 digits) and "#0000000000" (10 digits) both slipped
+// through with a wrong-but-"valid" color. Every bad body here must leave the
+// field at its PREVIOUS value; a good value (control) must still apply.
+static void test_malformed_hex_strings_are_rejected() {
+    const Rgb kMarker{1, 2, 3};  // distinctive "unchanged" sentinel
+
+    const char* kBad[] = {
+        "#12345",            // 5 digits: too short (the exact %2x escape)
+        "#1234567",           // 7 digits: too long
+        "#0000000000",       // way too long (the exact %2x escape)
+        "123456",             // missing '#'
+        "#GGGGGG",            // non-hex letters
+        "#12 456",            // embedded space (non-hex char mid-string)
+        "",                   // empty string
+        "#",                  // '#' alone, nothing after
+    };
+    for (const char* bad : kBad) {
+        Settings out;
+        out.leftColor = kMarker;
+        std::string body = std::string("{\"leftColor\":\"") + bad + "\"}";
+        TEST_ASSERT_TRUE_MESSAGE(Settings::fromJson(body.c_str(), out), bad);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(kMarker.r, out.leftColor.r, bad);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(kMarker.g, out.leftColor.g, bad);
+        TEST_ASSERT_EQUAL_UINT8_MESSAGE(kMarker.b, out.leftColor.b, bad);
+    }
+
+    // Control: a well-formed 6-digit value still applies normally.
+    Settings good;
+    good.leftColor = kMarker;
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"leftColor\":\"#AABBCC\"}", good));
+    TEST_ASSERT_EQUAL_UINT8(0xAA, good.leftColor.r);
+    TEST_ASSERT_EQUAL_UINT8(0xBB, good.leftColor.g);
+    TEST_ASSERT_EQUAL_UINT8(0xCC, good.leftColor.b);
+
+    // Lowercase hex digits are accepted (case-insensitive).
+    Settings lower;
+    TEST_ASSERT_TRUE(
+        Settings::fromJson("{\"leftColor\":\"#aabbcc\"}", lower));
+    TEST_ASSERT_EQUAL_UINT8(0xAA, lower.leftColor.r);
+}
+
 // R7 (in lieu of a field table — see ASSUMPTIONS A31): the field names ARE
 // the REST contract (docs/API.md, webui data-key attrs). This locks the key
 // set byte-exactly, so a rename breaks a native test instead of silently
@@ -372,6 +417,7 @@ int main(int, char**) {
     RUN_TEST(test_garbage_json_rejected);
     RUN_TEST(test_values_clamped_to_sane_ranges);
     RUN_TEST(test_color_hex_strings);
+    RUN_TEST(test_malformed_hex_strings_are_rejected);
     RUN_TEST(test_to_json_emits_exactly_the_contract_field_names);
     RUN_TEST(test_ble_target_name_default_empty_and_rides_both_views);
     RUN_TEST(test_ble_target_name_round_trips);
