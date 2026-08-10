@@ -5,6 +5,11 @@ press, waits until you get it right, and can even play the piano for you.
 
 *Via Lucis* — "the Way of Light."
 
+> ⚠️ **On hold, and not yet usable.** The hardware is built and the firmware runs on it,
+> but a latency problem on the key-press → light path currently makes practice mode
+> unusable, and the project is paused while I work on other things. Please read
+> [Status](#status--read-this-first) before building one.
+
 Prefer the plain-English version? Read [docs/EXPLAINER.md](docs/EXPLAINER.md).
 
 ## What it does
@@ -61,13 +66,90 @@ controls all respond; wait mode holds a pending chord so you can see the
 engine itself is covered by the native test suite (see
 [docs/SIMULATOR.md](docs/SIMULATOR.md)).
 
-## Status
+## Status — read this first
 
-**Pre-hardware, code-complete for v1–v3.** Design is locked ([docs/SPEC.md](docs/SPEC.md)),
-parts are ordered. v1 (core engine), v2 (lightshow/aesthetics), v3 (on-device recording +
-editor note-editing), and score-follow are all built against the simulator — 374 native
-tests, plus golden `.vls` and MIDI conformance corpora (`corpus/`) pinning the show-format
-and SMF parsers across firmware/editor/tools. Remaining work is hardware bring-up.
+**The MVP does not work well enough to use, and the project is on hold.** The firmware is
+code-complete for v1–v3 and heavily tested off-device, the board is wired and flashed, and
+the piano pairs and drives the strip — but the lights lag the keys badly enough that wait
+mode, which is the entire point of the product, is not practiceable. I'm working on other
+projects for now, so this is paused rather than actively developed. Everything below is an
+honest account of where that leaves it. Nothing here is a finished product recommendation.
+
+### The main problem: latency
+
+An ESP32 has **one radio** shared between BLE (the piano link) and WiFi (the phone
+remote). With both up, the key-press → light path picks up a delay you can feel, and HTTP
+requests to the web UI can stall for seconds. Two known contributors have already been
+fixed during bring-up — WiFi modem power-save under BLE coexistence
+([A184](ASSUMPTIONS.md)) and AsyncTCP landing on the same core as the radio work
+([A194](ASSUMPTIONS.md)) — and neither closed the gap. The remaining suspects are BLE
+connection-interval tuning and plain radio contention between the two stacks. **This is
+unresolved and it is the reason the build is not usable yet.**
+
+The uncomfortable version: the latency path was named as the product in this repo's own
+rules from day one, and it is the one thing that was never measured until hardware
+existed. The engine can be correct in every test and the instrument still be unplayable.
+
+### What works on real hardware
+
+- Flash, boot, and recovery — including the AP-mode config page when WiFi or the
+  filesystem is unhappy
+- WiFi join, and the web UI served from the ESP32's own flash (no app, no PC at the piano)
+- Song storage on LittleFS — 47 MIDI files uploaded and listed, fills to a clean
+  "no space" refusal instead of wedging
+- Settings, calibration, and AFK config surviving reboots; the WiFi password is stored
+  but never handed back out over the API
+- BLE-MIDI pairing with the reference piano (Roland FP-30X), stable under sustained use
+- Streaming MIDI parse on-device — song load measured at ~363 ms, calibration probe arm
+  at ~1.2 s
+- The LED strip lights, and follows the loaded song — just not with usable timing
+
+### What is not usable
+
+- **Wait-mode practice** — works mechanically, unusable in feel because of the latency
+  above
+- **Web UI responsiveness while the piano is connected** — multi-second stalls under
+  BLE+WiFi coexistence
+
+### What has not been exercised on hardware at all
+
+Built and tested against the simulator, but never confirmed on the physical device:
+
+- On-device recording (v3)
+- Lightshow / ambient `.vls` playback
+- Demo and accompaniment modes (the ESP32 playing the piano back)
+- Score-follow
+
+Treat these as unverified, not as working.
+
+### Off-device, the software is in good shape
+
+That is the part worth keeping. **530 native tests** pass against a pure-C++ core with no
+Arduino headers in it, plus golden `.vls` and MIDI conformance corpora (`corpus/`) pinning
+the show-format and SMF parsers byte-exact across firmware, editor, and tools. Design is
+locked in [docs/SPEC.md](docs/SPEC.md). The simulator-first approach is what made the
+hardware crash cascade diagnosable in hours rather than weeks — it just could not tell us
+anything about radio timing, which is precisely where the project is now stuck.
+
+### The build, as it actually looks
+
+Not a rendering. This is the assembled board:
+
+![Via Lucis breadboard — ESP32, 74AHCT125 level shifter and bulk capacitor](docs/images/breadboard-as-built.jpg)
+
+![Wiring overview — fused 5V feeds, WAGO lever nuts, barrel jacks](docs/images/wiring-as-built.jpg)
+
+The schematic version of the same wiring is in
+[docs/BREADBOARD-GUIDE.md](docs/BREADBOARD-GUIDE.md); the parts list is
+[docs/BOM.md](docs/BOM.md).
+
+### If you want to pick this up
+
+It's MIT — go ahead. The design docs, the bring-up log, and every autonomous decision made
+along the way are all in the repo ([docs/SPEC.md](docs/SPEC.md),
+[docs/BRINGUP.md](docs/BRINGUP.md), [ASSUMPTIONS.md](ASSUMPTIONS.md),
+[PROGRESS.md](PROGRESS.md)), including the failures. The latency work starts at A184/A194
+in `ASSUMPTIONS.md`. Issues and findings are welcome even while this is paused.
 
 ## License
 
