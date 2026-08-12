@@ -1,0 +1,41 @@
+flowchart LR
+    POS(["(+) 5V rail"])
+    NEG(["(–) GND rail"])
+
+    subgraph ESP32
+        VIN[VIN / 5V]
+        EGND[GND]
+        G16["G16 / RX2 — data out 3.3V"]
+    end
+
+    subgraph AHCT["74AHCT125 level shifter"]
+        P14[pin14 VCC]
+        P7[pin7 GND]
+        P1["pin1 1OE — enable"]
+        P2["pin2 1A — data in"]
+        P3["pin3 1Y — data out 5V"]
+    end
+
+    subgraph CAP["1000uF cap"]
+        CPOS["+ long leg"]
+        CNEG["- stripe/short leg"]
+    end
+
+    DIN(["LED strip DIN — connect later, section 4 row 22"])
+
+    VIN  -->|Step4 red| POS
+    P14  -->|Step1 red| POS
+    CPOS -->|Step9 red| POS
+
+    EGND -->|Step5 black| NEG
+    P7   -->|Step2 black| NEG
+    P1   -->|Step3 black| NEG
+    CNEG -->|Step8 black| NEG
+
+    G16 -->|"Step6 green (3.3V)"| P2
+    P2  -. chip boosts inside .-> P3
+    P3  -->|"Step7 green (5V)"| DIN
+
+    linkStyle 0,1,2 stroke:#e03131,stroke-width:2px
+    linkStyle 3,4,5 stroke:#1971c2,stroke-width:2px
+    linkStyle 6,9 stroke:#2f9e44,stroke-width:2px
