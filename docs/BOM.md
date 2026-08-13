@@ -1,6 +1,12 @@
-# Via Lucis — Bill of Materials (v2, ordered 2026-07-06)
+# Via Lucis — Bill of Materials (v2, ordered 2026-07-06; built 2026-07-16)
 
-All links verified live on 2026-07-06. Total ≈ **$121**. No soldering required.
+All links verified live on 2026-07-06. Base total ≈ **$121**; with the v2.1 protection
+add-on below, ≈ **$180**. No soldering required.
+
+**Built, then paused.** These parts arrived and the board was assembled and flashed
+2026-07-16 ([as-built photos](../README.md#the-build-as-it-actually-looks)); the project
+is [on hold](../README.md#status--read-this-first) over key-press → light latency. This is
+the list that was actually bought and wired, not a buy-one-now recommendation.
 
 | # | Part | Link | Price | Notes |
 |---|------|------|-------|-------|

@@ -1,7 +1,15 @@
 # Via Lucis — PROGRESS
 
-Mission: **everything decision-free and simulator-tested before the parts arrive.**
-Assembly day = wire → flash → pair → practice, no AI assumed present.
+Original mission: **everything decision-free and simulator-tested before the parts arrive.**
+Assembly day = wire → flash → pair → practice, no AI assumed present. *(That mission closed
+2026-07-16 — the parts arrived, the board was assembled, and the firmware was flashed and
+debugged on it.)*
+
+**Current status is in `README.md`, not here.** Short version: hardware built, firmware runs
+on it, **project on hold** — key-press → light latency makes wait mode unpracticeable, and
+that is unresolved. This file's iteration log stops at the 2026-07-16 device recovery; the
+bring-up findings after it (A184, A191–A194 — including the AsyncTCP core-pin root cause)
+live in `ASSUMPTIONS.md`, `firmware/platformio.ini`, and the README.
 
 ## RESUME RECIPE (cold start)
 
@@ -566,14 +574,18 @@ capture-timing upgrade (hardware-gated).
   The shared gate (§"Shared gates", OV2) fails any build over **70% flash**, "adjustable
   only by explicit A-entry." Head builds at **74.6% (1,565,249 / 2,097,152 B)** — so by
   the written rule the gate is FAILING today. RAM is fine at 22.8% (budget ≤35%).
-  *Why it drifted:* the 70% figure was set against the **old 1.31 MB app slot**, when v1
-  closed at 45.7% and every recorded build since topped out at 48.7%. T3 (DESIGN-library.md
-  A1) then swapped in the custom table — **2 MB app + ~1.9 MB LittleFS** — and the unified
-  pipeline landed ~1.57 MB of binary. Against the *old* slot that same binary is 119% and
-  would not link at all. **No A-entry ever reconciled the threshold with the new table.**
+  *Why it drifted — the denominator shrank, the binary did not blow up.* The 70% figure was
+  set when the app slot was **3 MB** (`huge_app.csv`, adopted A16 2026-07-07 — the 1.31 MB
+  PlatformIO default was rejected that same day). v1 closed at 45.7% of that 3 MB slot and
+  every recorded build since topped out at 48.7%. T3 (DESIGN-library.md A1) then swapped in
+  the custom table — **2 MB app + 1.875 MB LittleFS** — deliberately trading 1 MB of app
+  space for song storage. Same ~1.57 MB binary, new denominator: **49.8% → 74.6%**. Nobody
+  re-derived the percentage. **No A-entry ever reconciled the threshold with the new table.**
   - **YES** → new A-entry restating the ceiling against the 2 MB slot (current headroom
     is ~520 KB), and the gate line in §"Shared gates" updated to match. Treats this as
-    stale-doc drift.
+    stale-doc drift. *Note in favor:* `partitions.csv:8-10` shows T3 already priced this —
+    "current firmware uses ~1.54 MB … 2 MB leaves ~23% headroom" — i.e. ~77% occupancy was
+    consciously accepted when the table was designed, against a 70% gate nobody revisited.
   - **NO** → 74.6% stands as a real regression; binary size gets clawed back under the
     existing 70% (≈1.47 MB) before the next merge.
   *Verified 2026-08-12 at `d1f6a6d`:* clean from-scratch `pio run -e esp32dev` SUCCESS,

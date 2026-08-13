@@ -19,6 +19,10 @@ Thumbs.db
 # Local scratch
 *.local.*
 
+# Gate logs — the documented ritual (docs/SIMULATOR.md "don't trust the exit code")
+# tees `pio test` output to a log file, so running the gate drops one in the tree.
+*.log
+
 # Downloaded MIDIs (copyright-unclear) — NEVER commit; see PROGRESS.md
 songs/local/
 .gstack/

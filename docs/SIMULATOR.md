@@ -113,6 +113,15 @@ firmware/test/
   test_record_mode/        v3 REC3: ModeDirector Record top-mode + play-along overlay
   test_record_take/        v3 REC4: take persistence/rename/budget
   test_midi_corpus/        arch C2: golden MIDI corpus (corpus/midi/README.md), raw-index + firmwareHands
+  test_decide_d/           FIX-D: A98/A99 pins (gate-only chord epsilon, timeline/demo never merged)
+  test_storage_budget/     pipeline A: upload block reserve, show quota net-delta, FsHealth, parse budget
+  test_atomic_store/       pipeline B4: stage-to-.tmp + rename; any failure leaves the old file intact
+  test_config_schema/      pipeline B4: "schema":1 stamp/read, absent tolerated, newer-schema rejected
+  test_config_boot/        pipeline B4: boot self-heal (absent = silent defaults, bad = resave + configReset)
+  test_calibration_probe/  pipeline B6d: probe state machine — arm/capture/cancel + sticky timedOut
+  test_midi_stream/        A185: streaming parse == in-RAM parse across chunk sizes, exact note budget
+  test_song_load/          pipeline E1: load outcome split (NotFound vs ParseError vs TooBig)
+  test_song_parse_cache/   pipeline E1: per-boot parseOk cache keyed by (name, size), prune on delete
 ```
 
 This list grows with every wave — if you add a suite, add its row here too (or at least confirm this doc still names every directory under `firmware/test/test_*`).
