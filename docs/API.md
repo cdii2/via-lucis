@@ -145,8 +145,10 @@ Errors: non-2xx with `{"error": "<human message>"}`.
   > being refused at upload.
 - `POST /api/songs/{name}/rename` body `{"name": "new-name.mid"}` →
   `200 {"name": "new-name.mid"}`. `400` bad/non-`.mid` name, `404` missing
-  source, `409 {"error": "exists"}` if the target name is taken. (Used to
-  rename a recorded take; general-purpose for any song.)
+  source, `409 {"error": "exists"}` if the target name is taken, or
+  `409 {"error": "song is loaded"}` if `{name}` is the currently-loaded song
+  (same ghost-state guard as DELETE — unload first). (Used to rename a
+  recorded take; general-purpose for any song.)
 
 ### Upload contract (T5/T6, DESIGN-library.md §4, L2)
 

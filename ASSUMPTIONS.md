@@ -3,6 +3,25 @@
 Autonomous decisions made without asking, one per line, newest on top. Format:
 `A<n> (date, iter): decision — rationale.`
 
+- A195 (2026-08-13, ultrareview nits, we): **applied all three nit findings
+  from the scoped cloud ultrareview of `firmware/src/` (audit-glue →
+  audit-base) without asking** — none touches the note path, none changes
+  behavior a client depends on. (1) Rename route gained the same D2
+  loaded-song 409 guard DELETE already had (renaming the loaded song left
+  `loadedName_`/status pointing at a vanished name, and the DELETE guard then
+  waved the NEW name through); `docs/API.md` rename contract updated in the
+  same change (rule 10). (2) `/api/reboot` now stores `requestedAtMs` BEFORE
+  `pending` — the old order let a reader that caught the gap compute elapsed
+  against the boot-default 0 and skip the B7 200 ms grace. Unreachable under
+  today's same-core priorities (async_tcp prio 3 vs loopTask 1, both core 1),
+  but rule-1 latency work may well move tasks across cores, so the safety no
+  longer rests on scheduling. (3) Show-upload first-chunk precheck collapsed
+  from three full `/shows` directory walks (`showSize` + `listShows().size()`
+  + `showTotalBytes`) to ONE `listShows()` pass on the async_tcp task;
+  `nameExists` now derives from the listing match instead of `showExists()`'s
+  stat — equivalent, since `/shows` only ever holds names `openShowUpload`
+  validated. Gate: 530/530 native + rule-12 grep clean, `pio run -e esp32dev`
+  SUCCESS (the edited glue is esp32-only; native never compiles it, rule 13).
 - A190 (2026-07-16, ParseMem, we): **FileByteSource yields (`yield()`) every
   16th refill gulp, and the fill-pass NoteTracker is allocated ONCE per parse
   and reused across all tracks** (was `make_unique` PER track). The refill is

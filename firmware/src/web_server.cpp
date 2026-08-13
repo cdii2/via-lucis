@@ -424,6 +424,16 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                [&app](AsyncWebServerRequest* req, JsonDocument& doc) {
                    std::string from = req->pathArg(0).c_str();
                    std::string to = doc["name"] | "";
+                   // Same D2 ghost-state guard as DELETE below: renaming the
+                   // loaded song would leave loadedName_/status pointing at a
+                   // name the list no longer has — and the DELETE guard would
+                   // then wave the NEW name through while the engine still
+                   // holds its data.
+                   std::string loaded = app.loadedSongName();
+                   if (!loaded.empty() && loaded == from) {
+                       sendError(req, 409, "song is loaded");
+                       return;
+                   }
                    switch (app.store().rename(from, to)) {
                        case SongStore::RenameResult::Ok: {
                            JsonDocument out;
@@ -628,11 +638,23 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
                 // Net-delta quota (A2): overwriting a same-name show frees its
                 // old bytes, so an edit -> re-save no longer double-counts
                 // itself and blocks the whole loop at the cap.
-                size_t existing = app.store().showSize(in.name);
-                bool nameExists = app.store().showExists(in.name);
-                if (!showCountOk(app.store().listShows().size(), nameExists,
+                // One listShows() walk serves count, total bytes, and the
+                // same-name size — showSize()/showTotalBytes() each rewalk
+                // /shows, and this runs on the async_tcp task.
+                std::vector<SongFileInfo> shows = app.store().listShows();
+                size_t existing = 0;
+                bool nameExists = false;
+                size_t totalBytes = 0;
+                for (const SongFileInfo& s : shows) {
+                    totalBytes += s.size;
+                    if (s.name == in.name) {
+                        existing = s.size;
+                        nameExists = true;
+                    }
+                }
+                if (!showCountOk(shows.size(), nameExists,
                                  SongStore::kMaxShowCount) ||
-                    !showQuotaFits(app.store().showTotalBytes(), existing, total,
+                    !showQuotaFits(totalBytes, existing, total,
                                    SongStore::kMaxShowTotalBytes)) {
                     intakeDefer(in, 507, "show storage full");
                     return;
@@ -905,8 +927,13 @@ void WebServerLayer::begin(App& app, WifiManager& wifi) {
         // from file:// (Origin: null) or a LAN page would see the reboot
         // succeed device-side but report a failure client-side.
         sendJson(req, 200, "{}");
-        RebootRequest::pending.store(true);
+        // Timestamp BEFORE flag: a reader that observes pending==true must
+        // also observe a fresh requestedAtMs, or elapsed computes against the
+        // boot-default 0 and the 200 ms grace collapses to an instant restart.
+        // Unreachable under today's same-core priorities, but the safety must
+        // not rest on scheduling.
         RebootRequest::requestedAtMs.store(millis());
+        RebootRequest::pending.store(true);
     });
 
     gServer.onNotFound([](AsyncWebServerRequest* req) {
